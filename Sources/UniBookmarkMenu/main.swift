@@ -1,4 +1,5 @@
 import AppKit
+import CoreSpotlight
 import CryptoKit
 import Foundation
 import Observation
@@ -10,9 +11,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = BookmarkStore()
     private let usageStore = UsageStore()
+    private lazy var spotlightIndexer = SpotlightIndexer(rootDirectory: store.rootDirectory)
     private var bookmarkWatcher: BookmarkFileWatcher?
     private var rebuildDebounce: DispatchWorkItem?
-    private lazy var bookmarksModel = BookmarksModel(store: store, usageStore: usageStore)
+    private lazy var bookmarksModel = BookmarksModel(
+        store: store,
+        usageStore: usageStore,
+        spotlightIndexer: spotlightIndexer
+    )
     private lazy var managerWindow = BookmarkManagerWindowController(model: bookmarksModel, faviconLoader: faviconLoader)
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
@@ -104,10 +110,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             emptyItem.isEnabled = false
             menu.addItem(emptyItem)
         } else {
+            let pinned = bookmarksModel.pinned
             let frequent = bookmarksModel.frequent
             let recent = bookmarksModel.recent
-            let all = bookmarksModel.bookmarks
+            let all = bookmarksModel.bookmarks.filter { !$0.pinned }
 
+            if !pinned.isEmpty {
+                appendSection(title: "置顶", bookmarks: pinned, to: menu)
+            }
             if !frequent.isEmpty {
                 appendSection(title: "常用", bookmarks: frequent, to: menu)
             }
@@ -120,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Only suppress when there's literally nothing left to add.
             let surfacedIds = Set(frequent.map(\.id)).union(recent.map(\.id))
             let hasMore = all.contains { !surfacedIds.contains($0.id) }
-            if hasMore || (frequent.isEmpty && recent.isEmpty) {
+            if hasMore || (pinned.isEmpty && frequent.isEmpty && recent.isEmpty) {
                 appendSection(title: "全部", bookmarks: all, to: menu)
             }
         }
@@ -201,6 +211,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    func application(
+        _ application: NSApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([NSUserActivityRestoring]) -> Void
+    ) -> Bool {
+        guard
+            userActivity.activityType == CSSearchableItemActionType,
+            let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+            let id = spotlightIndexer.bookmarkID(for: identifier)
+        else {
+            return false
+        }
+
+        bookmarksModel.reload()
+        guard let bookmark = bookmarksModel.bookmarks.first(where: { $0.id == id }) else {
+            return false
+        }
+        if let url = URL(string: bookmark.url) {
+            NSWorkspace.shared.open(url)
+        }
+        restorationHandler([])
+        NSApp.setActivationPolicy(.accessory)
+        return true
+    }
+
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        false
     }
 }
 

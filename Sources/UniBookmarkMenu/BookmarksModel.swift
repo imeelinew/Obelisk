@@ -7,6 +7,8 @@ import UniBookmarkCore
 @Observable
 final class BookmarksModel {
     private(set) var bookmarks: [Bookmark] = []
+    /// User-pinned bookmarks, sorted by title.
+    private(set) var pinned: [Bookmark] = []
     /// Top-N most frecent bookmarks (≥3 clicks, decayed).
     private(set) var frequent: [Bookmark] = []
     /// Top-N by createdAt, excluding any already in `frequent`.
@@ -26,11 +28,18 @@ final class BookmarksModel {
 
     private let store: BookmarkStore
     private let usageStore: UsageStore
+    private let spotlightIndexer: SpotlightIndexer?
     private let groupSize: Int
 
-    init(store: BookmarkStore, usageStore: UsageStore, groupSize: Int = 5) {
+    init(
+        store: BookmarkStore,
+        usageStore: UsageStore,
+        spotlightIndexer: SpotlightIndexer? = nil,
+        groupSize: Int = 5
+    ) {
         self.store = store
         self.usageStore = usageStore
+        self.spotlightIndexer = spotlightIndexer
         self.groupSize = groupSize
         reload()
     }
@@ -43,6 +52,7 @@ final class BookmarksModel {
             // when there are actually orphans.
             usageStore.cleanup(validIds: Set(all.map(\.id)))
             recomputeGroups(from: all)
+            spotlightIndexer?.reindexAll(all)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
             if errorMessage == priorLoadError {
@@ -88,6 +98,15 @@ final class BookmarksModel {
         }
     }
 
+    func togglePin(_ bookmark: Bookmark) {
+        do {
+            try store.setPinned(id: bookmark.id, pinned: !bookmark.pinned)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Records a real "navigation" use of a bookmark — only menubar clicks
     /// should call this. The manage window's "open" action is a preview /
     /// integrity check, not usage, and must bypass this method to avoid
@@ -101,18 +120,25 @@ final class BookmarksModel {
     }
 
     private func recomputeGroups(from all: [Bookmark]) {
-        let topFrequent = usageStore.topFrequent(among: all, limit: groupSize)
+        let pinnedBookmarks = all
+            .filter(\.pinned)
+            .sorted {
+                $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+        let unpinned = all.filter { !$0.pinned }
+        let topFrequent = usageStore.topFrequent(among: unpinned, limit: groupSize)
         let frequentIds = Set(topFrequent.map(\.id))
 
         // Recent excludes anything already shown in "frequent" so each
         // bookmark only appears once.
-        let recentCandidates = all.filter { !frequentIds.contains($0.id) }
+        let recentCandidates = unpinned.filter { !frequentIds.contains($0.id) }
         let topRecent = usageStore.recent(among: recentCandidates, limit: groupSize)
 
         let surfacedIds = frequentIds.union(topRecent.map(\.id))
 
+        pinned = pinnedBookmarks
         frequent = topFrequent
         recent = topRecent
-        others = all.filter { !surfacedIds.contains($0.id) }
+        others = unpinned.filter { !surfacedIds.contains($0.id) }
     }
 }

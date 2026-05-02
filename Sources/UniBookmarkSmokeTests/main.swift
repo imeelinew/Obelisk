@@ -6,6 +6,7 @@ struct SmokeTests {
     static func main() throws {
         try testDuplicateProtection()
         try testLegacyCreatedAtFallback()
+        try testPinnedPersistence()
         try testUsageGroupingFilters()
         print("UniBookmark smoke tests passed")
     }
@@ -42,6 +43,22 @@ struct SmokeTests {
         let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
         try expect(loaded.count == 1, "expected one legacy bookmark")
         try expect(loaded[0].createdAt == .distantPast, "expected legacy createdAt fallback")
+        try expect(loaded[0].pinned == false, "expected legacy pinned fallback")
+    }
+
+    private static func testPinnedPersistence() throws {
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let added = try store.add(title: "Pinned", url: "https://pinned.example")
+        _ = try store.add(title: "Earlier", url: "https://earlier.example")
+        try expect(added.pinned == false, "expected new bookmarks to start unpinned")
+
+        let pinned = try store.setPinned(id: added.id, pinned: true)
+        try expect(pinned?.pinned == true, "expected setPinned to return updated bookmark")
+        try expect(pinned?.id == added.id, "expected setPinned to return the requested bookmark")
+
+        let loaded = try store.bookmarks()
+        try expect(loaded.first { $0.id == added.id }?.pinned == true, "expected pinned state to persist")
     }
 
     private static func testUsageGroupingFilters() throws {

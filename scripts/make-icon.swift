@@ -40,11 +40,13 @@ func render(size pixels: Int) -> Data? {
     defer { NSGraphicsContext.restoreGraphicsState() }
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-    // macOS app-icon corner radius is ~22% of the side length.
-    let cornerRadius = s * 0.225
     let bounds = NSRect(x: 0, y: 0, width: s, height: s)
-    let mask = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
-    mask.addClip()
+
+    // Tahoe (macOS 26) applies a uniform squircle mask to all app icons —
+    // Dock, Finder, Spotlight, Launchpad. If our PNG has its own rounded
+    // corners with transparent pixels outside, Spotlight's mask reveals the
+    // transparency as a visible "halo" around the badge. So we render full
+    // bleed and let the system shape it.
 
     // Soft warm yellow gradient — top is paler, bottom is a touch more saturated.
     let top = NSColor(red: 1.00, green: 0.96, blue: 0.78, alpha: 1)

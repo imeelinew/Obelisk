@@ -60,6 +60,10 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <string>14.0</string>
   <key>LSUIElement</key>
   <true/>
+  <key>NSUserActivityTypes</key>
+  <array>
+    <string>com.apple.corespotlightitem</string>
+  </array>
   <key>NSHumanReadableCopyright</key>
   <string>Personal build. No warranty.</string>
 </dict>

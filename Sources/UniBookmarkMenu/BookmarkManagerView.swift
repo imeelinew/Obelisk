@@ -7,6 +7,7 @@ struct BookmarkManagerView: View {
     let faviconLoader: FaviconLoader
     @State private var selection: Bookmark.ID?
     @State private var presentation: Presentation?
+    @State private var searchText = ""
 
     enum Presentation: Identifiable {
         case add
@@ -35,11 +36,53 @@ struct BookmarkManagerView: View {
                     }
                 }
                 Button("编辑…") { presentation = .edit(bookmark) }
+                Button(bookmark.pinned ? "取消置顶" : "置顶") {
+                    model.togglePin(bookmark)
+                }
                 Divider()
                 Button("删除", role: .destructive) {
                     model.delete(id: bookmark.id)
                 }
             }
+    }
+
+    private var filteredFrequent: [Bookmark] {
+        filtered(model.frequent)
+    }
+
+    private var filteredPinned: [Bookmark] {
+        filtered(model.pinned)
+    }
+
+    private var filteredRecent: [Bookmark] {
+        filtered(model.recent)
+    }
+
+    private var filteredOthers: [Bookmark] {
+        filtered(model.others)
+    }
+
+    private var filteredBookmarks: [Bookmark] {
+        filtered(model.bookmarks)
+    }
+
+    private func filtered(_ bookmarks: [Bookmark]) -> [Bookmark] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return bookmarks
+        }
+
+        return bookmarks.filter {
+            $0.title.localizedCaseInsensitiveContains(query)
+                || $0.url.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var selectedBookmark: Bookmark? {
+        guard let selection else {
+            return nil
+        }
+        return model.bookmarks.first { $0.id == selection }
     }
 
     var body: some View {
@@ -50,30 +93,39 @@ struct BookmarkManagerView: View {
                 } description: {
                     Text("点击工具栏的 + 添加你的第一个书签。")
                 }
+            } else if filteredBookmarks.isEmpty {
+                ContentUnavailableView.search(text: searchText)
             } else {
                 List(selection: $selection) {
-                    if !model.frequent.isEmpty {
+                    if !filteredPinned.isEmpty {
+                        Section("置顶") {
+                            ForEach(filteredPinned) { bookmark in
+                                row(for: bookmark)
+                            }
+                        }
+                    }
+                    if !filteredFrequent.isEmpty {
                         Section("常用") {
-                            ForEach(model.frequent) { bookmark in
+                            ForEach(filteredFrequent) { bookmark in
                                 row(for: bookmark)
                             }
                         }
                     }
-                    if !model.recent.isEmpty {
+                    if !filteredRecent.isEmpty {
                         Section("最近添加") {
-                            ForEach(model.recent) { bookmark in
+                            ForEach(filteredRecent) { bookmark in
                                 row(for: bookmark)
                             }
                         }
                     }
-                    if !model.others.isEmpty {
+                    if !filteredOthers.isEmpty {
                         // Only show the "全部" header when one of the
                         // grouped sections is also visible — otherwise
                         // it would be the only section and the header
                         // would just be noise.
-                        let needsHeader = !model.frequent.isEmpty || !model.recent.isEmpty
+                        let needsHeader = !filteredPinned.isEmpty || !filteredFrequent.isEmpty || !filteredRecent.isEmpty
                         Section(needsHeader ? "全部" : "") {
-                            ForEach(model.others) { bookmark in
+                            ForEach(filteredOthers) { bookmark in
                                 row(for: bookmark)
                             }
                         }
@@ -84,6 +136,7 @@ struct BookmarkManagerView: View {
         .frame(minWidth: 520, minHeight: 360)
         .navigationTitle("书签")
         .navigationSubtitle(model.bookmarks.isEmpty ? "" : "\(model.bookmarks.count) 个书签")
+        .searchable(text: $searchText, prompt: "搜索标题或网址")
         .toolbar {
             ToolbarItemGroup {
                 Button {
@@ -107,8 +160,20 @@ struct BookmarkManagerView: View {
                 Spacer()
 
                 Button {
-                    if let id = selection,
-                       let bookmark = model.bookmarks.first(where: { $0.id == id }) {
+                    if let selectedBookmark {
+                        model.togglePin(selectedBookmark)
+                    }
+                } label: {
+                    Label(
+                        selectedBookmark?.pinned == true ? "取消置顶" : "置顶",
+                        systemImage: selectedBookmark?.pinned == true ? "pin.slash" : "pin"
+                    )
+                }
+                .disabled(selection == nil)
+                .help(selectedBookmark?.pinned == true ? "取消置顶" : "置顶选中的书签")
+
+                Button {
+                    if let bookmark = selectedBookmark {
                         presentation = .edit(bookmark)
                     }
                 } label: {
@@ -172,6 +237,11 @@ private struct BookmarkRow: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 0)
+            if bookmark.pinned {
+                Image(systemName: "pin.fill")
+                    .foregroundStyle(.secondary)
+                    .imageScale(.small)
+            }
         }
         .padding(.vertical, 2)
     }

@@ -15,6 +15,7 @@ Sources/UniBookmarkMenu/         # Menu bar app + SwiftUI manage window
   BookmarkManagerView.swift      # SwiftUI manage window + add/edit sheet
   BookmarkManagerWindowController.swift
   PageMetadataFetcher.swift      # auto-fill title from <title>
+  SpotlightIndexer.swift         # CoreSpotlight indexing for bookmark titles/URLs
 scripts/
   build-app.sh                   # release build → .app + zip + ad-hoc sign
   make-icon.swift                # generates AppIcon.icns at build time
@@ -31,17 +32,21 @@ Root: `$UNIBOOKMARK_HOME` or `~/Documents/UniBookmark/`
 | `favicons/<sha8>.png`         | `FaviconLoader`  | Per-host icon, 16×16 expected |
 | `favicons/index.json`         | `FaviconLoader`  | `{ <sha8>: { fetchedAt, success } }` for TTL + negative cache |
 
-`bookmarks.json` schema: `{ version: 1, bookmarks: [{ id, title, url, createdAt }] }`. `createdAt` may be missing in legacy files — `Bookmark.init(from:)` falls back to `.distantPast` so those bookmarks are excluded from "recently added".
+Spotlight entries live in the user's CoreSpotlight index under domain `local.elidev.UniBookmark.bookmarks`; `SpotlightIndexer.deleteAll()` removes that domain if cleanup is ever needed.
+
+`bookmarks.json` schema: `{ version: 1, bookmarks: [{ id, title, url, createdAt, pinned }] }`. `createdAt` and `pinned` may be missing in legacy files — `Bookmark.init(from:)` falls back to `.distantPast` and `false`.
 
 ## Invariants (non-obvious; do not break)
 
-- **Single source of truth for groupings**: `BookmarksModel` computes `frequent` / `recent` / `others`. Both `AppDelegate.rebuildMenu()` and `BookmarkManagerView` read from these properties. Do not recompute groups elsewhere.
+- **Single source of truth for groupings**: `BookmarksModel` computes `pinned` / `frequent` / `recent` / `others`. Both `AppDelegate.rebuildMenu()` and `BookmarkManagerView` read from these properties. Do not recompute groups elsewhere.
 - **Usage recording is intent-based**: `model.openBookmark(_)` records to `usage.json`. Only the **menubar** click action calls it. The manage window's "在浏览器中打开" calls `NSWorkspace.shared.open` directly to avoid polluting frecency. Adding a tracked-open path from the manage window is a regression.
+- **Spotlight opens are direct**: `application(_:continue:)` opens the URL directly instead of `model.openBookmark(_)`, so Spotlight launches do not pollute frecency.
 - **`onChange` callback on the model** drives menubar rebuilds. `reload()` and `openBookmark` fire it. Do not call `rebuildMenu()` inline from elsewhere — go through the model.
 - **`BookmarkStore.add` / `update` / `delete`** wrap the read-modify-write under POSIX `flock` on `<root>/.lock` so a hypothetical second writer can't lose updates.
 - **`BookmarkFileWatcher.start()`** must dispatch `openSources()` async after `stop()` — fd numbers can be recycled, and cancel handlers run on the main queue after the current call returns. Synchronous reopen reintroduces an fd-number race.
 - **`FaviconLoader` is shared**: same instance used by menubar and `BookmarkManagerView`. Reading `loader.version` in a SwiftUI body subscribes the row to "new favicon arrived" events.
-- **Manage-window "全部" deduplicates** (excludes IDs already in `frequent`/`recent`) because `List(selection:)` collides on duplicate IDs. **Menubar "全部" intentionally shows all bookmarks** — `NSMenuItem` has no selection model and a flat full list aids quick scanning.
+- **Pinned bookmarks** appear only in the top "置顶" group and are excluded from `frequent` / `recent` / `others` and from menubar "全部".
+- **Manage-window "全部" deduplicates** (excludes IDs already in `pinned`/`frequent`/`recent`) because `List(selection:)` collides on duplicate IDs. **Menubar "全部" intentionally still includes unpinned bookmarks already shown in 常用/最近** — `NSMenuItem` has no selection model and a flat full list aids quick scanning.
 - **`installMainMenu()`** is required: `LSUIElement=true` apps get no main menu, so `⌘C/⌘V/⌘X/⌘A/⌘Z` won't dispatch to focused `TextField`s without an Edit menu.
 - **Activation policy toggling**: `.accessory` at launch and on manage-window close, `.regular` when the manage window opens, so the dock icon only appears while the window is up.
 - **Window title/subtitle**: set via SwiftUI `.navigationTitle` / `.navigationSubtitle`. Setting `NSWindow.title`/`subtitle` directly is overwritten by the SwiftUI `NSHostingController`.
@@ -55,8 +60,9 @@ Root: `$UNIBOOKMARK_HOME` or `~/Documents/UniBookmark/`
 score = count * 0.95 ^ daysSinceLastClick
 ```
 
-- `frequent`: top 5 by score, requires `count ≥ 3`
-- `recent`: top 5 by `createdAt` desc, **excluding** anything already in `frequent`
+- `pinned`: all pinned bookmarks, title-sorted
+- `frequent`: top 5 by score, requires `count ≥ 3`, excluding pinned
+- `recent`: top 5 by `createdAt` desc, excluding pinned and anything already in `frequent`
 - `others`: everything else (manage-window only)
 - `usage.json` is best-effort; failures don't propagate
 
@@ -81,9 +87,9 @@ score = count * 0.95 ^ daysSinceLastClick
 | Wave | Status | Scope |
 |------|--------|-------|
 | 1    | DONE   | Clipboard URL prefill + auto-fetch `<title>`; sectioned manage window; usage recorded only via menubar |
-| 2    | TODO   | `.searchable` filter in manage window |
-| 3    | TODO   | `Bookmark.pinned` flag + pinned section above 常用; back-compat decoder |
-| 4    | TODO   | `CoreSpotlight` indexing; `application(_:continue:)` to open from Spotlight |
+| 2    | DONE   | `.searchable` filter in manage window |
+| 3    | DONE   | `Bookmark.pinned` flag + pinned section above 常用; back-compat decoder |
+| 4    | DONE   | `CoreSpotlight` indexing; `application(_:continue:)` to open from Spotlight |
 | 5    | TODO   | Carbon global hotkey (⌘⇧B) + AppleScript current-tab fetch from frontmost browser; needs `NSAppleEventsUsageDescription` |
 
 ## Identity

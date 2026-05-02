@@ -5,21 +5,24 @@ public struct Bookmark: Codable, Identifiable, Equatable {
     public var title: String
     public var url: String
     public var createdAt: Date
+    public var pinned: Bool
 
     public init(
         id: UUID = UUID(),
         title: String,
         url: String,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        pinned: Bool = false
     ) {
         self.id = id
         self.title = title
         self.url = url
         self.createdAt = createdAt
+        self.pinned = pinned
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, url, createdAt
+        case id, title, url, createdAt, pinned
     }
 
     public init(from decoder: Decoder) throws {
@@ -30,6 +33,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         // Older files predate this field; fall back so legacy bookmarks just
         // never show up in "recently added" rather than failing to load.
         createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? .distantPast
+        pinned = (try? c.decode(Bool.self, forKey: .pinned)) ?? false
     }
 }
 
@@ -163,6 +167,23 @@ public final class BookmarkStore {
             var database = try load()
             database.bookmarks.removeAll { $0.id == id }
             try save(database)
+        }
+    }
+
+    @discardableResult
+    public func setPinned(id: UUID, pinned: Bool) throws -> Bookmark? {
+        try withFileLock {
+            var database = try load()
+            guard let idx = database.bookmarks.firstIndex(where: { $0.id == id }) else {
+                return nil
+            }
+            database.bookmarks[idx].pinned = pinned
+            let updated = database.bookmarks[idx]
+            database.bookmarks.sort {
+                $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+            try save(database)
+            return updated
         }
     }
 

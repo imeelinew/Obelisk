@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CoreSpotlight
 import CryptoKit
 import Foundation
@@ -19,7 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         usageStore: usageStore,
         spotlightIndexer: spotlightIndexer
     )
-    private lazy var managerWindow = BookmarkManagerWindowController(model: bookmarksModel, faviconLoader: faviconLoader)
+    private let addRequest = AddBookmarkRequest()
+    private lazy var managerWindow = BookmarkManagerWindowController(
+        model: bookmarksModel,
+        faviconLoader: faviconLoader,
+        addRequest: addRequest
+    )
+    private var globalHotkey: GlobalHotkey?
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
         loader.onIconLoaded = { [weak self] in
@@ -36,7 +43,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.scheduleRebuild()
         }
         startBookmarkWatcher()
+        registerGlobalHotkey()
         rebuildMenu()
+    }
+
+    /// Wave 5: ⌥B from anywhere → fetch the frontmost browser's current
+    /// tab via AppleScript and present the manage window's add sheet
+    /// prefilled with URL + title. Falls back to clipboard URL prefill if
+    /// the frontmost app isn't a recognized browser or automation
+    /// permission was denied.
+    ///
+    /// Note: ⌥B normally types `∫` in text fields. Carbon's `RegisterEventHotKey`
+    /// intercepts the keystroke at the system level so it never reaches the
+    /// focused app — we get the press, the focused app does not.
+    private func registerGlobalHotkey() {
+        let hotkey = GlobalHotkey(
+            keyCode: UInt32(kVK_ANSI_B),
+            modifiers: UInt32(optionKey)
+        )
+        hotkey.onPress = { [weak self] in
+            self?.handleGlobalHotkey()
+        }
+        globalHotkey = hotkey
+    }
+
+    private func handleGlobalHotkey() {
+        let tab = BrowserCurrentTab.fetch()
+        addRequest.request(url: tab?.url, title: tab?.title)
+        NSApp.setActivationPolicy(.regular)
+        managerWindow.show()
     }
 
     /// LSUIElement apps get no main menu by default, which means ⌘C/⌘V/⌘X/⌘A
@@ -113,7 +148,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let pinned = bookmarksModel.pinned
             let frequent = bookmarksModel.frequent
             let recent = bookmarksModel.recent
-            let all = bookmarksModel.bookmarks.filter { !$0.pinned }
+            // `model.others` is already deduped (excludes pinned/frequent/recent).
+            // Showing the full list here was duplicating items in the
+            // dropdown — match the manage window's "everything once" behavior.
+            let others = bookmarksModel.others
 
             if !pinned.isEmpty {
                 appendSection(title: "置顶", bookmarks: pinned, to: menu)
@@ -124,14 +162,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !recent.isEmpty {
                 appendSection(title: "最近添加", bookmarks: recent, to: menu)
             }
-
-            // "全部" shows the full list (including ones already in
-            // 常用/最近) so menubar users can scan everything at a glance.
-            // Only suppress when there's literally nothing left to add.
-            let surfacedIds = Set(frequent.map(\.id)).union(recent.map(\.id))
-            let hasMore = all.contains { !surfacedIds.contains($0.id) }
-            if hasMore || (pinned.isEmpty && frequent.isEmpty && recent.isEmpty) {
-                appendSection(title: "全部", bookmarks: all, to: menu)
+            if !others.isEmpty {
+                let needsHeader = !pinned.isEmpty || !frequent.isEmpty || !recent.isEmpty
+                appendSection(title: needsHeader ? "全部" : "", bookmarks: others, to: menu)
             }
         }
 
@@ -288,7 +321,7 @@ final class FaviconLoader {
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 8
         configuration.httpAdditionalHeaders = [
-            "User-Agent": "UniBookmark/0.1"
+            "User-Agent": "UniBookmark/1.0"
         ]
         self.session = URLSession(configuration: configuration)
         loadIndex()

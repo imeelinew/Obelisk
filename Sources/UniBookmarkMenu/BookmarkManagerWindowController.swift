@@ -5,11 +5,13 @@ import SwiftUI
 final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
     private let model: BookmarksModel
     private let faviconLoader: FaviconLoader
+    private let addRequest: AddBookmarkRequest
     private var window: NSWindow?
 
-    init(model: BookmarksModel, faviconLoader: FaviconLoader) {
+    init(model: BookmarksModel, faviconLoader: FaviconLoader, addRequest: AddBookmarkRequest) {
         self.model = model
         self.faviconLoader = faviconLoader
+        self.addRequest = addRequest
     }
 
     func show() {
@@ -21,7 +23,11 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         }
 
         let hosting = NSHostingController(
-            rootView: BookmarkManagerView(model: model, faviconLoader: faviconLoader)
+            rootView: BookmarkManagerView(
+                model: model,
+                faviconLoader: faviconLoader,
+                addRequest: addRequest
+            )
         )
 
         let win = NSWindow(contentViewController: hosting)

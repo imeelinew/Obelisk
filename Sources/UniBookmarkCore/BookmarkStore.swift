@@ -56,13 +56,13 @@ public enum BookmarkStoreError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidURL(let url):
-            return "Invalid URL: \(url)"
-        case .duplicateURL(let url):
-            return "Bookmark already exists: \(url)"
+            return "网址格式不正确,需要包含 http:// 或 https://(\(url))"
+        case .duplicateURL:
+            return "这个网址已经在书签里了"
         case .invalidTitle:
-            return "Title must not be empty"
+            return "标题不能为空"
         case .lockFailed:
-            return "Failed to acquire bookmark store lock"
+            return "暂时无法保存,书签文件被占用"
         }
     }
 }

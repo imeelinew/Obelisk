@@ -67,25 +67,29 @@ final class BookmarksModel {
         }
     }
 
-    func add(title: String, url: String) -> Bool {
+    /// Returns nil on success, or a localized error message on failure.
+    /// We deliberately do NOT mutate `errorMessage` here — that property is
+    /// the parent view's alert binding, and the editor sheet covering it
+    /// would suppress the alert until the sheet dismisses (i.e. user clicks
+    /// "取消"), making the alert show at the wrong time. The editor handles
+    /// the returned message inline / via its own alert.
+    func add(title: String, url: String) -> String? {
         do {
             try store.add(title: title, url: url)
             reload()
-            return true
+            return nil
         } catch {
-            errorMessage = error.localizedDescription
-            return false
+            return error.localizedDescription
         }
     }
 
-    func update(_ bookmark: Bookmark) -> Bool {
+    func update(_ bookmark: Bookmark) -> String? {
         do {
             try store.update(bookmark)
             reload()
-            return true
+            return nil
         } catch {
-            errorMessage = error.localizedDescription
-            return false
+            return error.localizedDescription
         }
     }
 

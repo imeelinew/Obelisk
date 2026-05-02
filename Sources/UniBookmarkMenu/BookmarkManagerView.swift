@@ -5,17 +5,23 @@ import UniBookmarkCore
 struct BookmarkManagerView: View {
     @Bindable var model: BookmarksModel
     let faviconLoader: FaviconLoader
+    let addRequest: AddBookmarkRequest
     @State private var selection: Bookmark.ID?
     @State private var presentation: Presentation?
     @State private var searchText = ""
+    /// Tracks the last consumed addRequest.seq. Bumped after we present the
+    /// sheet so subsequent identical-prefill requests still trigger.
+    @State private var lastConsumedAddSeq: Int = 0
 
     enum Presentation: Identifiable {
-        case add
+        // `seq` is part of identity so re-issuing an add request with new
+        // prefill while a stale sheet is somehow alive forces a fresh sheet.
+        case add(seq: Int, prefilledURL: String?, prefilledTitle: String?)
         case edit(Bookmark)
 
         var id: String {
             switch self {
-            case .add: return "add"
+            case .add(let seq, _, _): return "add-\(seq)"
             case .edit(let bookmark): return "edit-\(bookmark.id.uuidString)"
             }
         }
@@ -76,6 +82,17 @@ struct BookmarkManagerView: View {
             $0.title.localizedCaseInsensitiveContains(query)
                 || $0.url.localizedCaseInsensitiveContains(query)
         }
+    }
+
+    private func consumePendingAddRequestIfNeeded() {
+        let seq = addRequest.seq
+        guard seq != lastConsumedAddSeq, seq > 0 else { return }
+        lastConsumedAddSeq = seq
+        presentation = .add(
+            seq: seq,
+            prefilledURL: addRequest.url,
+            prefilledTitle: addRequest.title
+        )
     }
 
     private var selectedBookmark: Bookmark? {
@@ -140,7 +157,7 @@ struct BookmarkManagerView: View {
         .toolbar {
             ToolbarItemGroup {
                 Button {
-                    presentation = .add
+                    presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil)
                 } label: {
                     Label("添加", systemImage: "plus")
                 }
@@ -184,11 +201,26 @@ struct BookmarkManagerView: View {
         }
         .sheet(item: $presentation) { kind in
             switch kind {
-            case .add:
-                BookmarkEditor(mode: .add, model: model)
+            case .add(_, let prefilledURL, let prefilledTitle):
+                BookmarkEditor(
+                    mode: .add,
+                    model: model,
+                    prefilledURL: prefilledURL,
+                    prefilledTitle: prefilledTitle
+                )
             case .edit(let bookmark):
                 BookmarkEditor(mode: .edit(bookmark), model: model)
             }
+        }
+        .onAppear {
+            // First-launch path: the hotkey may have already bumped seq before
+            // the view mounted. .onChange only fires on subsequent updates,
+            // so we'd miss the initial request without this check. Subsequent
+            // presses (window already open) hit .onChange below.
+            consumePendingAddRequestIfNeeded()
+        }
+        .onChange(of: addRequest.seq) { _, _ in
+            consumePendingAddRequestIfNeeded()
         }
         .alert(
             "出错了",
@@ -262,6 +294,11 @@ private struct BookmarkEditor: View {
 
     let mode: Mode
     @Bindable var model: BookmarksModel
+    /// Optional prefilled values. Set by the global hotkey path (Wave 5)
+    /// when we have URL+title from the frontmost browser. When non-nil,
+    /// these win over clipboard-URL detection.
+    var prefilledURL: String? = nil
+    var prefilledTitle: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     @State private var title: String = ""
@@ -272,6 +309,9 @@ private struct BookmarkEditor: View {
     @State private var titleEditedByUser = false
     @State private var titleFetchTask: Task<Void, Never>?
     @State private var lastFetchedURL: String?
+    /// Per-sheet error so the alert presents on top of the sheet instead
+    /// of being queued behind it on the parent view.
+    @State private var commitErrorMessage: String?
 
     private static let metadataFetcher = PageMetadataFetcher()
 
@@ -313,6 +353,18 @@ private struct BookmarkEditor: View {
                     .disabled(!isValid)
             }
         }
+        .alert(
+            "无法保存书签",
+            isPresented: Binding(
+                get: { commitErrorMessage != nil },
+                set: { if !$0 { commitErrorMessage = nil } }
+            ),
+            presenting: commitErrorMessage
+        ) { _ in
+            Button("好") { commitErrorMessage = nil }
+        } message: { msg in
+            Text(msg)
+        }
         .onAppear {
             switch mode {
             case .edit(let bookmark):
@@ -323,7 +375,19 @@ private struct BookmarkEditor: View {
                 // Don't auto-fetch when editing: preserve whatever the user already saved.
                 titleEditedByUser = true
             case .add:
-                if let clipboard = clipboardURL() {
+                // Prefill from the global hotkey path takes precedence:
+                // a real browser-tab snapshot beats whatever happens to
+                // be on the clipboard. If a title is supplied, mark it as
+                // user-edited so the auto-fetch doesn't overwrite it.
+                if let prefilledURL, !prefilledURL.isEmpty {
+                    url = prefilledURL
+                    if let prefilledTitle, !prefilledTitle.isEmpty {
+                        isProgrammaticTitleUpdate = true
+                        title = prefilledTitle
+                        isProgrammaticTitleUpdate = false
+                        titleEditedByUser = true
+                    }
+                } else if let clipboard = clipboardURL() {
                     url = clipboard
                     // The url onChange handler will schedule the title fetch.
                 }
@@ -349,17 +413,21 @@ private struct BookmarkEditor: View {
     }
 
     private func commit() {
-        let ok: Bool
+        let errorMessage: String?
         switch mode {
         case .add:
-            ok = model.add(title: title, url: url)
+            errorMessage = model.add(title: title, url: url)
         case .edit(let bookmark):
             var updated = bookmark
             updated.title = title
             updated.url = url
-            ok = model.update(updated)
+            errorMessage = model.update(updated)
         }
-        if ok { dismiss() }
+        if let errorMessage {
+            commitErrorMessage = errorMessage
+        } else {
+            dismiss()
+        }
     }
 
     // MARK: - Auto-fill helpers

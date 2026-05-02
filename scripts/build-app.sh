@@ -8,7 +8,7 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-1.0.0}"
 BUILD="${BUILD:-$(date +%Y%m%d%H%M)}"
 
 cd "$ROOT_DIR"
@@ -64,6 +64,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <array>
     <string>com.apple.corespotlightitem</string>
   </array>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>UniBookmark uses AppleScript to read the URL and title of the active tab from your frontmost browser when you press the global add-bookmark shortcut (⌥B).</string>
   <key>NSHumanReadableCopyright</key>
   <string>Personal build. No warranty.</string>
 </dict>

@@ -46,7 +46,7 @@ Spotlight entries live in the user's CoreSpotlight index under domain `local.eli
 - **`BookmarkFileWatcher.start()`** must dispatch `openSources()` async after `stop()` — fd numbers can be recycled, and cancel handlers run on the main queue after the current call returns. Synchronous reopen reintroduces an fd-number race.
 - **`FaviconLoader` is shared**: same instance used by menubar and `BookmarkManagerView`. Reading `loader.version` in a SwiftUI body subscribes the row to "new favicon arrived" events.
 - **Pinned bookmarks** appear only in the top "置顶" group and are excluded from `frequent` / `recent` / `others` and from menubar "全部".
-- **Manage-window "全部" deduplicates** (excludes IDs already in `pinned`/`frequent`/`recent`) because `List(selection:)` collides on duplicate IDs. **Menubar "全部" intentionally still includes unpinned bookmarks already shown in 常用/最近** — `NSMenuItem` has no selection model and a flat full list aids quick scanning.
+- **"全部" deduplicates everywhere** — both menubar and manage window read from `model.others` (anything not in `pinned`/`frequent`/`recent`). Earlier menubar showed the full list including duplicates; users found that noisy. The manage-window dedup is also required because `List(selection:)` collides on duplicate IDs.
 - **`installMainMenu()`** is required: `LSUIElement=true` apps get no main menu, so `⌘C/⌘V/⌘X/⌘A/⌘Z` won't dispatch to focused `TextField`s without an Edit menu.
 - **Activation policy toggling**: `.accessory` at launch and on manage-window close, `.regular` when the manage window opens, so the dock icon only appears while the window is up.
 - **Window title/subtitle**: set via SwiftUI `.navigationTitle` / `.navigationSubtitle`. Setting `NSWindow.title`/`subtitle` directly is overwritten by the SwiftUI `NSHostingController`.
@@ -90,7 +90,7 @@ score = count * 0.95 ^ daysSinceLastClick
 | 2    | DONE   | `.searchable` filter in manage window |
 | 3    | DONE   | `Bookmark.pinned` flag + pinned section above 常用; back-compat decoder |
 | 4    | DONE   | `CoreSpotlight` indexing; `application(_:continue:)` to open from Spotlight |
-| 5    | TODO   | Carbon global hotkey (⌘⇧B) + AppleScript current-tab fetch from frontmost browser; needs `NSAppleEventsUsageDescription` |
+| 5    | DONE   | Carbon global hotkey (⌥B) + AppleScript current-tab fetch from frontmost browser; needs `NSAppleEventsUsageDescription` |
 
 ## Identity
 

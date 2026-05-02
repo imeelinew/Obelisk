@@ -1,0 +1,121 @@
+import Foundation
+
+public struct UsageRecord: Codable, Equatable {
+    public var count: Int
+    public var lastClickedAt: Date
+
+    public init(count: Int, lastClickedAt: Date) {
+        self.count = count
+        self.lastClickedAt = lastClickedAt
+    }
+}
+
+/// Tracks per-bookmark click usage in a sidecar file (`usage.json`).
+///
+/// Frequency score uses a simple time-decay formula:
+/// `score = count * 0.95 ^ daysSinceLastClick`
+/// — a bookmark clicked once every ~14 days roughly holds its score.
+public final class UsageStore {
+    public let fileURL: URL
+
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+
+    public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
+        self.fileURL = rootDirectory.appendingPathComponent("usage.json")
+
+        self.encoder = JSONEncoder()
+        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        self.encoder.dateEncodingStrategy = .iso8601
+
+        self.decoder = JSONDecoder()
+        self.decoder.dateDecodingStrategy = .iso8601
+    }
+
+    public func load() -> [UUID: UsageRecord] {
+        guard
+            let data = try? Data(contentsOf: fileURL),
+            let raw = try? decoder.decode([String: UsageRecord].self, from: data)
+        else {
+            return [:]
+        }
+
+        var result: [UUID: UsageRecord] = [:]
+        for (key, value) in raw {
+            if let id = UUID(uuidString: key) {
+                result[id] = value
+            }
+        }
+        return result
+    }
+
+    public func record(id: UUID) {
+        var dict = load()
+        let prior = dict[id]
+        dict[id] = UsageRecord(
+            count: (prior?.count ?? 0) + 1,
+            lastClickedAt: Date()
+        )
+        save(dict)
+    }
+
+    /// Drop entries whose bookmark has been deleted.
+    public func cleanup(validIds: Set<UUID>) {
+        let dict = load()
+        let pruned = dict.filter { validIds.contains($0.key) }
+        if pruned.count != dict.count {
+            save(pruned)
+        }
+    }
+
+    /// Top-N most-frecent bookmarks. Bookmarks below `minCount` are excluded
+    /// so a brand-new install doesn't show "frequently used" items the user
+    /// has only clicked once.
+    public func topFrequent(
+        among bookmarks: [Bookmark],
+        limit: Int,
+        minCount: Int = 3,
+        now: Date = Date()
+    ) -> [Bookmark] {
+        let usage = load()
+        let scored: [(bookmark: Bookmark, score: Double)] = bookmarks.compactMap { bm in
+            guard let record = usage[bm.id], record.count >= minCount else {
+                return nil
+            }
+            let days = max(0, now.timeIntervalSince(record.lastClickedAt) / 86_400)
+            let score = Double(record.count) * pow(0.95, days)
+            return (bm, score)
+        }
+        return scored
+            .sorted { $0.score > $1.score }
+            .prefix(limit)
+            .map { $0.bookmark }
+    }
+
+    /// Most recently created bookmarks (skip ones with `.distantPast`, which
+    /// means they predate the createdAt field).
+    public func recent(
+        among bookmarks: [Bookmark],
+        limit: Int
+    ) -> [Bookmark] {
+        bookmarks
+            .filter { $0.createdAt > .distantPast }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private func save(_ dict: [UUID: UsageRecord]) {
+        let payload = Dictionary(uniqueKeysWithValues: dict.map { ($0.key.uuidString, $0.value) })
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try encoder.encode(payload)
+            try data.write(to: fileURL, options: [.atomic])
+        } catch {
+            // Usage data is best-effort; losing a write is not fatal.
+        }
+    }
+}

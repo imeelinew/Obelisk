@@ -14,6 +14,8 @@ import UniBookmarkCore
 final class SpotlightIndexer {
     private let domainIdentifier = "local.elidev.UniBookmark.bookmarks"
     private let rootDirectory: URL
+    private var reindexGeneration = 0
+    private var reindexTask: Task<Void, Never>?
 
     init(rootDirectory: URL) {
         self.rootDirectory = rootDirectory
@@ -25,13 +27,24 @@ final class SpotlightIndexer {
 
     func reindexAll(_ bookmarks: [Bookmark]) {
         let items = bookmarks.map { searchableItem(for: $0) }
-        Task { @MainActor in
+        reindexGeneration &+= 1
+        let generation = reindexGeneration
+        let previousTask = reindexTask
+        reindexTask = Task { @MainActor [weak self] in
+            await previousTask?.value
+            guard let self, generation == self.reindexGeneration else {
+                return
+            }
+
             let index = CSSearchableIndex.default()
             // `deleteAllSearchableItems` wipes everything this app has ever
             // indexed — including orphan items left over by earlier
             // development iterations under different domains. Cheap (the
             // index is small) and guarantees a clean slate before re-adding.
             try? await index.deleteAllSearchableItems()
+            guard generation == self.reindexGeneration else {
+                return
+            }
             try? await index.indexSearchableItems(items)
         }
     }

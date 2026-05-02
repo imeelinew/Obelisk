@@ -5,6 +5,7 @@ import UniBookmarkCore
 struct SmokeTests {
     static func main() throws {
         try testDuplicateProtection()
+        try testWebURLValidation()
         try testLegacyCreatedAtFallback()
         try testPinnedPersistence()
         try testUsageGroupingFilters()
@@ -20,6 +21,30 @@ struct SmokeTests {
             throw SmokeTestError.failure("expected normalized duplicate URL to be rejected")
         } catch BookmarkStoreError.duplicateURL {
             return
+        }
+    }
+
+    private static func testWebURLValidation() throws {
+        let store = BookmarkStore(rootDirectory: try temporaryDirectory())
+        let trimmed = try store.add(title: "Trimmed", url: "  https://trimmed.example/path  \n")
+        try expect(trimmed.url == "https://trimmed.example/path", "expected stored URL to be trimmed")
+
+        do {
+            _ = try store.add(title: "FTP", url: "ftp://example.com")
+            throw SmokeTestError.failure("expected ftp URL to be rejected")
+        } catch BookmarkStoreError.invalidURL {
+        }
+
+        do {
+            _ = try store.add(title: "No Host", url: "https:foo")
+            throw SmokeTestError.failure("expected URL without host to be rejected")
+        } catch BookmarkStoreError.invalidURL {
+        }
+
+        do {
+            _ = try store.add(title: "Duplicate", url: "https://trimmed.example/path")
+            throw SmokeTestError.failure("expected trimmed URL duplicate to be rejected")
+        } catch BookmarkStoreError.duplicateURL {
         }
     }
 

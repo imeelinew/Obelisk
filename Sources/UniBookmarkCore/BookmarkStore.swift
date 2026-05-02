@@ -115,9 +115,7 @@ public final class BookmarkStore {
 
     @discardableResult
     public func add(title: String, url: String) throws -> Bookmark {
-        guard URL(string: url)?.scheme != nil else {
-            throw BookmarkStoreError.invalidURL(url)
-        }
+        let trimmedURL = try validatedWebURL(url)
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
             throw BookmarkStoreError.invalidTitle
@@ -125,12 +123,12 @@ public final class BookmarkStore {
 
         return try withFileLock {
             var database = try load()
-            let target = normalizedURL(url)
+            let target = normalizedURL(trimmedURL)
             if database.bookmarks.contains(where: { normalizedURL($0.url) == target }) {
-                throw BookmarkStoreError.duplicateURL(url)
+                throw BookmarkStoreError.duplicateURL(trimmedURL)
             }
 
-            let bookmark = Bookmark(title: trimmedTitle, url: url)
+            let bookmark = Bookmark(title: trimmedTitle, url: trimmedURL)
             database.bookmarks.append(bookmark)
             database.bookmarks.sort {
                 $0.title.localizedStandardCompare($1.title) == .orderedAscending
@@ -189,9 +187,7 @@ public final class BookmarkStore {
 
     @discardableResult
     public func update(_ bookmark: Bookmark) throws -> Bookmark {
-        guard URL(string: bookmark.url)?.scheme != nil else {
-            throw BookmarkStoreError.invalidURL(bookmark.url)
-        }
+        let trimmedURL = try validatedWebURL(bookmark.url)
         let trimmedTitle = bookmark.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
             throw BookmarkStoreError.invalidTitle
@@ -202,12 +198,13 @@ public final class BookmarkStore {
             guard let idx = database.bookmarks.firstIndex(where: { $0.id == bookmark.id }) else {
                 return bookmark
             }
-            let target = normalizedURL(bookmark.url)
+            let target = normalizedURL(trimmedURL)
             if database.bookmarks.contains(where: { $0.id != bookmark.id && normalizedURL($0.url) == target }) {
-                throw BookmarkStoreError.duplicateURL(bookmark.url)
+                throw BookmarkStoreError.duplicateURL(trimmedURL)
             }
             var updated = bookmark
             updated.title = trimmedTitle
+            updated.url = trimmedURL
             database.bookmarks[idx] = updated
             database.bookmarks.sort {
                 $0.title.localizedStandardCompare($1.title) == .orderedAscending
@@ -222,6 +219,18 @@ public final class BookmarkStore {
             return
         }
         try save(BookmarkDatabase())
+    }
+
+    private func validatedWebURL(_ rawURL: String) throws -> String {
+        let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parsed = URL(string: trimmed),
+              let scheme = parsed.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              parsed.host?.isEmpty == false
+        else {
+            throw BookmarkStoreError.invalidURL(rawURL)
+        }
+        return trimmed
     }
 
     private func normalizedURL(_ rawURL: String) -> String {

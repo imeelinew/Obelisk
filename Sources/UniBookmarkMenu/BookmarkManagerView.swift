@@ -6,8 +6,9 @@ struct BookmarkManagerView: View {
     @Bindable var model: BookmarksModel
     let faviconLoader: FaviconLoader
     let addRequest: AddBookmarkRequest
-    @State private var selection: Bookmark.ID?
+    @State private var selection: Set<Bookmark.ID> = []
     @State private var presentation: Presentation?
+    @State private var deleteConfirmation: DeleteConfirmation?
     @State private var searchText = ""
     /// Tracks the last consumed addRequest.seq. Bumped after we present the
     /// sheet so subsequent identical-prefill requests still trigger.
@@ -24,6 +25,18 @@ struct BookmarkManagerView: View {
             case .add(let seq, _, _): return "add-\(seq)"
             case .edit(let bookmark): return "edit-\(bookmark.id.uuidString)"
             }
+        }
+    }
+
+    struct DeleteConfirmation: Identifiable {
+        let ids: Set<Bookmark.ID>
+
+        var id: String {
+            ids.map(\.uuidString).sorted().joined(separator: ",")
+        }
+
+        var count: Int {
+            ids.count
         }
     }
 
@@ -47,7 +60,8 @@ struct BookmarkManagerView: View {
                 }
                 Divider()
                 Button("删除", role: .destructive) {
-                    model.delete(id: bookmark.id)
+                    let ids = selection.contains(bookmark.id) ? selection : [bookmark.id]
+                    requestDelete(ids: ids)
                 }
             }
     }
@@ -96,10 +110,28 @@ struct BookmarkManagerView: View {
     }
 
     private var selectedBookmark: Bookmark? {
-        guard let selection else {
+        guard selection.count == 1, let id = selection.first else {
             return nil
         }
-        return model.bookmarks.first { $0.id == selection }
+        return model.bookmarks.first { $0.id == id }
+    }
+
+    private var canDeleteSelection: Bool {
+        !selection.isEmpty
+    }
+
+    private var canUseSingleSelectionActions: Bool {
+        selectedBookmark != nil
+    }
+
+    private func requestDelete(ids: Set<Bookmark.ID>) {
+        guard !ids.isEmpty else { return }
+        deleteConfirmation = DeleteConfirmation(ids: ids)
+    }
+
+    private func confirmDelete(_ confirmation: DeleteConfirmation) {
+        model.delete(ids: confirmation.ids)
+        selection.subtract(confirmation.ids)
     }
 
     var body: some View {
@@ -161,17 +193,15 @@ struct BookmarkManagerView: View {
                 } label: {
                     Label("添加", systemImage: "plus")
                 }
+                .disabled(selection.count > 1)
                 .help("添加书签")
 
                 Button {
-                    if let id = selection {
-                        model.delete(id: id)
-                        selection = nil
-                    }
+                    requestDelete(ids: selection)
                 } label: {
                     Label("删除", systemImage: "minus")
                 }
-                .disabled(selection == nil)
+                .disabled(!canDeleteSelection)
                 .help("删除选中的书签")
 
                 Spacer()
@@ -186,7 +216,7 @@ struct BookmarkManagerView: View {
                         systemImage: selectedBookmark?.pinned == true ? "pin.slash" : "pin"
                     )
                 }
-                .disabled(selection == nil)
+                .disabled(!canUseSingleSelectionActions)
                 .help(selectedBookmark?.pinned == true ? "取消置顶" : "置顶选中的书签")
 
                 Button {
@@ -196,7 +226,7 @@ struct BookmarkManagerView: View {
                 } label: {
                     Label("编辑", systemImage: "pencil")
                 }
-                .disabled(selection == nil)
+                .disabled(!canUseSingleSelectionActions)
             }
         }
         .sheet(item: $presentation) { kind in
@@ -233,6 +263,24 @@ struct BookmarkManagerView: View {
             Button("好") { model.errorMessage = nil }
         } message: { message in
             Text(message)
+        }
+        .alert(
+            "删除书签?",
+            isPresented: Binding(
+                get: { deleteConfirmation != nil },
+                set: { if !$0 { deleteConfirmation = nil } }
+            ),
+            presenting: deleteConfirmation
+        ) { confirmation in
+            Button("取消", role: .cancel) {
+                deleteConfirmation = nil
+            }
+            Button("删除", role: .destructive) {
+                confirmDelete(confirmation)
+                deleteConfirmation = nil
+            }
+        } message: { confirmation in
+            Text("共计删除 \(confirmation.count) 个书签。")
         }
     }
 }

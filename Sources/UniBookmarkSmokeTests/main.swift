@@ -8,6 +8,7 @@ struct SmokeTests {
         try testWebURLValidation()
         try testLegacyCreatedAtFallback()
         try testPinnedPersistence()
+        try testBatchDelete()
         try testUsageGroupingFilters()
         print("UniBookmark smoke tests passed")
     }
@@ -84,6 +85,19 @@ struct SmokeTests {
 
         let loaded = try store.bookmarks()
         try expect(loaded.first { $0.id == added.id }?.pinned == true, "expected pinned state to persist")
+    }
+
+    private static func testBatchDelete() throws {
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let first = try store.add(title: "First", url: "https://first.example")
+        let second = try store.add(title: "Second", url: "https://second.example")
+        let kept = try store.add(title: "Kept", url: "https://kept.example")
+
+        try store.delete(ids: [first.id, second.id])
+
+        let loaded = try store.bookmarks()
+        try expect(loaded.map(\.id) == [kept.id], "expected batch delete to remove selected bookmarks only")
     }
 
     private static func testUsageGroupingFilters() throws {

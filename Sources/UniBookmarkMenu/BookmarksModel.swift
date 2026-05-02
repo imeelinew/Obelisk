@@ -94,8 +94,12 @@ final class BookmarksModel {
     }
 
     func delete(id: UUID) {
+        delete(ids: [id])
+    }
+
+    func delete(ids: Set<UUID>) {
         do {
-            try store.delete(id: id)
+            try store.delete(ids: ids)
             reload()
         } catch {
             errorMessage = error.localizedDescription

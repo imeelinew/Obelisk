@@ -161,9 +161,16 @@ public final class BookmarkStore {
     }
 
     public func delete(id: UUID) throws {
+        try delete(ids: [id])
+    }
+
+    public func delete(ids: Set<UUID>) throws {
+        guard !ids.isEmpty else {
+            return
+        }
         try withFileLock {
             var database = try load()
-            database.bookmarks.removeAll { $0.id == id }
+            database.bookmarks.removeAll { ids.contains($0.id) }
             try save(database)
         }
     }

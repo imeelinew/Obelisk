@@ -10,10 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = BookmarkStore()
     private let usageStore = UsageStore()
-    private let groupSize = 5
     private var bookmarkWatcher: BookmarkFileWatcher?
     private var rebuildDebounce: DispatchWorkItem?
-    private lazy var bookmarksModel = BookmarksModel(store: store)
+    private lazy var bookmarksModel = BookmarksModel(store: store, usageStore: usageStore)
     private lazy var managerWindow = BookmarkManagerWindowController(model: bookmarksModel, faviconLoader: faviconLoader)
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
@@ -27,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         installMainMenu()
         configureStatusItem()
+        bookmarksModel.onChange = { [weak self] in
+            self?.scheduleRebuild()
+        }
         startBookmarkWatcher()
         rebuildMenu()
     }
@@ -70,8 +72,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startBookmarkWatcher() {
         bookmarkWatcher = BookmarkFileWatcher(fileURL: store.fileURL) { [weak self] in
+            // model.reload fires onChange → menubar rebuild via the callback
+            // wired in applicationDidFinishLaunching.
             self?.bookmarksModel.reload()
-            self?.rebuildMenu()
         }
     }
 
@@ -88,48 +91,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        do {
-            let bookmarks = try store.bookmarks()
-            // Garbage-collect usage records for deleted bookmarks. Cheap and
-            // only writes when there are actually orphans.
-            usageStore.cleanup(validIds: Set(bookmarks.map(\.id)))
-
-            if bookmarks.isEmpty {
-                let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
-                header.isEnabled = false
-                menu.addItem(header)
-                menu.addItem(NSMenuItem.separator())
-                let emptyItem = NSMenuItem(title: "暂无书签", action: nil, keyEquivalent: "")
-                emptyItem.isEnabled = false
-                menu.addItem(emptyItem)
-            } else {
-                let frequent = usageStore.topFrequent(among: bookmarks, limit: groupSize)
-                let recent = usageStore.recent(among: bookmarks, limit: groupSize)
-                let usedIds = Set(frequent.map(\.id)).union(recent.map(\.id))
-
-                if !frequent.isEmpty {
-                    appendSection(title: "常用", bookmarks: frequent, to: menu)
-                }
-                if !recent.isEmpty {
-                    appendSection(title: "最近添加", bookmarks: recent, to: menu)
-                }
-
-                // Show "全部" only when there's something not already surfaced
-                // above — otherwise we'd duplicate the entire list for no reason.
-                let allHasMore = bookmarks.contains { !usedIds.contains($0.id) }
-                    || usedIds.count != bookmarks.count
-                if allHasMore || (frequent.isEmpty && recent.isEmpty) {
-                    appendSection(title: "全部", bookmarks: bookmarks, to: menu)
-                }
-            }
-        } catch {
-            let errorItem = NSMenuItem(title: "读取失败: \(error.localizedDescription)", action: nil, keyEquivalent: "")
+        if let error = bookmarksModel.loadErrorMessage {
+            let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
+        } else if bookmarksModel.bookmarks.isEmpty {
+            let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            menu.addItem(NSMenuItem.separator())
+            let emptyItem = NSMenuItem(title: "暂无书签", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            menu.addItem(emptyItem)
+        } else {
+            let frequent = bookmarksModel.frequent
+            let recent = bookmarksModel.recent
+            let all = bookmarksModel.bookmarks
+
+            if !frequent.isEmpty {
+                appendSection(title: "常用", bookmarks: frequent, to: menu)
+            }
+            if !recent.isEmpty {
+                appendSection(title: "最近添加", bookmarks: recent, to: menu)
+            }
+
+            // "全部" shows the full list (including ones already in
+            // 常用/最近) so menubar users can scan everything at a glance.
+            // Only suppress when there's literally nothing left to add.
+            let surfacedIds = Set(frequent.map(\.id)).union(recent.map(\.id))
+            let hasMore = all.contains { !surfacedIds.contains($0.id) }
+            if hasMore || (frequent.isEmpty && recent.isEmpty) {
+                appendSection(title: "全部", bookmarks: all, to: menu)
+            }
         }
 
         menu.addItem(NSMenuItem.separator())
-        let manageItem = NSMenuItem(title: "设置", action: #selector(openManager), keyEquivalent: "")
+        let manageItem = NSMenuItem(title: "管理书签", action: #selector(openManager), keyEquivalent: "")
         menu.addItem(manageItem)
         let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "")
         menu.addItem(quitItem)
@@ -193,16 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openBookmark(_ sender: NSMenuItem) {
-        guard
-            let bookmark = sender.representedObject as? Bookmark,
-            let url = URL(string: bookmark.url)
-        else {
-            return
-        }
-
-        usageStore.record(id: bookmark.id)
-        NSWorkspace.shared.open(url)
-        scheduleRebuild()
+        guard let bookmark = sender.representedObject as? Bookmark else { return }
+        bookmarksModel.openBookmark(bookmark)
     }
 
     @objc private func openManager() {

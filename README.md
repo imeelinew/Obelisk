@@ -1,157 +1,93 @@
-# UniBookmark
+# UniBookmark — Agent Notes
 
-## 项目结构
+macOS Tahoe (26) menu-bar bookmark manager. Personal use, ad-hoc signed.
 
-```text
-UniBookmark/
-├── Package.swift
-├── README.md
-├── scripts/
-│   └── build-app.sh
-└── Sources/
-    ├── UniBookmarkCore/
-    │   └── BookmarkStore.swift
-    └── UniBookmarkMenu/
-        └── main.swift
+## Layout
+
+```
+Package.swift                    # 1 product: UniBookmarkMenu (executable)
+Sources/UniBookmarkCore/         # Model + storage; no AppKit
+  BookmarkStore.swift            # bookmarks.json CRUD, flock, normalizedURL
+  UsageStore.swift               # usage.json CRUD, frecency scoring
+Sources/UniBookmarkMenu/         # Menu bar app + SwiftUI manage window
+  main.swift                     # AppDelegate, NSStatusItem menu, BookmarkFileWatcher, FaviconLoader
+  BookmarksModel.swift           # @Observable; SINGLE source of truth for groupings
+  BookmarkManagerView.swift      # SwiftUI manage window + add/edit sheet
+  BookmarkManagerWindowController.swift
+  PageMetadataFetcher.swift      # auto-fill title from <title>
+scripts/
+  build-app.sh                   # release build → .app + zip + ad-hoc sign
+  make-icon.swift                # generates AppIcon.icns at build time
 ```
 
-## 功能模块
+## Runtime data (NOT in repo)
 
-### UniBookmarkCore
+Root: `$UNIBOOKMARK_HOME` or `~/Documents/UniBookmark/`
 
-`Sources/UniBookmarkCore/BookmarkStore.swift`
+| File                          | Owner            | Purpose |
+|-------------------------------|------------------|---------|
+| `bookmarks.json`              | `BookmarkStore`  | Source of truth for bookmarks |
+| `usage.json`                  | `UsageStore`     | `{ uuid: { count, lastClickedAt } }` keyed by UUID string |
+| `favicons/<sha8>.png`         | `FaviconLoader`  | Per-host icon, 16×16 expected |
+| `favicons/index.json`         | `FaviconLoader`  | `{ <sha8>: { fetchedAt, success } }` for TTL + negative cache |
 
-- 定义书签数据模型 `Bookmark`。
-- 定义本地 JSON 数据库模型 `BookmarkDatabase`。
-- 定义本地存储读写类 `BookmarkStore`。
-- 默认数据目录为 `~/Documents/UniBookmark`。
-- 支持通过环境变量 `UNIBOOKMARK_HOME` 指定数据目录。
-- 数据文件名为 `bookmarks.json`。
-- 书签字段为 `id`、`title`、`url`。
-- 添加书签时检查 URL 是否包含 scheme。
-- 添加书签时按规范化 URL 去重。
-- 读取书签时按标题排序。
-- 数据文件不存在时创建默认数据。
+`bookmarks.json` schema: `{ version: 1, bookmarks: [{ id, title, url, createdAt }] }`. `createdAt` may be missing in legacy files — `Bookmark.init(from:)` falls back to `.distantPast` so those bookmarks are excluded from "recently added".
 
-### UniBookmarkMenu
+## Invariants (non-obvious; do not break)
 
-`Sources/UniBookmarkMenu/main.swift`
+- **Single source of truth for groupings**: `BookmarksModel` computes `frequent` / `recent` / `others`. Both `AppDelegate.rebuildMenu()` and `BookmarkManagerView` read from these properties. Do not recompute groups elsewhere.
+- **Usage recording is intent-based**: `model.openBookmark(_)` records to `usage.json`. Only the **menubar** click action calls it. The manage window's "在浏览器中打开" calls `NSWorkspace.shared.open` directly to avoid polluting frecency. Adding a tracked-open path from the manage window is a regression.
+- **`onChange` callback on the model** drives menubar rebuilds. `reload()` and `openBookmark` fire it. Do not call `rebuildMenu()` inline from elsewhere — go through the model.
+- **`BookmarkStore.add` / `update` / `delete`** wrap the read-modify-write under POSIX `flock` on `<root>/.lock` so a hypothetical second writer can't lose updates.
+- **`BookmarkFileWatcher.start()`** must dispatch `openSources()` async after `stop()` — fd numbers can be recycled, and cancel handlers run on the main queue after the current call returns. Synchronous reopen reintroduces an fd-number race.
+- **`FaviconLoader` is shared**: same instance used by menubar and `BookmarkManagerView`. Reading `loader.version` in a SwiftUI body subscribes the row to "new favicon arrived" events.
+- **Manage-window "全部" deduplicates** (excludes IDs already in `frequent`/`recent`) because `List(selection:)` collides on duplicate IDs. **Menubar "全部" intentionally shows all bookmarks** — `NSMenuItem` has no selection model and a flat full list aids quick scanning.
+- **`installMainMenu()`** is required: `LSUIElement=true` apps get no main menu, so `⌘C/⌘V/⌘X/⌘A/⌘Z` won't dispatch to focused `TextField`s without an Edit menu.
+- **Activation policy toggling**: `.accessory` at launch and on manage-window close, `.regular` when the manage window opens, so the dock icon only appears while the window is up.
+- **Window title/subtitle**: set via SwiftUI `.navigationTitle` / `.navigationSubtitle`. Setting `NSWindow.title`/`subtitle` directly is overwritten by the SwiftUI `NSHostingController`.
+- **Liquid Glass** styling appears only when **built with the Xcode 26 SDK**. CLT/Xcode 16 produces a Sonoma-looking app. Code is identical; the SDK is the switch.
+- **`NSImage` returned from `FaviconLoader.image(for:)`** is `.copy()`-ed before resizing — the underlying instance may be cached and shared by AppKit.
+- **`URLComponents` `cacheKey`** is `SHA256(host[:port]).prefix(8)` hex — collisions across `host`s with similar punctuation were the reason for switching from string-replace to hash.
 
-- macOS 菜单栏应用。
-- 使用 `NSStatusBar.system.statusItem` 创建菜单栏图标。
-- 菜单栏图标使用 SF Symbols 的 `bookmark.fill`。
-- 应用设置为 accessory activation policy。
-- 菜单内容包含标题 `书签`、分割线、书签列表、分割线、`退出`。
-- 每条书签使用 `NSMenuItem` 显示。
-- 点击书签时通过 `NSWorkspace.shared.open` 使用默认浏览器打开 URL。
-- 书签标题使用 macOS 菜单字体按像素宽度截断。
-- 书签 tooltip 显示完整标题和 URL。
-- favicon 缓存在数据目录下的 `favicons/`。
-- 菜单项优先读取本地 favicon 缓存。
-- 缓存不存在时后台下载 favicon。
-- favicon 下载完成后刷新菜单。
-- 使用文件系统事件监听 `bookmarks.json` 和数据目录。
-- JSON 添加、修改、删除或原子替换后触发菜单刷新。
+## Frecency
 
-### build-app.sh
-
-`scripts/build-app.sh`
-
-- 使用 Swift Package Manager 构建 release 产物。
-- 构建 `UniBookmarkMenu`。
-- 生成 `.build/dist/UniBookmark.app`。
-- `.app` 的可执行文件为 `Contents/MacOS/UniBookmark`。
-- `Info.plist` 设置 `LSUIElement` 为 `true`。
-
-## 实现方法
-
-### 数据存储
-
-默认数据路径：
-
-```text
-~/Documents/UniBookmark/bookmarks.json
+```
+score = count * 0.95 ^ daysSinceLastClick
 ```
 
-自定义数据路径：
+- `frequent`: top 5 by score, requires `count ≥ 3`
+- `recent`: top 5 by `createdAt` desc, **excluding** anything already in `frequent`
+- `others`: everything else (manage-window only)
+- `usage.json` is best-effort; failures don't propagate
 
-```sh
-UNIBOOKMARK_HOME=/path/to/bookmark-directory
-```
+## Add-bookmark flow (Wave 1, current)
 
-JSON 结构：
+`BookmarkEditor` in `.add` mode:
+1. `onAppear`: read `NSPasteboard.general`; if a valid http(s) URL, prefill the URL field.
+2. URL field `onChange` → 500 ms debounce → `PageMetadataFetcher.title(for:)` → set title **only if** user hasn't typed in it.
+3. `titleEditedByUser` flag distinguishes user typing from programmatic assignment (gated by `isProgrammaticTitleUpdate`).
+4. `BookmarkEditor` in `.edit` mode marks `titleEditedByUser = true` to suppress fetching.
 
-```json
-{
-  "bookmarks": [
-    {
-      "id": "UUID",
-      "title": "Title",
-      "url": "https://example.com"
-    }
-  ],
-  "version": 1
-}
-```
+## Build / dist
 
-### 菜单刷新
+`scripts/build-app.sh` → `.build/dist/UniBookmark.app` + `UniBookmark-<v>.zip`.
+- Tries `--arch arm64 x86_64`; falls back to host arch if only CLT is installed.
+- Runs `scripts/make-icon.swift` to render `AppIcon.icns` (white `bookmark.fill` over a yellow gradient, 22% rounded square).
+- `codesign --force --deep --sign -` (ad-hoc). For distribution beyond this machine you'd need a Developer ID + notarization.
+- Installed location: `/Applications/UniBookmark.app`. `touch` the bundle after copy to bust Dock icon cache.
 
-`BookmarkFileWatcher` 使用 `DispatchSource.makeFileSystemObjectSource` 监听：
+## Roadmap (waves)
 
-- `bookmarks.json`
-- `bookmarks.json` 所在目录
+| Wave | Status | Scope |
+|------|--------|-------|
+| 1    | DONE   | Clipboard URL prefill + auto-fetch `<title>`; sectioned manage window; usage recorded only via menubar |
+| 2    | TODO   | `.searchable` filter in manage window |
+| 3    | TODO   | `Bookmark.pinned` flag + pinned section above 常用; back-compat decoder |
+| 4    | TODO   | `CoreSpotlight` indexing; `application(_:continue:)` to open from Spotlight |
+| 5    | TODO   | Carbon global hotkey (⌘⇧B) + AppleScript current-tab fetch from frontmost browser; needs `NSAppleEventsUsageDescription` |
 
-监听事件包括：
+## Identity
 
-- `write`
-- `delete`
-- `rename`
-- `revoke`
-
-事件触发后通过主线程防抖调用 `rebuildMenu()`。
-
-### favicon
-
-`FaviconLoader` 的缓存目录：
-
-```text
-~/Documents/UniBookmark/favicons/
-```
-
-缓存文件名根据 URL host 和 port 生成。
-
-下载顺序：
-
-1. `<origin>/favicon.ico`
-2. `<origin>/favicon.png`
-3. `<origin>/apple-touch-icon.png`
-4. 解析页面 HTML 中的 icon link
-
-下载到的图像转换为 PNG 后写入缓存目录。
-
-### 构建和运行
-
-构建：
-
-```sh
-swift build
-```
-
-运行菜单栏应用：
-
-```sh
-swift run UniBookmarkMenu
-```
-
-构建 `.app`：
-
-```sh
-scripts/build-app.sh
-```
-
-启动 `.app`：
-
-```sh
-open .build/UniBookmark.app
-```
-
+- Bundle ID: `local.elidev.UniBookmark`
+- Min macOS: 14.0 (deployment), but Liquid Glass requires running on macOS 26
+- `LSUIElement=true`

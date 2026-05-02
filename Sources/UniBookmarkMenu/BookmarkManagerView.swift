@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniBookmarkCore
 
@@ -19,6 +20,28 @@ struct BookmarkManagerView: View {
         }
     }
 
+    @ViewBuilder
+    private func row(for bookmark: Bookmark) -> some View {
+        BookmarkRow(bookmark: bookmark, faviconLoader: faviconLoader)
+            .tag(bookmark.id)
+            .contextMenu {
+                // "打开" here is a preview/check action — the manage window
+                // is for organization, not navigation. We deliberately do
+                // NOT route this through model.openBookmark so it doesn't
+                // pollute frecency. Only menubar clicks count as "usage".
+                Button("在浏览器中打开") {
+                    if let url = URL(string: bookmark.url) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                Button("编辑…") { presentation = .edit(bookmark) }
+                Divider()
+                Button("删除", role: .destructive) {
+                    model.delete(id: bookmark.id)
+                }
+            }
+    }
+
     var body: some View {
         Group {
             if model.bookmarks.isEmpty {
@@ -29,21 +52,31 @@ struct BookmarkManagerView: View {
                 }
             } else {
                 List(selection: $selection) {
-                    ForEach(model.bookmarks) { bookmark in
-                        BookmarkRow(bookmark: bookmark, faviconLoader: faviconLoader)
-                            .tag(bookmark.id)
-                            .contextMenu {
-                                Button("编辑…") { presentation = .edit(bookmark) }
-                                Button("打开") {
-                                    if let url = URL(string: bookmark.url) {
-                                        NSWorkspace.shared.open(url)
-                                    }
-                                }
-                                Divider()
-                                Button("删除", role: .destructive) {
-                                    model.delete(id: bookmark.id)
-                                }
+                    if !model.frequent.isEmpty {
+                        Section("常用") {
+                            ForEach(model.frequent) { bookmark in
+                                row(for: bookmark)
                             }
+                        }
+                    }
+                    if !model.recent.isEmpty {
+                        Section("最近添加") {
+                            ForEach(model.recent) { bookmark in
+                                row(for: bookmark)
+                            }
+                        }
+                    }
+                    if !model.others.isEmpty {
+                        // Only show the "全部" header when one of the
+                        // grouped sections is also visible — otherwise
+                        // it would be the only section and the header
+                        // would just be noise.
+                        let needsHeader = !model.frequent.isEmpty || !model.recent.isEmpty
+                        Section(needsHeader ? "全部" : "") {
+                            ForEach(model.others) { bookmark in
+                                row(for: bookmark)
+                            }
+                        }
                     }
                 }
             }
@@ -163,13 +196,37 @@ private struct BookmarkEditor: View {
 
     @State private var title: String = ""
     @State private var url: String = ""
+    @State private var isFetchingTitle = false
+    /// Tracks whether the user has typed in the title field. We never
+    /// overwrite a manual title with an auto-fetched one.
+    @State private var titleEditedByUser = false
+    @State private var titleFetchTask: Task<Void, Never>?
+    @State private var lastFetchedURL: String?
+
+    private static let metadataFetcher = PageMetadataFetcher()
 
     var body: some View {
         Form {
             Section {
-                TextField("标题", text: $title, prompt: Text("例如:GitHub"))
+                HStack {
+                    TextField("标题", text: $title, prompt: Text("例如:GitHub"))
+                        .onChange(of: title) { _, _ in
+                            // Distinguish user typing from our own programmatic
+                            // assignment after a fetch.
+                            if !isProgrammaticTitleUpdate {
+                                titleEditedByUser = true
+                            }
+                        }
+                    if isFetchingTitle {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
                 TextField("网址", text: $url, prompt: Text("https://example.com"))
                     .textContentType(.URL)
+                    .onChange(of: url) { _, newValue in
+                        scheduleTitleFetch(for: newValue)
+                    }
             }
         }
         .formStyle(.grouped)
@@ -187,12 +244,27 @@ private struct BookmarkEditor: View {
             }
         }
         .onAppear {
-            if case .edit(let bookmark) = mode {
+            switch mode {
+            case .edit(let bookmark):
+                isProgrammaticTitleUpdate = true
                 title = bookmark.title
                 url = bookmark.url
+                isProgrammaticTitleUpdate = false
+                // Don't auto-fetch when editing: preserve whatever the user already saved.
+                titleEditedByUser = true
+            case .add:
+                if let clipboard = clipboardURL() {
+                    url = clipboard
+                    // The url onChange handler will schedule the title fetch.
+                }
             }
         }
+        .onDisappear {
+            titleFetchTask?.cancel()
+        }
     }
+
+    @State private var isProgrammaticTitleUpdate = false
 
     private var saveLabel: String {
         switch mode {
@@ -218,5 +290,62 @@ private struct BookmarkEditor: View {
             ok = model.update(updated)
         }
         if ok { dismiss() }
+    }
+
+    // MARK: - Auto-fill helpers
+
+    private func clipboardURL() -> String? {
+        guard let raw = NSPasteboard.general.string(forType: .string) else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parsed = URL(string: trimmed),
+              let scheme = parsed.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              parsed.host?.isEmpty == false
+        else { return nil }
+        return trimmed
+    }
+
+    private func scheduleTitleFetch(for raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Cancel any in-flight fetch — input is changing.
+        titleFetchTask?.cancel()
+        isFetchingTitle = false
+
+        guard
+            !titleEditedByUser,
+            !trimmed.isEmpty,
+            trimmed != lastFetchedURL,
+            let parsed = URL(string: trimmed),
+            let scheme = parsed.scheme?.lowercased(),
+            ["http", "https"].contains(scheme),
+            parsed.host?.isEmpty == false
+        else { return }
+
+        let urlSnapshot = trimmed
+        isFetchingTitle = true
+
+        titleFetchTask = Task { @MainActor in
+            // Debounce: typing fast enough cancels the sleep.
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+
+            guard let parsed = URL(string: urlSnapshot) else {
+                isFetchingTitle = false
+                return
+            }
+            let fetched = await Self.metadataFetcher.title(for: parsed)
+            if Task.isCancelled { return }
+
+            // Re-check preconditions: user may have started typing the title,
+            // or changed the URL while we were fetching.
+            if !titleEditedByUser, url.trimmingCharacters(in: .whitespacesAndNewlines) == urlSnapshot,
+               let fetched, !fetched.isEmpty {
+                isProgrammaticTitleUpdate = true
+                title = fetched
+                isProgrammaticTitleUpdate = false
+            }
+            lastFetchedURL = urlSnapshot
+            isFetchingTitle = false
+        }
     }
 }

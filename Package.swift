@@ -8,12 +8,17 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "UniBookmarkMenu", targets: ["UniBookmarkMenu"])
+        .executable(name: "UniBookmarkMenu", targets: ["UniBookmarkMenu"]),
+        .executable(name: "UniBookmarkSmokeTests", targets: ["UniBookmarkSmokeTests"])
     ],
     targets: [
         .target(name: "UniBookmarkCore"),
         .executableTarget(
             name: "UniBookmarkMenu",
+            dependencies: ["UniBookmarkCore"]
+        ),
+        .executableTarget(
+            name: "UniBookmarkSmokeTests",
             dependencies: ["UniBookmarkCore"]
         )
     ]

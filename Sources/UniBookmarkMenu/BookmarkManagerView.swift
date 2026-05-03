@@ -9,6 +9,7 @@ struct BookmarkManagerView: View {
     @State private var selection: Set<Bookmark.ID> = []
     @State private var presentation: Presentation?
     @State private var deleteConfirmation: DeleteConfirmation?
+    @State private var titleOptimizationMessage: String?
     @State private var searchText = ""
 
     enum Presentation: Identifiable {
@@ -222,6 +223,19 @@ struct BookmarkManagerView: View {
                     Label("编辑", systemImage: "pencil")
                 }
                 .disabled(!canUseSingleSelectionActions)
+
+                Button {
+                    Task {
+                        titleOptimizationMessage = await model.optimizeAllTitles()
+                    }
+                } label: {
+                    Label(
+                        model.isOptimizingTitles ? "优化中" : "优化标题",
+                        systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                    )
+                }
+                .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles)
+                .help("优化全部未处理的标题")
             }
         }
         .sheet(item: $presentation) { kind in
@@ -276,6 +290,18 @@ struct BookmarkManagerView: View {
             }
         } message: { confirmation in
             Text("共计删除 \(confirmation.count) 个书签。")
+        }
+        .alert(
+            "标题优化",
+            isPresented: Binding(
+                get: { titleOptimizationMessage != nil },
+                set: { if !$0 { titleOptimizationMessage = nil } }
+            ),
+            presenting: titleOptimizationMessage
+        ) { _ in
+            Button("好") { titleOptimizationMessage = nil }
+        } message: { message in
+            Text(message)
         }
     }
 }

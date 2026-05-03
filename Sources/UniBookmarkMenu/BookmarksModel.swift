@@ -29,7 +29,9 @@ final class BookmarksModel {
     private let store: BookmarkStore
     private let usageStore: UsageStore
     private let spotlightIndexer: SpotlightIndexer?
+    private let titleOptimizer: TitleOptimizer
     private let groupSize: Int
+    private(set) var isOptimizingTitles = false
 
     init(
         store: BookmarkStore,
@@ -40,6 +42,7 @@ final class BookmarksModel {
         self.store = store
         self.usageStore = usageStore
         self.spotlightIndexer = spotlightIndexer
+        self.titleOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
         self.groupSize = groupSize
         reload()
     }
@@ -112,6 +115,41 @@ final class BookmarksModel {
             reload()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func optimizeAllTitles() async -> String {
+        guard !isOptimizingTitles else {
+            return "标题优化正在进行中"
+        }
+
+        let candidates = bookmarks
+            .filter { !$0.titleOptimized }
+            .map {
+                TitleOptimizationCandidate(
+                    id: $0.id,
+                    title: $0.title,
+                    url: $0.url
+                )
+            }
+
+        guard !candidates.isEmpty else {
+            return "没有需要优化的标题"
+        }
+
+        isOptimizingTitles = true
+        defer { isOptimizingTitles = false }
+
+        do {
+            let optimizedTitles = try await titleOptimizer.optimize(candidates)
+            let count = try store.applyTitleOptimizations(optimizedTitles)
+            reload()
+            if count == 0 {
+                return "没有标题被更新"
+            }
+            return "已优化 \(count) 个标题"
+        } catch {
+            return error.localizedDescription
         }
     }
 

@@ -1,0 +1,212 @@
+import Foundation
+import UniBookmarkCore
+
+enum TitleOptimizerError: LocalizedError {
+    case missingConfig(URL)
+    case invalidConfig(URL)
+    case requestFailed
+    case emptyResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .missingConfig(let url):
+            return "还没有配置标题优化模型。请创建 \(url.path), 写入 apiKey 和 model。"
+        case .invalidConfig(let url):
+            return "标题优化配置无效。请检查 \(url.path) 里的 apiKey 和 model。"
+        case .requestFailed:
+            return "标题优化请求失败,请稍后再试"
+        case .emptyResponse:
+            return "模型没有返回可用的标题"
+        }
+    }
+}
+
+struct TitleOptimizationCandidate: Encodable {
+    let id: UUID
+    let title: String
+    let url: String
+}
+
+@MainActor
+final class TitleOptimizer {
+    private struct Config: Decodable {
+        var apiKey: String? = nil
+        var model: String? = nil
+        var baseURL: String? = nil
+    }
+
+    private struct ChatRequest: Encodable {
+        struct Message: Encodable {
+            let role: String
+            let content: String
+        }
+
+        let model: String
+        let messages: [Message]
+        let temperature: Double
+    }
+
+    private struct ChatResponse: Decodable {
+        struct Choice: Decodable {
+            struct Message: Decodable {
+                let content: String
+            }
+
+            let message: Message
+        }
+
+        let choices: [Choice]
+    }
+
+    private struct OptimizedPayload: Decodable {
+        struct Item: Decodable {
+            let id: UUID
+            let title: String
+        }
+
+        let titles: [Item]
+    }
+
+    private let rootDirectory: URL
+    private let session: URLSession
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    init(rootDirectory: URL) {
+        self.rootDirectory = rootDirectory
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 30
+        self.session = URLSession(configuration: configuration)
+    }
+
+    func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String] {
+        guard !candidates.isEmpty else {
+            return [:]
+        }
+
+        let config = try loadConfig()
+        let userPayload = try String(data: encoder.encode(candidates), encoding: .utf8) ?? "[]"
+        let requestBody = ChatRequest(
+            model: config.model,
+            messages: [
+                .init(role: "system", content: Self.systemPrompt),
+                .init(role: "user", content: userPayload)
+            ],
+            temperature: 0.1
+        )
+
+        var request = URLRequest(url: config.baseURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try encoder.encode(requestBody)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw TitleOptimizerError.requestFailed
+        }
+
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw TitleOptimizerError.requestFailed
+        }
+
+        let chatResponse = try decoder.decode(ChatResponse.self, from: data)
+        guard let content = chatResponse.choices.first?.message.content else {
+            throw TitleOptimizerError.emptyResponse
+        }
+
+        let payload = try decodePayload(from: content)
+        let allowedIds = Set(candidates.map(\.id))
+        let titles = Dictionary(uniqueKeysWithValues: payload.titles.compactMap { item -> (UUID, String)? in
+            guard allowedIds.contains(item.id) else {
+                return nil
+            }
+            let title = cleanReturnedTitle(item.title)
+            return title.isEmpty ? nil : (item.id, title)
+        })
+
+        guard !titles.isEmpty else {
+            throw TitleOptimizerError.emptyResponse
+        }
+        return titles
+    }
+
+    private struct LoadedConfig {
+        let apiKey: String
+        let model: String
+        let baseURL: URL
+    }
+
+    private func loadConfig() throws -> LoadedConfig {
+        let configURL = rootDirectory.appendingPathComponent("llm.json")
+        let fileConfig: Config
+        if let data = try? Data(contentsOf: configURL) {
+            guard let decoded = try? decoder.decode(Config.self, from: data) else {
+                throw TitleOptimizerError.invalidConfig(configURL)
+            }
+            fileConfig = decoded
+        } else {
+            fileConfig = Config()
+        }
+
+        let env = ProcessInfo.processInfo.environment
+        let apiKey = env["UNIBOOKMARK_LLM_API_KEY"] ?? fileConfig.apiKey
+        let model = env["UNIBOOKMARK_LLM_MODEL"] ?? fileConfig.model
+        let baseURLString = env["UNIBOOKMARK_LLM_BASE_URL"]
+            ?? fileConfig.baseURL
+            ?? "https://api.openai.com/v1/chat/completions"
+
+        guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let model, !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw TitleOptimizerError.missingConfig(configURL)
+        }
+        guard let baseURL = URL(string: baseURLString) else {
+            throw TitleOptimizerError.invalidConfig(configURL)
+        }
+
+        return LoadedConfig(apiKey: apiKey, model: model, baseURL: baseURL)
+    }
+
+    private func decodePayload(from content: String) throws -> OptimizedPayload {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let data = trimmed.data(using: .utf8),
+           let payload = try? decoder.decode(OptimizedPayload.self, from: data) {
+            return payload
+        }
+
+        guard let start = trimmed.firstIndex(of: "{"),
+              let end = trimmed.lastIndex(of: "}")
+        else {
+            throw TitleOptimizerError.emptyResponse
+        }
+        let json = String(trimmed[start...end])
+        guard let data = json.data(using: .utf8) else {
+            throw TitleOptimizerError.emptyResponse
+        }
+        return try decoder.decode(OptimizedPayload.self, from: data)
+    }
+
+    private func cleanReturnedTitle(_ title: String) -> String {
+        title
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'`")))
+    }
+
+    private static let systemPrompt = """
+    You rewrite bookmark titles for a macOS bookmark manager.
+    Return only valid JSON shaped exactly like:
+    {"titles":[{"id":"UUID","title":"short title"}]}
+
+    Rules:
+    - Keep the page's core meaning, product, repo, article, or destination.
+    - Remove notification counts, account names, email addresses, redundant site suffixes, marketing filler, and repeated brand names.
+    - Prefer the user's language when obvious from the title or URL.
+    - Chinese titles should usually be 2-10 Chinese characters. English titles should usually be 1-5 words.
+    - Do not invent new meaning. Do not add emojis. Do not explain anything.
+    """
+}

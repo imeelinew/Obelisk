@@ -6,23 +6,26 @@ public struct Bookmark: Codable, Identifiable, Equatable {
     public var url: String
     public var createdAt: Date
     public var pinned: Bool
+    public var titleOptimized: Bool
 
     public init(
         id: UUID = UUID(),
         title: String,
         url: String,
         createdAt: Date = Date(),
-        pinned: Bool = false
+        pinned: Bool = false,
+        titleOptimized: Bool = false
     ) {
         self.id = id
         self.title = title
         self.url = url
         self.createdAt = createdAt
         self.pinned = pinned
+        self.titleOptimized = titleOptimized
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, url, createdAt, pinned
+        case id, title, url, createdAt, pinned, titleOptimized
     }
 
     public init(from decoder: Decoder) throws {
@@ -34,6 +37,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         // never show up in "recently added" rather than failing to load.
         createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? .distantPast
         pinned = (try? c.decode(Bool.self, forKey: .pinned)) ?? false
+        titleOptimized = (try? c.decode(Bool.self, forKey: .titleOptimized)) ?? false
     }
 }
 
@@ -172,6 +176,38 @@ public final class BookmarkStore {
             var database = try load()
             database.bookmarks.removeAll { ids.contains($0.id) }
             try save(database)
+        }
+    }
+
+    @discardableResult
+    public func applyTitleOptimizations(_ optimizedTitles: [UUID: String]) throws -> Int {
+        guard !optimizedTitles.isEmpty else {
+            return 0
+        }
+        return try withFileLock {
+            var database = try load()
+            var changedCount = 0
+            for idx in database.bookmarks.indices {
+                let bookmark = database.bookmarks[idx]
+                guard !bookmark.titleOptimized,
+                      let title = optimizedTitles[bookmark.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !title.isEmpty
+                else {
+                    continue
+                }
+                if title != bookmark.title {
+                    database.bookmarks[idx].title = title
+                }
+                database.bookmarks[idx].titleOptimized = true
+                changedCount += 1
+            }
+            if changedCount > 0 {
+                database.bookmarks.sort {
+                    $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                }
+                try save(database)
+            }
+            return changedCount
         }
     }
 

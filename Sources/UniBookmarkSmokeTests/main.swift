@@ -9,6 +9,7 @@ struct SmokeTests {
         try testLegacyCreatedAtFallback()
         try testPinnedPersistence()
         try testBatchDelete()
+        try testTitleOptimizationPersistence()
         try testUsageGroupingFilters()
         print("UniBookmark smoke tests passed")
     }
@@ -98,6 +99,31 @@ struct SmokeTests {
 
         let loaded = try store.bookmarks()
         try expect(loaded.map(\.id) == [kept.id], "expected batch delete to remove selected bookmarks only")
+    }
+
+    private static func testTitleOptimizationPersistence() throws {
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let first = try store.add(title: "(14) Inbox | user@example.com | Proton Mail", url: "https://mail.proton.me/u/0/inbox")
+        let second = try store.add(title: "Claude", url: "https://claude.ai/new")
+
+        let count = try store.applyTitleOptimizations([
+            first.id: "Proton Mail",
+            second.id: "Claude"
+        ])
+        try expect(count == 2, "expected both unoptimized titles to be marked optimized")
+
+        let loaded = try store.bookmarks()
+        try expect(loaded.first { $0.id == first.id }?.title == "Proton Mail", "expected optimized title to persist")
+        try expect(loaded.first { $0.id == first.id }?.titleOptimized == true, "expected optimized marker to persist")
+
+        let secondPass = try store.applyTitleOptimizations([
+            first.id: "Mail",
+            second.id: "Claude AI"
+        ])
+        try expect(secondPass == 0, "expected optimized titles to be skipped on second pass")
+        let reloaded = try store.bookmarks()
+        try expect(reloaded.first { $0.id == first.id }?.title == "Proton Mail", "expected second pass to preserve optimized title")
     }
 
     private static func testUsageGroupingFilters() throws {

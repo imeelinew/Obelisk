@@ -169,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(NSMenuItem.separator())
-        let manageItem = NSMenuItem(title: "管理书签", action: #selector(openManager), keyEquivalent: "")
+        let manageItem = NSMenuItem(title: "设置", action: #selector(openManager), keyEquivalent: "")
         menu.addItem(manageItem)
         let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "")
         menu.addItem(quitItem)

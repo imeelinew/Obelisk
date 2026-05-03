@@ -11,6 +11,7 @@ struct BookmarkManagerView: View {
     @State private var deleteConfirmation: DeleteConfirmation?
     @State private var titleOptimizationMessage: String?
     @State private var searchText = ""
+    @State private var settingsPage: SettingsPage = .bookmarks
 
     enum Presentation: Identifiable {
         // `seq` is part of identity so re-issuing an add request with new
@@ -22,6 +23,27 @@ struct BookmarkManagerView: View {
             switch self {
             case .add(let seq, _, _): return "add-\(seq)"
             case .edit(let bookmark): return "edit-\(bookmark.id.uuidString)"
+            }
+        }
+    }
+
+    enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
+        case bookmarks
+        case ai
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .bookmarks: return "管理书签"
+            case .ai: return "AI优化"
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .bookmarks: return "bookmark"
+            case .ai: return "sparkles"
             }
         }
     }
@@ -130,113 +152,41 @@ struct BookmarkManagerView: View {
         selection.subtract(confirmation.ids)
     }
 
+    private var unoptimizedTitleCount: Int {
+        model.bookmarks.filter { !$0.titleOptimized }.count
+    }
+
+    private func optimizeTitles() {
+        Task {
+            titleOptimizationMessage = await model.optimizeAllTitles()
+        }
+    }
+
     var body: some View {
-        Group {
-            if model.bookmarks.isEmpty {
-                ContentUnavailableView {
-                    Label("还没有书签", systemImage: "bookmark")
-                } description: {
-                    Text("点击工具栏的 + 添加你的第一个书签。")
+        NavigationSplitView {
+            List(SettingsPage.allCases, selection: $settingsPage) { page in
+                NavigationLink(value: page) {
+                    Label(page.title, systemImage: page.symbolName)
                 }
-            } else if filteredBookmarks.isEmpty {
-                ContentUnavailableView.search(text: searchText)
-            } else {
-                List(selection: $selection) {
-                    if !filteredPinned.isEmpty {
-                        Section("置顶") {
-                            ForEach(filteredPinned) { bookmark in
-                                row(for: bookmark)
-                            }
-                        }
-                    }
-                    if !filteredFrequent.isEmpty {
-                        Section("常用") {
-                            ForEach(filteredFrequent) { bookmark in
-                                row(for: bookmark)
-                            }
-                        }
-                    }
-                    if !filteredRecent.isEmpty {
-                        Section("最近添加") {
-                            ForEach(filteredRecent) { bookmark in
-                                row(for: bookmark)
-                            }
-                        }
-                    }
-                    if !filteredOthers.isEmpty {
-                        // Only show the "全部" header when one of the
-                        // grouped sections is also visible — otherwise
-                        // it would be the only section and the header
-                        // would just be noise.
-                        let needsHeader = !filteredPinned.isEmpty || !filteredFrequent.isEmpty || !filteredRecent.isEmpty
-                        Section(needsHeader ? "全部" : "") {
-                            ForEach(filteredOthers) { bookmark in
-                                row(for: bookmark)
-                            }
-                        }
-                    }
+            }
+            .navigationTitle("设置")
+            .navigationSplitViewColumnWidth(min: 150, ideal: 180)
+        } detail: {
+            NavigationStack {
+                switch settingsPage {
+                case .bookmarks:
+                    bookmarkManagementPage
+                case .ai:
+                    aiOptimizationPage
                 }
             }
         }
-        .frame(minWidth: 520, minHeight: 360)
-        .navigationTitle("书签")
-        .navigationSubtitle(model.bookmarks.isEmpty ? "" : "\(model.bookmarks.count) 个书签")
+        .frame(minWidth: 720, minHeight: 460)
+        // Match Apple's sample: keep search at the split-view level so the
+        // system does not rebuild the window chrome differently per page.
         .searchable(text: $searchText, prompt: "搜索标题或网址")
         .toolbar {
-            ToolbarItemGroup {
-                Button {
-                    presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil)
-                } label: {
-                    Label("添加", systemImage: "plus")
-                }
-                .disabled(selection.count > 1)
-                .help("添加书签")
-
-                Button {
-                    requestDelete(ids: selection)
-                } label: {
-                    Label("删除", systemImage: "minus")
-                }
-                .disabled(!canDeleteSelection)
-                .help("删除选中的书签")
-
-                Spacer()
-
-                Button {
-                    if let selectedBookmark {
-                        model.togglePin(selectedBookmark)
-                    }
-                } label: {
-                    Label(
-                        selectedBookmark?.pinned == true ? "取消置顶" : "置顶",
-                        systemImage: selectedBookmark?.pinned == true ? "pin.slash" : "pin"
-                    )
-                }
-                .disabled(!canUseSingleSelectionActions)
-                .help(selectedBookmark?.pinned == true ? "取消置顶" : "置顶选中的书签")
-
-                Button {
-                    if let bookmark = selectedBookmark {
-                        presentation = .edit(bookmark)
-                    }
-                } label: {
-                    Label("编辑", systemImage: "pencil")
-                }
-                .disabled(!canUseSingleSelectionActions)
-
-                Button {
-                    Task {
-                        titleOptimizationMessage = await model.optimizeAllTitles()
-                    }
-                } label: {
-                    Label(
-                        model.isOptimizingTitles ? "优化中" : "优化标题",
-                        systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
-                    )
-                }
-                .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles)
-                .help("优化全部未处理的标题")
-            }
+            settingsToolbar
         }
         .sheet(item: $presentation) { kind in
             switch kind {
@@ -302,6 +252,154 @@ struct BookmarkManagerView: View {
             Button("好") { titleOptimizationMessage = nil }
         } message: { message in
             Text(message)
+        }
+    }
+
+    private var bookmarkManagementPage: some View {
+        Group {
+            if model.bookmarks.isEmpty {
+                ContentUnavailableView {
+                    Label("还没有书签", systemImage: "bookmark")
+                } description: {
+                    Text("点击工具栏的 + 添加你的第一个书签。")
+                }
+            } else if filteredBookmarks.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else {
+                List(selection: $selection) {
+                    if !filteredPinned.isEmpty {
+                        Section("置顶") {
+                            ForEach(filteredPinned) { bookmark in
+                                row(for: bookmark)
+                            }
+                        }
+                    }
+                    if !filteredFrequent.isEmpty {
+                        Section("常用") {
+                            ForEach(filteredFrequent) { bookmark in
+                                row(for: bookmark)
+                            }
+                        }
+                    }
+                    if !filteredRecent.isEmpty {
+                        Section("最近添加") {
+                            ForEach(filteredRecent) { bookmark in
+                                row(for: bookmark)
+                            }
+                        }
+                    }
+                    if !filteredOthers.isEmpty {
+                        // Only show the "全部" header when one of the
+                        // grouped sections is also visible — otherwise
+                        // it would be the only section and the header
+                        // would just be noise.
+                        let needsHeader = !filteredPinned.isEmpty || !filteredFrequent.isEmpty || !filteredRecent.isEmpty
+                        Section(needsHeader ? "全部" : "") {
+                            ForEach(filteredOthers) { bookmark in
+                                row(for: bookmark)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 520, minHeight: 360)
+        .navigationTitle("管理书签")
+        .navigationSubtitle(model.bookmarks.isEmpty ? "" : "\(model.bookmarks.count) 个书签")
+    }
+
+    private var aiOptimizationPage: some View {
+        List {
+            Section("标题优化") {
+                HStack {
+                    Label("未优化标题", systemImage: "textformat")
+                    Spacer()
+                    Text("\(unoptimizedTitleCount)")
+                        .foregroundStyle(.secondary)
+                }
+
+                Button {
+                    optimizeTitles()
+                } label: {
+                    HStack {
+                        Label(
+                            model.isOptimizingTitles ? "优化中" : "优化全部标题",
+                            systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                        )
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
+            }
+
+            Section("模型配置") {
+                HStack {
+                    Label("配置文件", systemImage: "doc.text")
+                    Spacer()
+                    Text("~/Documents/UniBookmark/llm.json")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(minWidth: 520, minHeight: 360)
+        .navigationTitle("AI优化")
+        .navigationSubtitle(unoptimizedTitleCount == 0 ? "全部标题已处理" : "\(unoptimizedTitleCount) 个标题待处理")
+    }
+
+    @ToolbarContentBuilder
+    private var settingsToolbar: some ToolbarContent {
+        ToolbarItemGroup {
+            Button {
+                presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil)
+            } label: {
+                Label("添加", systemImage: "plus")
+            }
+            .disabled(settingsPage != .bookmarks || selection.count > 1)
+            .help("添加书签")
+
+            Button {
+                requestDelete(ids: selection)
+            } label: {
+                Label("删除", systemImage: "minus")
+            }
+            .disabled(settingsPage != .bookmarks || !canDeleteSelection)
+            .help("删除选中的书签")
+
+            Spacer()
+
+            Button {
+                if let selectedBookmark {
+                    model.togglePin(selectedBookmark)
+                }
+            } label: {
+                Label(
+                    selectedBookmark?.pinned == true ? "取消置顶" : "置顶",
+                    systemImage: selectedBookmark?.pinned == true ? "pin.slash" : "pin"
+                )
+            }
+            .disabled(settingsPage != .bookmarks || !canUseSingleSelectionActions)
+            .help(selectedBookmark?.pinned == true ? "取消置顶" : "置顶选中的书签")
+
+            Button {
+                if let bookmark = selectedBookmark {
+                    presentation = .edit(bookmark)
+                }
+            } label: {
+                Label("编辑", systemImage: "pencil")
+            }
+            .disabled(settingsPage != .bookmarks || !canUseSingleSelectionActions)
+
+            Button {
+                optimizeTitles()
+            } label: {
+                Label(
+                    model.isOptimizingTitles ? "优化中" : "优化标题",
+                    systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                )
+            }
+            .disabled(settingsPage != .ai || model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
+            .help("优化全部未处理的标题")
         }
     }
 }

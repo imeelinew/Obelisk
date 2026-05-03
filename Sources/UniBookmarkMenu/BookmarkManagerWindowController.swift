@@ -31,7 +31,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         )
 
         let win = NSWindow(contentViewController: hosting)
-        win.title = "UniBookmark"
+        win.title = "设置"
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         win.titlebarAppearsTransparent = false
         win.toolbarStyle = .unified

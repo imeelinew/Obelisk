@@ -10,9 +10,6 @@ struct BookmarkManagerView: View {
     @State private var presentation: Presentation?
     @State private var deleteConfirmation: DeleteConfirmation?
     @State private var searchText = ""
-    /// Tracks the last consumed addRequest.seq. Bumped after we present the
-    /// sheet so subsequent identical-prefill requests still trigger.
-    @State private var lastConsumedAddSeq: Int = 0
 
     enum Presentation: Identifiable {
         // `seq` is part of identity so re-issuing an add request with new
@@ -99,13 +96,11 @@ struct BookmarkManagerView: View {
     }
 
     private func consumePendingAddRequestIfNeeded() {
-        let seq = addRequest.seq
-        guard seq != lastConsumedAddSeq, seq > 0 else { return }
-        lastConsumedAddSeq = seq
+        guard let request = addRequest.consumePending() else { return }
         presentation = .add(
-            seq: seq,
-            prefilledURL: addRequest.url,
-            prefilledTitle: addRequest.title
+            seq: request.seq,
+            prefilledURL: request.url,
+            prefilledTitle: request.title
         )
     }
 

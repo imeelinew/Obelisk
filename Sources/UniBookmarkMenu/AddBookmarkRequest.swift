@@ -13,10 +13,19 @@ final class AddBookmarkRequest {
     private(set) var url: String?
     private(set) var title: String?
     private(set) var seq: Int = 0
+    private var consumedSeq: Int = 0
 
     func request(url: String?, title: String?) {
         self.url = url
         self.title = title
         self.seq &+= 1
+    }
+
+    func consumePending() -> (seq: Int, url: String?, title: String?)? {
+        guard seq > consumedSeq else {
+            return nil
+        }
+        consumedSeq = seq
+        return (seq, url, title)
     }
 }

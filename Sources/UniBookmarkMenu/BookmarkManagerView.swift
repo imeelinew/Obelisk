@@ -12,6 +12,8 @@ struct BookmarkManagerView: View {
     @State private var titleOptimizationMessage: String?
     @State private var searchText = ""
     @State private var settingsPage: SettingsPage = .bookmarks
+    @State private var llmConfig = LLMConfig()
+    @State private var llmConfigMessage: String?
 
     enum Presentation: Identifiable {
         // `seq` is part of identity so re-issuing an add request with new
@@ -35,15 +37,24 @@ struct BookmarkManagerView: View {
 
         var title: String {
             switch self {
-            case .bookmarks: return "管理书签"
-            case .ai: return "AI优化"
+            case .bookmarks: return "书签"
+            case .ai: return "AI配置"
             }
         }
 
         var symbolName: String {
             switch self {
-            case .bookmarks: return "bookmark"
+            case .bookmarks: return "bookmark.fill"
             case .ai: return "sparkles"
+            }
+        }
+
+        var iconGradient: LinearGradient {
+            switch self {
+            case .bookmarks:
+                return LinearGradient(colors: [.orange, .yellow], startPoint: .topLeading, endPoint: .bottomTrailing)
+            case .ai:
+                return LinearGradient(colors: [.purple, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
             }
         }
     }
@@ -162,24 +173,28 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private var llmConfigStore: LLMConfigStore {
+        LLMConfigStore(rootDirectory: BookmarkStore.defaultRootDirectory())
+    }
+
+    private func loadLLMConfig() {
+        llmConfig = llmConfigStore.load()
+    }
+
+    private func saveLLMConfig() {
+        do {
+            try llmConfigStore.save(llmConfig)
+            llmConfigMessage = "模型配置已保存"
+        } catch {
+            llmConfigMessage = error.localizedDescription
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
-            List(SettingsPage.allCases, selection: $settingsPage) { page in
-                NavigationLink(value: page) {
-                    Label(page.title, systemImage: page.symbolName)
-                }
-            }
-            .navigationTitle("设置")
-            .navigationSplitViewColumnWidth(min: 150, ideal: 180)
+            settingsSidebar
         } detail: {
-            NavigationStack {
-                switch settingsPage {
-                case .bookmarks:
-                    bookmarkManagementPage
-                case .ai:
-                    aiOptimizationPage
-                }
-            }
+            settingsDetail
         }
         .frame(minWidth: 720, minHeight: 460)
         // Match Apple's sample: keep search at the split-view level so the
@@ -202,6 +217,7 @@ struct BookmarkManagerView: View {
             }
         }
         .onAppear {
+            loadLLMConfig()
             // First-launch path: the hotkey may have already bumped seq before
             // the view mounted. .onChange only fires on subsequent updates,
             // so we'd miss the initial request without this check. Subsequent
@@ -253,6 +269,42 @@ struct BookmarkManagerView: View {
         } message: { message in
             Text(message)
         }
+        .alert(
+            "模型配置",
+            isPresented: Binding(
+                get: { llmConfigMessage != nil },
+                set: { if !$0 { llmConfigMessage = nil } }
+            ),
+            presenting: llmConfigMessage
+        ) { _ in
+            Button("好") { llmConfigMessage = nil }
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    private var settingsSidebar: some View {
+        List(selection: $settingsPage) {
+            ForEach(SettingsPage.allCases) { page in
+                NavigationLink(value: page) {
+                    SidebarPageLabel(page: page)
+                }
+            }
+        }
+        .navigationTitle("设置")
+        .navigationSplitViewColumnWidth(min: 150, ideal: 180)
+    }
+
+    @ViewBuilder
+    private var settingsDetail: some View {
+        NavigationStack {
+            switch settingsPage {
+            case .bookmarks:
+                bookmarkManagementPage
+            case .ai:
+                aiOptimizationPage
+            }
+        }
     }
 
     private var bookmarkManagementPage: some View {
@@ -268,24 +320,22 @@ struct BookmarkManagerView: View {
             } else {
                 List(selection: $selection) {
                     if !filteredPinned.isEmpty {
-                        Section("置顶") {
-                            ForEach(filteredPinned) { bookmark in
-                                row(for: bookmark)
-                            }
+                        SettingsSectionHeader("置顶")
+                        ForEach(filteredPinned) { bookmark in
+                            row(for: bookmark)
                         }
                     }
                     if !filteredFrequent.isEmpty {
-                        Section("常用") {
-                            ForEach(filteredFrequent) { bookmark in
-                                row(for: bookmark)
-                            }
+                        SettingsSectionHeader("常用", topSpacing: filteredPinned.isEmpty ? 0 : 12)
+                        ForEach(filteredFrequent) { bookmark in
+                            row(for: bookmark)
                         }
                     }
                     if !filteredRecent.isEmpty {
-                        Section("最近添加") {
-                            ForEach(filteredRecent) { bookmark in
-                                row(for: bookmark)
-                            }
+                        let hasPriorSection = !filteredPinned.isEmpty || !filteredFrequent.isEmpty
+                        SettingsSectionHeader("最近添加", topSpacing: hasPriorSection ? 12 : 0)
+                        ForEach(filteredRecent) { bookmark in
+                            row(for: bookmark)
                         }
                     }
                     if !filteredOthers.isEmpty {
@@ -294,113 +344,162 @@ struct BookmarkManagerView: View {
                         // it would be the only section and the header
                         // would just be noise.
                         let needsHeader = !filteredPinned.isEmpty || !filteredFrequent.isEmpty || !filteredRecent.isEmpty
-                        Section(needsHeader ? "全部" : "") {
-                            ForEach(filteredOthers) { bookmark in
-                                row(for: bookmark)
-                            }
+                        if needsHeader {
+                            SettingsSectionHeader("全部", topSpacing: 12)
+                        }
+                        ForEach(filteredOthers) { bookmark in
+                            row(for: bookmark)
                         }
                     }
                 }
+                .settingsContentMargins()
             }
         }
         .frame(minWidth: 520, minHeight: 360)
-        .navigationTitle("管理书签")
-        .navigationSubtitle(model.bookmarks.isEmpty ? "" : "\(model.bookmarks.count) 个书签")
+        .navigationTitle("书签")
     }
 
     private var aiOptimizationPage: some View {
         List {
-            Section("标题优化") {
-                HStack {
-                    Label("未优化标题", systemImage: "textformat")
-                    Spacer()
-                    Text("\(unoptimizedTitleCount)")
-                        .foregroundStyle(.secondary)
-                }
-
-                Button {
-                    optimizeTitles()
-                } label: {
-                    HStack {
-                        Label(
-                            model.isOptimizingTitles ? "优化中" : "优化全部标题",
-                            systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
-                        )
-                        Spacer()
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
+            SettingsSectionHeader("模型配置")
+            LabeledContent {
+                SecureField("sk-...", text: $llmConfig.apiKey)
+                    .textFieldStyle(.roundedBorder)
+            } label: {
+                Label("API Key", systemImage: "key")
             }
 
-            Section("模型配置") {
-                HStack {
-                    Label("配置文件", systemImage: "doc.text")
-                    Spacer()
-                    Text("~/Documents/UniBookmark/llm.json")
-                        .foregroundStyle(.secondary)
-                }
+            LabeledContent {
+                TextField("gpt-4.1-mini", text: $llmConfig.model)
+                    .textFieldStyle(.roundedBorder)
+            } label: {
+                Label("Model", systemImage: "cpu")
+            }
+
+            LabeledContent {
+                TextField("https://api.openai.com/v1/chat/completions", text: $llmConfig.baseURL)
+                    .textFieldStyle(.roundedBorder)
+            } label: {
+                Label("Base URL", systemImage: "link")
+            }
+
+            Button {
+                saveLLMConfig()
+            } label: {
+                Label("保存配置", systemImage: "square.and.arrow.down")
             }
         }
+        .settingsContentMargins()
         .frame(minWidth: 520, minHeight: 360)
-        .navigationTitle("AI优化")
-        .navigationSubtitle(unoptimizedTitleCount == 0 ? "全部标题已处理" : "\(unoptimizedTitleCount) 个标题待处理")
+        .navigationTitle("AI配置")
     }
 
     @ToolbarContentBuilder
     private var settingsToolbar: some ToolbarContent {
         ToolbarItemGroup {
-            Button {
-                presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil)
-            } label: {
-                Label("添加", systemImage: "plus")
-            }
-            .disabled(settingsPage != .bookmarks || selection.count > 1)
-            .help("添加书签")
-
-            Button {
-                requestDelete(ids: selection)
-            } label: {
-                Label("删除", systemImage: "minus")
-            }
-            .disabled(settingsPage != .bookmarks || !canDeleteSelection)
-            .help("删除选中的书签")
-
-            Spacer()
-
-            Button {
-                if let selectedBookmark {
-                    model.togglePin(selectedBookmark)
+            if settingsPage == .bookmarks {
+                Button {
+                    presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil)
+                } label: {
+                    Label("添加", systemImage: "plus")
                 }
-            } label: {
-                Label(
-                    selectedBookmark?.pinned == true ? "取消置顶" : "置顶",
-                    systemImage: selectedBookmark?.pinned == true ? "pin.slash" : "pin"
-                )
-            }
-            .disabled(settingsPage != .bookmarks || !canUseSingleSelectionActions)
-            .help(selectedBookmark?.pinned == true ? "取消置顶" : "置顶选中的书签")
+                .disabled(selection.count > 1)
+                .help("添加书签")
 
-            Button {
-                if let bookmark = selectedBookmark {
-                    presentation = .edit(bookmark)
+                Button {
+                    requestDelete(ids: selection)
+                } label: {
+                    Label("删除", systemImage: "minus")
                 }
-            } label: {
-                Label("编辑", systemImage: "pencil")
-            }
-            .disabled(settingsPage != .bookmarks || !canUseSingleSelectionActions)
+                .disabled(!canDeleteSelection)
+                .help("删除选中的书签")
 
-            Button {
-                optimizeTitles()
-            } label: {
-                Label(
-                    model.isOptimizingTitles ? "优化中" : "优化标题",
-                    systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
-                )
+                Spacer()
+
+                Button {
+                    if let selectedBookmark {
+                        model.togglePin(selectedBookmark)
+                    }
+                } label: {
+                    Label(
+                        selectedBookmark?.pinned == true ? "取消置顶" : "置顶",
+                        systemImage: selectedBookmark?.pinned == true ? "pin.slash" : "pin"
+                    )
+                }
+                .disabled(!canUseSingleSelectionActions)
+                .help(selectedBookmark?.pinned == true ? "取消置顶" : "置顶选中的书签")
+
+                Button {
+                    if let bookmark = selectedBookmark {
+                        presentation = .edit(bookmark)
+                    }
+                } label: {
+                    Label("编辑", systemImage: "pencil")
+                }
+                .disabled(!canUseSingleSelectionActions)
+            } else {
+                Button {
+                    optimizeTitles()
+                } label: {
+                    Label(
+                        model.isOptimizingTitles ? "优化中" : "优化标题",
+                        systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                    )
+                }
+                .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
+                .help("优化全部未处理的标题")
             }
-            .disabled(settingsPage != .ai || model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
-            .help("优化全部未处理的标题")
         }
+    }
+}
+
+private struct SidebarPageLabel: View {
+    let page: BookmarkManagerView.SettingsPage
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(page.iconGradient)
+                Image(systemName: page.symbolName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 22, height: 22)
+
+            Text(page.title)
+        }
+    }
+}
+
+private struct SettingsSectionHeader: View {
+    let title: String
+    let topSpacing: CGFloat
+
+    init(_ title: String, topSpacing: CGFloat = 0) {
+        self.title = title
+        self.topSpacing = topSpacing
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .textCase(nil)
+            .padding(.top, topSpacing)
+            .frame(height: 28 + topSpacing, alignment: .topLeading)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+    }
+}
+
+private extension View {
+    func settingsContentMargins() -> some View {
+        self
+            .contentMargins(.horizontal, 32, for: .scrollContent)
+            .padding(.horizontal, 18)
+            .padding(.top, -9)
     }
 }
 

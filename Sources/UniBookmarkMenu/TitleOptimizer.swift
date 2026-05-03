@@ -27,14 +27,61 @@ struct TitleOptimizationCandidate: Encodable {
     let url: String
 }
 
-@MainActor
-final class TitleOptimizer {
-    private struct Config: Decodable {
-        var apiKey: String? = nil
-        var model: String? = nil
-        var baseURL: String? = nil
+struct LLMConfig: Codable, Equatable {
+    var apiKey: String = ""
+    var model: String = ""
+    var baseURL: String = "https://api.openai.com/v1/chat/completions"
+
+    private enum CodingKeys: String, CodingKey {
+        case apiKey, model, baseURL
     }
 
+    init() {}
+
+    init(apiKey: String, model: String, baseURL: String) {
+        self.apiKey = apiKey
+        self.model = model
+        self.baseURL = baseURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
+        baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? "https://api.openai.com/v1/chat/completions"
+    }
+}
+
+final class LLMConfigStore {
+    let configURL: URL
+
+    init(rootDirectory: URL) {
+        self.configURL = rootDirectory.appendingPathComponent("llm.json")
+    }
+
+    func load() -> LLMConfig {
+        guard let data = try? Data(contentsOf: configURL),
+              let config = try? JSONDecoder().decode(LLMConfig.self, from: data)
+        else {
+            return LLMConfig()
+        }
+        return config
+    }
+
+    func save(_ config: LLMConfig) throws {
+        try FileManager.default.createDirectory(
+            at: configURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(config)
+        try data.write(to: configURL, options: [.atomic])
+    }
+}
+
+@MainActor
+final class TitleOptimizer {
     private struct ChatRequest: Encodable {
         struct Message: Encodable {
             let role: String
@@ -68,12 +115,14 @@ final class TitleOptimizer {
     }
 
     private let rootDirectory: URL
+    private let configStore: LLMConfigStore
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     init(rootDirectory: URL) {
         self.rootDirectory = rootDirectory
+        self.configStore = LLMConfigStore(rootDirectory: rootDirectory)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 30
@@ -142,26 +191,17 @@ final class TitleOptimizer {
     }
 
     private func loadConfig() throws -> LoadedConfig {
-        let configURL = rootDirectory.appendingPathComponent("llm.json")
-        let fileConfig: Config
-        if let data = try? Data(contentsOf: configURL) {
-            guard let decoded = try? decoder.decode(Config.self, from: data) else {
-                throw TitleOptimizerError.invalidConfig(configURL)
-            }
-            fileConfig = decoded
-        } else {
-            fileConfig = Config()
-        }
+        let configURL = configStore.configURL
+        let fileConfig = configStore.load()
 
         let env = ProcessInfo.processInfo.environment
         let apiKey = env["UNIBOOKMARK_LLM_API_KEY"] ?? fileConfig.apiKey
         let model = env["UNIBOOKMARK_LLM_MODEL"] ?? fileConfig.model
         let baseURLString = env["UNIBOOKMARK_LLM_BASE_URL"]
             ?? fileConfig.baseURL
-            ?? "https://api.openai.com/v1/chat/completions"
 
-        guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let model, !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
             throw TitleOptimizerError.missingConfig(configURL)
         }

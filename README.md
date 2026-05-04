@@ -252,11 +252,10 @@ them is a regression.
     mount time; `.onAppear` covers the cold-launch hotkey path where
     the request is bumped before the view exists.
 
-17. **macOS 26 / Tahoe applies a uniform squircle mask to app icons.**
-    `scripts/make-icon.swift` renders a full-bleed square; adding
-    rounded corners in the PNG produces a visible transparent halo
-    in the Spotlight result badge because the system mask shape and
-    the PNG's mask shape do not match.
+17. **The app icon has a single source artwork.**
+    Replace `Sources/UniBookmarkMenu/Resources/AppIcon.png` when the
+    artwork changes; `scripts/make-icon.swift` derives the `.icns`
+    renditions from that PNG during app packaging.
 
 ## Frecency
 
@@ -285,9 +284,8 @@ Implemented in `UsageStore.topFrequent`. `pow(0.95, days)` with
   installation can).
 - Strips debug symbols from the binary.
 - Generates `Resources/AppIcon.icns` by running
-  `scripts/make-icon.swift`. The icon source is
-  `bookmark.fill` SF Symbol composited over a vertical yellow
-  gradient. Full bleed (no rounded mask).
+  `scripts/make-icon.swift`. The icon source is the shared
+  `Sources/UniBookmarkMenu/Resources/AppIcon.png` artwork.
 - Writes `Info.plist`. Required keys:
   `LSUIElement`, `LSMinimumSystemVersion=14.0`,
   `NSUserActivityTypes=[com.apple.corespotlightitem]`,

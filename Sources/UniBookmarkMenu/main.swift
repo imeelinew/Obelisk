@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureStatusItem() {
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "UniBookmark")
+            button.image = AppIcon.image(size: NSSize(width: 18, height: 18))
             button.title = ""
         }
     }
@@ -197,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         item.representedObject = bookmark
         item.toolTip = "\(bookmark.title)\n\(bookmark.url)"
-        item.image = faviconLoader.image(for: bookmark.url)
+        item.image = faviconLoader.image(for: bookmark.url) ?? AppIcon.image(size: NSSize(width: 16, height: 16))
         return item
     }
 

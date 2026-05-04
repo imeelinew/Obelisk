@@ -29,8 +29,9 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$BIN_DIR/UniBookmarkMenu" "$MACOS_DIR/UniBookmark"
 
-# Generate the app icon (bookmark.fill in white over a soft yellow gradient).
-swift "$ROOT_DIR/scripts/make-icon.swift" "$RESOURCES_DIR" >/dev/null
+# Generate the app icon from the shared source artwork.
+swift "$ROOT_DIR/scripts/make-icon.swift" "$RESOURCES_DIR" "$ROOT_DIR/Sources/UniBookmarkMenu/Resources/AppIcon.png" >/dev/null
+cp "$ROOT_DIR/Sources/UniBookmarkMenu/Resources/AppIcon.png" "$RESOURCES_DIR/AppIcon.png"
 
 # Strip debug symbols (saves a few MB; we don't ship a dSYM for personal use).
 strip -S "$MACOS_DIR/UniBookmark" 2>/dev/null || true

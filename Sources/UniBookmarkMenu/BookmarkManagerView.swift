@@ -44,7 +44,7 @@ struct BookmarkManagerView: View {
 
         var symbolName: String {
             switch self {
-            case .bookmarks: return "bookmark.fill"
+            case .bookmarks: return ""
             case .ai: return "sparkles"
             }
         }
@@ -311,7 +311,11 @@ struct BookmarkManagerView: View {
         Group {
             if model.bookmarks.isEmpty {
                 ContentUnavailableView {
-                    Label("还没有书签", systemImage: "bookmark")
+                    Label {
+                        Text("还没有书签")
+                    } icon: {
+                        Image(nsImage: AppIcon.image(size: NSSize(width: 28, height: 28)))
+                    }
                 } description: {
                     Text("点击工具栏的 + 添加你的第一个书签。")
                 }
@@ -458,14 +462,21 @@ private struct SidebarPageLabel: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(page.iconGradient)
-                Image(systemName: page.symbolName)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
+            if page == .bookmarks {
+                Image(nsImage: AppIcon.image(size: NSSize(width: 22, height: 22)))
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 22, height: 22)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(page.iconGradient)
+                    Image(systemName: page.symbolName)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 22, height: 22)
             }
-            .frame(width: 22, height: 22)
 
             Text(page.title)
         }
@@ -520,8 +531,10 @@ private struct BookmarkRow: View {
                         .interpolation(.high)
                         .frame(width: 16, height: 16)
                 } else {
-                    Image(systemName: "bookmark.fill")
-                        .foregroundStyle(.tint)
+                    Image(nsImage: AppIcon.image(size: NSSize(width: 16, height: 16)))
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 16, height: 16)
                 }
             }
             .frame(width: 20)

@@ -15,7 +15,10 @@ let package = Package(
         .target(name: "UniBookmarkCore"),
         .executableTarget(
             name: "UniBookmarkMenu",
-            dependencies: ["UniBookmarkCore"]
+            dependencies: ["UniBookmarkCore"],
+            resources: [
+                .process("Resources")
+            ]
         ),
         .executableTarget(
             name: "UniBookmarkSmokeTests",

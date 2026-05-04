@@ -1,7 +1,6 @@
 import Foundation
 import UniBookmarkCore
 
-@main
 struct SmokeTests {
     static func main() throws {
         try testDuplicateProtection()
@@ -189,3 +188,5 @@ private enum SmokeTestError: Error, CustomStringConvertible {
         }
     }
 }
+try SmokeTests.main()
+

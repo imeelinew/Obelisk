@@ -71,32 +71,6 @@ struct BookmarkManagerView: View {
         }
     }
 
-    @ViewBuilder
-    private func row(for bookmark: Bookmark) -> some View {
-        BookmarkRow(bookmark: bookmark, faviconLoader: faviconLoader)
-            .tag(bookmark.id)
-            .contextMenu {
-                // "打开" here is a preview/check action — the manage window
-                // is for organization, not navigation. We deliberately do
-                // NOT route this through model.openBookmark so it doesn't
-                // pollute frecency. Only menubar clicks count as "usage".
-                Button("在浏览器中打开") {
-                    if let url = URL(string: bookmark.url) {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                Button("编辑…") { presentation = .edit(bookmark) }
-                Button(bookmark.pinned ? "取消置顶" : "置顶") {
-                    model.togglePin(bookmark)
-                }
-                Divider()
-                Button("删除", role: .destructive) {
-                    let ids = selection.contains(bookmark.id) ? selection : [bookmark.id]
-                    requestDelete(ids: ids)
-                }
-            }
-    }
-
     private var filteredFrequent: [Bookmark] {
         filtered(model.frequent)
     }
@@ -115,6 +89,29 @@ struct BookmarkManagerView: View {
 
     private var filteredBookmarks: [Bookmark] {
         filtered(model.bookmarks)
+    }
+
+    private var bookmarkSections: [BookmarkListSection] {
+        var sections: [BookmarkListSection] = []
+
+        if !filteredPinned.isEmpty {
+            sections.append(BookmarkListSection(title: "置顶", bookmarks: filteredPinned))
+        }
+
+        if !filteredFrequent.isEmpty {
+            sections.append(BookmarkListSection(title: "常用", bookmarks: filteredFrequent))
+        }
+
+        if !filteredRecent.isEmpty {
+            sections.append(BookmarkListSection(title: "最近添加", bookmarks: filteredRecent))
+        }
+
+        if !filteredOthers.isEmpty {
+            let needsHeader = !filteredPinned.isEmpty || !filteredFrequent.isEmpty || !filteredRecent.isEmpty
+            sections.append(BookmarkListSection(title: needsHeader ? "全部" : nil, bookmarks: filteredOthers))
+        }
+
+        return sections
     }
 
     private func filtered(_ bookmarks: [Bookmark]) -> [Bookmark] {
@@ -196,10 +193,6 @@ struct BookmarkManagerView: View {
         } detail: {
             settingsDetail
         }
-        .frame(minWidth: 720, minHeight: 460)
-        // Match Apple's sample: keep search at the split-view level so the
-        // system does not rebuild the window chrome differently per page.
-        .searchable(text: $searchText, prompt: "搜索标题或网址")
         .toolbar {
             settingsToolbar
         }
@@ -322,45 +315,17 @@ struct BookmarkManagerView: View {
             } else if filteredBookmarks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             } else {
-                List(selection: $selection) {
-                    if !filteredPinned.isEmpty {
-                        SettingsSectionHeader("置顶")
-                        ForEach(filteredPinned) { bookmark in
-                            row(for: bookmark)
-                        }
-                    }
-                    if !filteredFrequent.isEmpty {
-                        SettingsSectionHeader("常用", topSpacing: filteredPinned.isEmpty ? 0 : 12)
-                        ForEach(filteredFrequent) { bookmark in
-                            row(for: bookmark)
-                        }
-                    }
-                    if !filteredRecent.isEmpty {
-                        let hasPriorSection = !filteredPinned.isEmpty || !filteredFrequent.isEmpty
-                        SettingsSectionHeader("最近添加", topSpacing: hasPriorSection ? 12 : 0)
-                        ForEach(filteredRecent) { bookmark in
-                            row(for: bookmark)
-                        }
-                    }
-                    if !filteredOthers.isEmpty {
-                        // Only show the "全部" header when one of the
-                        // grouped sections is also visible — otherwise
-                        // it would be the only section and the header
-                        // would just be noise.
-                        let needsHeader = !filteredPinned.isEmpty || !filteredFrequent.isEmpty || !filteredRecent.isEmpty
-                        if needsHeader {
-                            SettingsSectionHeader("全部", topSpacing: 12)
-                        }
-                        ForEach(filteredOthers) { bookmark in
-                            row(for: bookmark)
-                        }
-                    }
-                }
-                .settingsContentMargins()
+                NativeBookmarkList(
+                    sections: bookmarkSections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version
+                )
+                .padding(.top, -9)
             }
         }
-        .frame(minWidth: 520, minHeight: 360)
         .navigationTitle("书签")
+        .searchable(text: $searchText, prompt: "搜索标题或网址")
     }
 
     private var aiOptimizationPage: some View {
@@ -394,7 +359,6 @@ struct BookmarkManagerView: View {
             }
         }
         .settingsContentMargins()
-        .frame(minWidth: 520, minHeight: 360)
         .navigationTitle("AI配置")
     }
 
@@ -441,7 +405,9 @@ struct BookmarkManagerView: View {
                     Label("编辑", systemImage: "pencil")
                 }
                 .disabled(!canUseSingleSelectionActions)
-            } else {
+
+                Spacer()
+
                 Button {
                     optimizeTitles()
                 } label: {

@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureStatusItem() {
         if let button = statusItem.button {
-            button.image = AppIcon.image(size: NSSize(width: 18, height: 18))
+            button.image = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "UniBookmark")
             button.title = ""
         }
     }

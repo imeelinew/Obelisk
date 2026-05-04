@@ -32,11 +32,14 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
 
         let win = NSWindow(contentViewController: hosting)
         win.title = "设置"
-        win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        win.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         win.titlebarAppearsTransparent = false
         win.toolbarStyle = .unified
         win.isReleasedWhenClosed = false
-        win.setContentSize(NSSize(width: 560, height: 420))
+        let contentSize = NSSize(width: 650, height: 550)
+        win.setContentSize(contentSize)
+        win.minSize = win.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize)).size
+        win.maxSize = win.minSize
         win.center()
         win.delegate = self
         window = win

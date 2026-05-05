@@ -13,7 +13,7 @@ file-backed, no network sync.
   Liquid Glass binary; building against earlier SDKs produces a
   Sonoma-styled binary from the same source.
 - Bundle short version string is sourced from `$VERSION` in
-  `scripts/build-app.sh` (default `1.0.0`).
+  `scripts/build-app.sh` (default `1.1.0`).
 - `User-Agent` header used by `FaviconLoader` and `PageMetadataFetcher`
   is `UniBookmark/1.0`.
 
@@ -41,7 +41,7 @@ Sources/UniBookmarkMenu/
                               FaviconLoader, FaviconRecord, hotkey wiring,
                               CoreSpotlight continueUserActivity handler
   BookmarksModel.swift        @Observable single source of truth for
-                              pinned/frequent/recent/others
+                              frequent/recent/others
   BookmarkManagerView.swift   SwiftUI list + add/edit sheet (BookmarkEditor)
   BookmarkManagerWindowController.swift
                               NSWindow lifecycle, NSHostingController plumbing
@@ -52,8 +52,8 @@ Sources/UniBookmarkMenu/
   AddBookmarkRequest.swift    @Observable seq-bumped channel for prefill
 
 Sources/UniBookmarkSmokeTests/
-  main.swift                  duplicate URL, legacy createdAt, pinned
-                              persistence, usage grouping
+  main.swift                  duplicate URL, legacy createdAt,
+                              title persistence, usage grouping
 ```
 
 ## External runtime data
@@ -71,18 +71,17 @@ Root directory: `$UNIBOOKMARK_HOME` if set and non-empty, else
       "id":        "<UUID>",
       "title":     "<string>",
       "url":       "<string>",
-      "createdAt": "<ISO-8601>",
-      "pinned":    <bool>
+      "createdAt": "<ISO-8601>"
     }
   ]
 }
 ```
 
-`createdAt` and `pinned` are absent in legacy files written before
-those fields existed. `Bookmark.init(from:)` falls back to
-`.distantPast` and `false` respectively. Bookmarks with `.distantPast`
-created-at are excluded from the "recent" group via
-`UsageStore.recent`.
+`createdAt` is absent in legacy files written before that field
+existed. `Bookmark.init(from:)` falls back to `.distantPast`.
+Bookmarks with `.distantPast` created-at are excluded from the
+"recent" group via `UsageStore.recent`. Older files may still contain
+the removed `pinned` key; decoding ignores it.
 
 ### `usage.json`
 
@@ -172,12 +171,11 @@ These are not derivable from the code on its own. Breaking any of
 them is a regression.
 
 1. **`BookmarksModel` is the single source of truth for groupings.**
-   `pinned`, `frequent`, `recent`, `others` are computed in
-   `recomputeGroups`. Both `AppDelegate.rebuildMenu` and
-   `BookmarkManagerView` read them. Recomputing groups elsewhere is
-   prohibited.
+   `frequent`, `recent`, `others` are computed in `recomputeGroups`.
+   Both `AppDelegate.rebuildMenu` and `BookmarkManagerView` read them.
+   Recomputing groups elsewhere is prohibited.
 
-2. **Each bookmark appears in exactly one of pinned / frequent / recent / others.**
+2. **Each bookmark appears in exactly one of frequent / recent / others.**
    `recomputeGroups` deduplicates. `List(selection: Bookmark.ID?)`
    relies on this; menubar `NSMenu` rendering also relies on it now.
 
@@ -195,7 +193,7 @@ them is a regression.
    Calling `rebuildMenu` directly outside the debounce path is
    prohibited.
 
-5. **`BookmarkStore.add` / `update` / `delete` / `setPinned` execute
+5. **`BookmarkStore.add` / `update` / `delete` execute
    under `flock` on `<root>/.lock`.** Any new mutator must use
    `withFileLock`.
 
@@ -266,11 +264,11 @@ score(b) = b.usage.count * 0.95 ^ daysSinceLastClick
 Implemented in `UsageStore.topFrequent`. `pow(0.95, days)` with
 `days = max(0, …)` clamps future-dated stamps to no boost.
 
-- `frequent`: top 5 by score, `count >= 3`, excluding pinned.
-- `recent`: top 5 by `createdAt` desc, excluding pinned and
-  bookmarks already in `frequent`. Bookmarks with
-  `createdAt == .distantPast` are filtered out.
-- `others`: everything not pinned/frequent/recent.
+- `frequent`: top 5 by score, `count >= 3`.
+- `recent`: top 5 by `createdAt` desc, excluding bookmarks already
+  in `frequent`. Bookmarks with `createdAt == .distantPast` are
+  filtered out.
+- `others`: everything not in frequent/recent.
 - Group cap (`5`) is the `groupSize` parameter on `BookmarksModel`
   and is held private; UI does not currently expose it.
 
@@ -305,7 +303,6 @@ Implemented in `UsageStore.topFrequent`. `pow(0.95, days)` with
   exists (covers default-port and trailing-slash equivalence).
 - Legacy `bookmarks.json` without `createdAt` decodes with
   `.distantPast`.
-- `pinned` round-trips through Codable.
 - `UsageStore.topFrequent` minimum-count gating and `recent`
   dedup filtering.
 

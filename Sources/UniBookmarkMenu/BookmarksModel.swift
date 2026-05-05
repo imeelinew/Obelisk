@@ -7,8 +7,6 @@ import UniBookmarkCore
 @Observable
 final class BookmarksModel {
     private(set) var bookmarks: [Bookmark] = []
-    /// User-pinned bookmarks, sorted by title.
-    private(set) var pinned: [Bookmark] = []
     /// Top-N most frecent bookmarks (≥3 clicks, decayed).
     private(set) var frequent: [Bookmark] = []
     /// Top-N by createdAt, excluding any already in `frequent`.
@@ -109,15 +107,6 @@ final class BookmarksModel {
         }
     }
 
-    func togglePin(_ bookmark: Bookmark) {
-        do {
-            try store.setPinned(id: bookmark.id, pinned: !bookmark.pinned)
-            reload()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
     func optimizeAllTitles() async -> String {
         guard !isOptimizingTitles else {
             return "标题优化正在进行中"
@@ -166,25 +155,18 @@ final class BookmarksModel {
     }
 
     private func recomputeGroups(from all: [Bookmark]) {
-        let pinnedBookmarks = all
-            .filter(\.pinned)
-            .sorted {
-                $0.title.localizedStandardCompare($1.title) == .orderedAscending
-            }
-        let unpinned = all.filter { !$0.pinned }
-        let topFrequent = usageStore.topFrequent(among: unpinned, limit: groupSize)
+        let topFrequent = usageStore.topFrequent(among: all, limit: groupSize)
         let frequentIds = Set(topFrequent.map(\.id))
 
         // Recent excludes anything already shown in "frequent" so each
         // bookmark only appears once.
-        let recentCandidates = unpinned.filter { !frequentIds.contains($0.id) }
+        let recentCandidates = all.filter { !frequentIds.contains($0.id) }
         let topRecent = usageStore.recent(among: recentCandidates, limit: groupSize)
 
         let surfacedIds = frequentIds.union(topRecent.map(\.id))
 
-        pinned = pinnedBookmarks
         frequent = topFrequent
         recent = topRecent
-        others = unpinned.filter { !surfacedIds.contains($0.id) }
+        others = all.filter { !surfacedIds.contains($0.id) }
     }
 }

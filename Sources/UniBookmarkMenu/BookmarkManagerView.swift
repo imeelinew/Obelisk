@@ -75,10 +75,6 @@ struct BookmarkManagerView: View {
         filtered(model.frequent)
     }
 
-    private var filteredPinned: [Bookmark] {
-        filtered(model.pinned)
-    }
-
     private var filteredRecent: [Bookmark] {
         filtered(model.recent)
     }
@@ -94,10 +90,6 @@ struct BookmarkManagerView: View {
     private var bookmarkSections: [BookmarkListSection] {
         var sections: [BookmarkListSection] = []
 
-        if !filteredPinned.isEmpty {
-            sections.append(BookmarkListSection(title: "置顶", bookmarks: filteredPinned))
-        }
-
         if !filteredFrequent.isEmpty {
             sections.append(BookmarkListSection(title: "常用", bookmarks: filteredFrequent))
         }
@@ -107,7 +99,7 @@ struct BookmarkManagerView: View {
         }
 
         if !filteredOthers.isEmpty {
-            let needsHeader = !filteredPinned.isEmpty || !filteredFrequent.isEmpty || !filteredRecent.isEmpty
+            let needsHeader = !filteredFrequent.isEmpty || !filteredRecent.isEmpty
             sections.append(BookmarkListSection(title: needsHeader ? "全部" : nil, bookmarks: filteredOthers))
         }
 
@@ -382,21 +374,6 @@ struct BookmarkManagerView: View {
                 .disabled(!canDeleteSelection)
                 .help("删除选中的书签")
 
-                Spacer()
-
-                Button {
-                    if let selectedBookmark {
-                        model.togglePin(selectedBookmark)
-                    }
-                } label: {
-                    Label(
-                        selectedBookmark?.pinned == true ? "取消置顶" : "置顶",
-                        systemImage: selectedBookmark?.pinned == true ? "pin.slash" : "pin"
-                    )
-                }
-                .disabled(!canUseSingleSelectionActions)
-                .help(selectedBookmark?.pinned == true ? "取消置顶" : "置顶选中的书签")
-
                 Button {
                     if let bookmark = selectedBookmark {
                         presentation = .edit(bookmark)
@@ -514,11 +491,6 @@ private struct BookmarkRow: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 0)
-            if bookmark.pinned {
-                Image(systemName: "pin.fill")
-                    .foregroundStyle(.secondary)
-                    .imageScale(.small)
-            }
         }
         .padding(.vertical, 2)
     }

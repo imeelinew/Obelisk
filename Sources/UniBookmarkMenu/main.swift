@@ -145,17 +145,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             emptyItem.isEnabled = false
             menu.addItem(emptyItem)
         } else {
-            let pinned = bookmarksModel.pinned
             let frequent = bookmarksModel.frequent
             let recent = bookmarksModel.recent
-            // `model.others` is already deduped (excludes pinned/frequent/recent).
+            // `model.others` is already deduped (excludes frequent/recent).
             // Showing the full list here was duplicating items in the
             // dropdown — match the manage window's "everything once" behavior.
             let others = bookmarksModel.others
 
-            if !pinned.isEmpty {
-                appendSection(title: "置顶", bookmarks: pinned, to: menu)
-            }
             if !frequent.isEmpty {
                 appendSection(title: "常用", bookmarks: frequent, to: menu)
             }
@@ -163,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 appendSection(title: "最近添加", bookmarks: recent, to: menu)
             }
             if !others.isEmpty {
-                let needsHeader = !pinned.isEmpty || !frequent.isEmpty || !recent.isEmpty
+                let needsHeader = !frequent.isEmpty || !recent.isEmpty
                 appendSection(title: needsHeader ? "全部" : "", bookmarks: others, to: menu)
             }
         }

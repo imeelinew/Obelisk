@@ -375,7 +375,6 @@ private final class BookmarkTableCellView: NSTableCellView {
     private let faviconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let urlField = NSTextField(labelWithString: "")
-    private let pinView = NSImageView()
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
@@ -400,12 +399,7 @@ private final class BookmarkTableCellView: NSTableCellView {
         urlField.textColor = .secondaryLabelColor
         urlField.lineBreakMode = .byTruncatingMiddle
 
-        pinView.translatesAutoresizingMaskIntoConstraints = false
-        pinView.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "置顶")
-        pinView.contentTintColor = .secondaryLabelColor
-        pinView.imageScaling = .scaleProportionallyUpOrDown
-
-        [faviconView, titleField, urlField, pinView].forEach(addSubview)
+        [faviconView, titleField, urlField].forEach(addSubview)
 
         NSLayoutConstraint.activate([
             faviconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
@@ -415,16 +409,11 @@ private final class BookmarkTableCellView: NSTableCellView {
 
             titleField.leadingAnchor.constraint(equalTo: faviconView.trailingAnchor, constant: 12),
             titleField.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            titleField.trailingAnchor.constraint(lessThanOrEqualTo: pinView.leadingAnchor, constant: -18),
+            titleField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -NativeBookmarkList.contentInset),
 
             urlField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
             urlField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 2),
-            urlField.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
-
-            pinView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -NativeBookmarkList.contentInset),
-            pinView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pinView.widthAnchor.constraint(equalToConstant: 14),
-            pinView.heightAnchor.constraint(equalToConstant: 14)
+            urlField.trailingAnchor.constraint(equalTo: titleField.trailingAnchor)
         ])
     }
 
@@ -443,7 +432,6 @@ private final class BookmarkTableCellView: NSTableCellView {
         }
         titleField.stringValue = bookmark.title
         urlField.stringValue = bookmark.url
-        pinView.isHidden = !bookmark.pinned
         applyNativeTextColors()
     }
 
@@ -451,6 +439,5 @@ private final class BookmarkTableCellView: NSTableCellView {
         let selected = backgroundStyle == .emphasized
         titleField.textColor = selected ? .alternateSelectedControlTextColor : .labelColor
         urlField.textColor = selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
-        pinView.contentTintColor = selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
     }
 }

@@ -118,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureStatusItem() {
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "Obelisk")
+            button.image = NSImage(systemSymbolName: "pyramid.fill", accessibilityDescription: "Obelisk")
             button.title = ""
         }
     }

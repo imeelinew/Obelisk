@@ -98,7 +98,7 @@ public final class BookmarkStore {
         return FileManager.default
             .homeDirectoryForCurrentUser
             .appendingPathComponent("Documents")
-            .appendingPathComponent("Obelisk")
+            .appendingPathComponent("UniBookmark")
     }
 
     public func load() throws -> BookmarkDatabase {

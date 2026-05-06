@@ -95,6 +95,17 @@ final class BookmarksModel {
         }
     }
 
+    func setHidden(_ isHidden: Bool, for id: UUID) -> String? {
+        guard var bookmark = bookmarks.first(where: { $0.id == id }) else {
+            return "找不到这个书签"
+        }
+        guard bookmark.isHidden != isHidden else {
+            return nil
+        }
+        bookmark.isHidden = isHidden
+        return update(bookmark)
+    }
+
     func delete(id: UUID) {
         delete(ids: [id])
     }
@@ -108,13 +119,26 @@ final class BookmarksModel {
         }
     }
 
-    func optimizeAllTitles() async -> String {
+    enum TitleOptimizationScope {
+        case visible
+        case hidden
+    }
+
+    func optimizeAllTitles(scope: TitleOptimizationScope = .visible) async -> String {
         guard !isOptimizingTitles else {
             return "标题优化正在进行中"
         }
 
         let candidates = bookmarks
-            .filter { !$0.titleOptimized && !$0.isHidden }
+            .filter { bookmark in
+                guard !bookmark.titleOptimized else { return false }
+                switch scope {
+                case .visible:
+                    return !bookmark.isHidden
+                case .hidden:
+                    return bookmark.isHidden
+                }
+            }
             .map {
                 TitleOptimizationCandidate(
                     id: $0.id,

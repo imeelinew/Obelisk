@@ -9,7 +9,7 @@ struct BookmarkManagerView: View {
     @State private var selection: Set<Bookmark.ID> = []
     @State private var presentation: Presentation?
     @State private var deleteConfirmation: DeleteConfirmation?
-    @State private var titleOptimizationMessage: String?
+    @State private var toastMessage: String?
     @State private var searchText = ""
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var llmConfig = LLMConfig()
@@ -200,13 +200,38 @@ struct BookmarkManagerView: View {
         selection.subtract(confirmation.ids)
     }
 
+    private func copyURL(_ bookmark: Bookmark) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bookmark.url, forType: .string)
+        showToast("已复制 URL")
+    }
+
+    private func setHidden(_ isHidden: Bool, for bookmark: Bookmark) {
+        if let errorMessage = model.setHidden(isHidden, for: bookmark.id) {
+            model.errorMessage = errorMessage
+        } else {
+            selection.remove(bookmark.id)
+        }
+    }
+
     private var unoptimizedTitleCount: Int {
         model.bookmarks.filter { !$0.titleOptimized && !$0.isHidden }.count
     }
 
-    private func optimizeTitles() {
+    private var hiddenUnoptimizedTitleCount: Int {
+        model.bookmarks.filter { !$0.titleOptimized && $0.isHidden }.count
+    }
+
+    private func optimizeTitles(scope: BookmarksModel.TitleOptimizationScope = .visible) {
         Task {
-            titleOptimizationMessage = await model.optimizeAllTitles()
+            let message = await model.optimizeAllTitles(scope: scope)
+            showToast(message)
+        }
+    }
+
+    private func showToast(_ message: String) {
+        withAnimation(.spring(duration: 0.24, bounce: 0.18)) {
+            toastMessage = message
         }
     }
 
@@ -221,7 +246,7 @@ struct BookmarkManagerView: View {
     private func saveLLMConfig() {
         do {
             try llmConfigStore.save(llmConfig)
-            llmConfigMessage = "模型配置已保存"
+            showToast("模型配置已保存")
         } catch {
             llmConfigMessage = error.localizedDescription
         }
@@ -245,6 +270,9 @@ struct BookmarkManagerView: View {
         .searchable(text: $searchText, placement: .toolbar, prompt: "搜索标题或网址")
         .toolbar {
             settingsToolbar
+        }
+        .overlay(alignment: .top) {
+            toastView
         }
         .sheet(item: $presentation) { kind in
             switch kind {
@@ -277,6 +305,16 @@ struct BookmarkManagerView: View {
         .onChange(of: showHiddenBookmarksPage) { _, isShowing in
             handleHiddenBookmarksVisibilityChange(isShowing: isShowing)
         }
+        .task(id: toastMessage) {
+            guard let message = toastMessage else { return }
+            try? await Task.sleep(for: .seconds(2))
+            await MainActor.run {
+                guard toastMessage == message else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    toastMessage = nil
+                }
+            }
+        }
         .alert(
             "出错了",
             isPresented: Binding(
@@ -308,18 +346,6 @@ struct BookmarkManagerView: View {
             Text("共计删除 \(confirmation.count) 个书签。")
         }
         .alert(
-            "标题优化",
-            isPresented: Binding(
-                get: { titleOptimizationMessage != nil },
-                set: { if !$0 { titleOptimizationMessage = nil } }
-            ),
-            presenting: titleOptimizationMessage
-        ) { _ in
-            Button("好") { titleOptimizationMessage = nil }
-        } message: { message in
-            Text(message)
-        }
-        .alert(
             "模型配置",
             isPresented: Binding(
                 get: { llmConfigMessage != nil },
@@ -330,6 +356,22 @@ struct BookmarkManagerView: View {
             Button("好") { llmConfigMessage = nil }
         } message: { message in
             Text(message)
+        }
+    }
+
+    @ViewBuilder
+    private var toastView: some View {
+        if let toastMessage {
+            Label(toastMessage, systemImage: "checkmark.circle.fill")
+                .font(.headline)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .glassEffect(.regular, in: Capsule())
+                .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
+                .padding(.top, 12)
+                .transition(.blurReplace)
+                .allowsHitTesting(false)
+                .accessibilityAddTraits(.isStaticText)
         }
     }
 
@@ -382,7 +424,18 @@ struct BookmarkManagerView: View {
             } else if filteredBookmarks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             } else {
-                bookmarkList
+                NativeBookmarkList(
+                    sections: bookmarkSections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version,
+                    onOpen: nil,
+                    onCopyURL: { bookmark in copyURL(bookmark) },
+                    onEdit: { bookmark in presentation = .edit(bookmark) },
+                    onDelete: { ids in requestDelete(ids: ids) },
+                    hiddenStateActionTitle: "移到隐藏书签",
+                    onSetHidden: { bookmark in setHidden(true, for: bookmark) }
+                )
             }
         }
         .navigationTitle("书签")
@@ -399,34 +452,21 @@ struct BookmarkManagerView: View {
             } else if filteredHiddenBookmarks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             } else {
-                List(selection: $selection) {
-                    ForEach(hiddenBookmarkSections) { section in
-                        Section(section.title ?? "") {
-                            ForEach(section.bookmarks) { bookmark in
-                                BookmarkRow(bookmark: bookmark, faviconLoader: faviconLoader)
-                                    .tag(bookmark.id)
-                            }
-                        }
-                    }
-                }
-                .listStyle(.inset)
+                NativeBookmarkList(
+                    sections: hiddenBookmarkSections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version,
+                    onOpen: { bookmark in model.openBookmark(bookmark) },
+                    onCopyURL: { bookmark in copyURL(bookmark) },
+                    onEdit: { bookmark in presentation = .edit(bookmark) },
+                    onDelete: { ids in requestDelete(ids: ids) },
+                    hiddenStateActionTitle: "恢复到书签",
+                    onSetHidden: { bookmark in setHidden(false, for: bookmark) }
+                )
             }
         }
         .navigationTitle("隐藏书签")
-    }
-
-    private var bookmarkList: some View {
-        List(selection: $selection) {
-            ForEach(bookmarkSections) { section in
-                Section(section.title ?? "") {
-                    ForEach(section.bookmarks) { bookmark in
-                        BookmarkRow(bookmark: bookmark, faviconLoader: faviconLoader)
-                            .tag(bookmark.id)
-                    }
-                }
-            }
-        }
-        .listStyle(.inset)
     }
 
     private var aiOptimizationPage: some View {
@@ -515,11 +555,7 @@ struct BookmarkManagerView: View {
                 }
                 .disabled(!canDeleteSelection)
                 .help("删除选中的书签")
-            }
 
-            ToolbarSpacer(.fixed)
-
-            ToolbarItem {
                 Button {
                     if let bookmark = selectedBookmark {
                         presentation = .edit(bookmark)
@@ -534,7 +570,7 @@ struct BookmarkManagerView: View {
 
             ToolbarItem {
                 Button {
-                    optimizeTitles()
+                    optimizeTitles(scope: .visible)
                 } label: {
                     Label(
                         model.isOptimizingTitles ? "优化中" : "优化标题",
@@ -572,6 +608,21 @@ struct BookmarkManagerView: View {
                     Label("编辑", systemImage: "pencil")
                 }
                 .disabled(!canUseSingleSelectionActions)
+            }
+
+            ToolbarSpacer(.fixed)
+
+            ToolbarItem {
+                Button {
+                    optimizeTitles(scope: .hidden)
+                } label: {
+                    Label(
+                        model.isOptimizingTitles ? "优化中" : "优化标题",
+                        systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                    )
+                }
+                .disabled(hiddenBookmarks.isEmpty || model.isOptimizingTitles || hiddenUnoptimizedTitleCount == 0)
+                .help("优化全部未处理的隐藏书签标题")
             }
         }
     }

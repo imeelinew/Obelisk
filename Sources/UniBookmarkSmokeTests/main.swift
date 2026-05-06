@@ -8,6 +8,7 @@ struct SmokeTests {
         try testLegacyCreatedAtFallback()
         try testLegacyHiddenFallback()
         try testHiddenBookmarkPersistence()
+        try testHiddenDuplicateProtection()
         try testBatchDelete()
         try testTitleOptimizationPersistence()
         try testUsageGroupingFilters()
@@ -102,6 +103,17 @@ struct SmokeTests {
         let loaded = try store.bookmarks()
         try expect(loaded.first { $0.id == hidden.id }?.isHidden == true, "expected hidden bookmark flag to persist")
         try expect(loaded.first { $0.id == visible.id }?.isHidden == false, "expected visible bookmark flag to default false")
+    }
+
+    private static func testHiddenDuplicateProtection() throws {
+        let store = BookmarkStore(rootDirectory: try temporaryDirectory())
+        _ = try store.add(title: "Visible", url: "https://duplicate.example")
+
+        do {
+            _ = try store.add(title: "Hidden Duplicate", url: "https://duplicate.example/", isHidden: true)
+            throw SmokeTestError.failure("expected hidden duplicate URL to be rejected")
+        } catch BookmarkStoreError.duplicateURL {
+        }
     }
 
     private static func testBatchDelete() throws {

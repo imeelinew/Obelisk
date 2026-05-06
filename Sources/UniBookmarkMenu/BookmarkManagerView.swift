@@ -21,6 +21,14 @@ struct BookmarkManagerView: View {
     @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
     @AppStorage("menuFrequentGroupLimit") private var menuFrequentGroupLimit = 5
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
+    @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
+    // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
+    @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
+
+    private var effectiveBlurAlpha: Double {
+        guard windowTransparencyEnabled else { return 1.0 }
+        return 1.0 - min(0.5, max(0.0, windowSeeThrough))
+    }
 
     enum Presentation: Identifiable {
         // `seq` is part of identity so re-issuing an add request with new
@@ -333,6 +341,14 @@ struct BookmarkManagerView: View {
             toastView
         }
         .background {
+            WindowTransparencyConfigurator(enabled: windowTransparencyEnabled)
+                .frame(width: 0, height: 0)
+
+            if windowTransparencyEnabled {
+                WindowBackgroundBlur(materialAlpha: effectiveBlurAlpha)
+                    .ignoresSafeArea()
+            }
+
             Button {
                 toggleHiddenBookmarksPageVisibility()
             } label: {
@@ -563,8 +579,25 @@ struct BookmarkManagerView: View {
                 menuLimitStepper("常用数量", value: $menuFrequentGroupLimit)
                 menuLimitStepper("最近添加数量", value: $menuRecentGroupLimit)
             }
+
+            Section("窗口") {
+                Toggle("启用窗口透明效果", isOn: $windowTransparencyEnabled)
+
+                if windowTransparencyEnabled {
+                    Slider(value: $windowSeeThrough, in: 0...0.5, step: 0.05) {
+                        Text("透明度")
+                    } minimumValueLabel: {
+                        Text("0%")
+                    } maximumValueLabel: {
+                        Text("50%")
+                    }
+
+                    LabeledContent("当前透明度", value: "\(Int(windowSeeThrough * 100))%")
+                }
+            }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("外观")
     }
@@ -606,6 +639,7 @@ struct BookmarkManagerView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("AI配置")
     }
@@ -639,6 +673,7 @@ struct BookmarkManagerView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("开发者选项")
     }

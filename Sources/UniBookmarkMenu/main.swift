@@ -18,7 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var bookmarksModel = BookmarksModel(
         store: store,
         usageStore: usageStore,
-        spotlightIndexer: spotlightIndexer
+        spotlightIndexer: spotlightIndexer,
+        frequentGroupLimit: UserDefaults.standard.object(forKey: "menuFrequentGroupLimit") as? Int ?? 5,
+        recentGroupLimit: UserDefaults.standard.object(forKey: "menuRecentGroupLimit") as? Int ?? 5
     )
     private let addRequest = AddBookmarkRequest()
     private lazy var managerWindow = BookmarkManagerWindowController(
@@ -366,6 +368,36 @@ final class FaviconLoader {
 
         fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
         return nil
+    }
+
+    func refresh(urlString: String) {
+        guard
+            let pageURL = URL(string: urlString),
+            let key = cacheKey(for: pageURL)
+        else {
+            return
+        }
+
+        let fileURL = cacheDirectory.appendingPathComponent("\(key).png")
+        try? FileManager.default.removeItem(at: fileURL)
+        index.removeValue(forKey: key)
+        saveIndex()
+        version &+= 1
+        onIconLoaded?()
+        fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
+    }
+
+    func refreshAll(urlStrings: [String]) {
+        try? FileManager.default.removeItem(at: cacheDirectory)
+        inFlight.removeAll()
+        index.removeAll()
+        saveIndex()
+        version &+= 1
+        onIconLoaded?()
+
+        for urlString in Set(urlStrings) {
+            _ = image(for: urlString)
+        }
     }
 
     private func fetchIfNeeded(pageURL: URL, key: String, fileURL: URL) {

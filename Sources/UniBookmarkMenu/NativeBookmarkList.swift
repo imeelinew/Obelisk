@@ -17,8 +17,10 @@ struct NativeBookmarkList: NSViewRepresentable {
     @Binding var selection: Set<Bookmark.ID>
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
+    var showsURLHostOnly: Bool = false
     var onOpen: ((Bookmark) -> Void)?
     var onCopyURL: ((Bookmark) -> Void)?
+    var onRefreshFavicon: ((Bookmark) -> Void)?
     var onEdit: ((Bookmark) -> Void)?
     var onDelete: ((Set<Bookmark.ID>) -> Void)?
     var hiddenStateActionTitle: String?
@@ -174,6 +176,9 @@ struct NativeBookmarkList: NSViewRepresentable {
             if parent.onCopyURL != nil {
                 menu.addItem(menuItem("复制 URL", action: #selector(copyURLFromMenu(_:)), bookmark: bookmark))
             }
+            if parent.onRefreshFavicon != nil {
+                menu.addItem(menuItem("刷新 favicon", action: #selector(refreshFaviconFromMenu(_:)), bookmark: bookmark))
+            }
             if parent.onEdit != nil {
                 menu.addItem(menuItem("编辑", action: #selector(editFromMenu(_:)), bookmark: bookmark))
             }
@@ -264,6 +269,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                 ) as? BookmarkTableCellView ?? BookmarkTableCellView()
                 view.configure(
                     bookmark: bookmark,
+                    showsURLHostOnly: parent.showsURLHostOnly,
                     favicon: parent.faviconLoader.image(for: bookmark.url)
                 )
                 return view
@@ -300,6 +306,11 @@ struct NativeBookmarkList: NSViewRepresentable {
         @objc private func copyURLFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
             parent.onCopyURL?(bookmark)
+        }
+
+        @objc private func refreshFaviconFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            parent.onRefreshFavicon?(bookmark)
         }
 
         @objc private func editFromMenu(_ sender: NSMenuItem) {
@@ -596,7 +607,7 @@ private final class BookmarkTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(bookmark: Bookmark, favicon: NSImage?) {
+    func configure(bookmark: Bookmark, showsURLHostOnly: Bool, favicon: NSImage?) {
         if let favicon {
             faviconView.image = favicon
             faviconView.contentTintColor = nil
@@ -605,8 +616,15 @@ private final class BookmarkTableCellView: NSTableCellView {
             faviconView.contentTintColor = nil
         }
         titleField.stringValue = bookmark.title
-        urlField.stringValue = bookmark.url
+        urlField.stringValue = displayURL(for: bookmark.url, showsHostOnly: showsURLHostOnly)
         applyNativeTextColors()
+    }
+
+    private func displayURL(for urlString: String, showsHostOnly: Bool) -> String {
+        guard showsHostOnly, let host = URL(string: urlString)?.host(percentEncoded: false) else {
+            return urlString
+        }
+        return host
     }
 
     private func applyNativeTextColors() {

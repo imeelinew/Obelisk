@@ -18,6 +18,9 @@ struct BookmarkManagerView: View {
     @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 15
     @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 8
     @AppStorage("showHiddenBookmarksPage") private var showHiddenBookmarksPage = false
+    @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
+    @AppStorage("menuFrequentGroupLimit") private var menuFrequentGroupLimit = 5
+    @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
 
     enum Presentation: Identifiable {
         // `seq` is part of identity so re-issuing an add request with new
@@ -36,6 +39,7 @@ struct BookmarkManagerView: View {
     enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
         case bookmarks
         case hiddenBookmarks
+        case appearance
         case ai
         case developer
 
@@ -45,6 +49,7 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks: return "书签"
             case .hiddenBookmarks: return "隐藏书签"
+            case .appearance: return "外观"
             case .ai: return "AI配置"
             case .developer: return "开发者选项"
             }
@@ -54,6 +59,7 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks: return "bookmark.fill"
             case .hiddenBookmarks: return "eye.slash.fill"
+            case .appearance: return "paintpalette.fill"
             case .ai: return "sparkles"
             case .developer: return "wrench.fill"
             }
@@ -63,25 +69,31 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks:
                 return LinearGradient(
-                    colors: [Color(red: 1.0, green: 0.45, blue: 0.30), Color(red: 1.0, green: 0.28, blue: 0.22)],
+                    colors: [Color(red: 1.0, green: 0.50, blue: 0.40), Color(red: 0.96, green: 0.28, blue: 0.24)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             case .ai:
                 return LinearGradient(
-                    colors: [Color(red: 0.54, green: 0.44, blue: 1.0), Color(red: 0.34, green: 0.25, blue: 0.86)],
+                    colors: [Color(red: 0.30, green: 0.68, blue: 1.0), Color(red: 0.08, green: 0.38, blue: 0.86)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             case .hiddenBookmarks:
                 return LinearGradient(
-                    colors: [Color(red: 0.48, green: 0.54, blue: 0.64), Color(red: 0.24, green: 0.29, blue: 0.38)],
+                    colors: [Color(red: 0.58, green: 0.66, blue: 0.80), Color(red: 0.34, green: 0.44, blue: 0.62)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .appearance:
+                return LinearGradient(
+                    colors: [Color(red: 0.46, green: 0.82, blue: 0.50), Color(red: 0.14, green: 0.62, blue: 0.30)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             case .developer:
                 return LinearGradient(
-                    colors: [Color(red: 1.0, green: 0.82, blue: 0.28), Color(red: 0.95, green: 0.62, blue: 0.10)],
+                    colors: [Color(red: 1.0, green: 0.78, blue: 0.30), Color(red: 0.92, green: 0.52, blue: 0.08)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -214,6 +226,27 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private func refreshFavicon(for bookmark: Bookmark) {
+        faviconLoader.refresh(urlString: bookmark.url)
+        showToast("刷新 favicon 成功")
+    }
+
+    private func refreshAllFavicons() {
+        faviconLoader.refreshAll(urlStrings: model.bookmarks.map(\.url))
+        showToast("刷新全部 favicon 成功")
+    }
+
+    private func syncMenuGroupLimits() {
+        model.setMenuGroupLimits(frequent: menuFrequentGroupLimit, recent: menuRecentGroupLimit)
+    }
+
+    private var showsFullURLBinding: Binding<Bool> {
+        Binding(
+            get: { !showsURLHostOnly },
+            set: { showsURLHostOnly = !$0 }
+        )
+    }
+
     private var unoptimizedTitleCount: Int {
         model.bookmarks.filter { !$0.titleOptimized && !$0.isHidden }.count
     }
@@ -258,6 +291,31 @@ struct BookmarkManagerView: View {
         settingsPage = .bookmarks
     }
 
+    private var modelErrorAlertBinding: Binding<Bool> {
+        Binding(
+            get: { model.errorMessage != nil },
+            set: { if !$0 { model.errorMessage = nil } }
+        )
+    }
+
+    private var deleteConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { deleteConfirmation != nil },
+            set: { if !$0 { deleteConfirmation = nil } }
+        )
+    }
+
+    private var llmConfigAlertBinding: Binding<Bool> {
+        Binding(
+            get: { llmConfigMessage != nil },
+            set: { if !$0 { llmConfigMessage = nil } }
+        )
+    }
+
+    private func toggleHiddenBookmarksPageVisibility() {
+        showHiddenBookmarksPage.toggle()
+    }
+
     var body: some View {
         NavigationSplitView {
             settingsSidebar
@@ -273,6 +331,17 @@ struct BookmarkManagerView: View {
         }
         .overlay(alignment: .top) {
             toastView
+        }
+        .background {
+            Button {
+                toggleHiddenBookmarksPageVisibility()
+            } label: {
+                EmptyView()
+            }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
         }
         .sheet(item: $presentation) { kind in
             switch kind {
@@ -290,6 +359,7 @@ struct BookmarkManagerView: View {
         }
         .onAppear {
             loadLLMConfig()
+            syncMenuGroupLimits()
             // First-launch path: the hotkey may have already bumped seq before
             // the view mounted. .onChange only fires on subsequent updates,
             // so we'd miss the initial request without this check. Subsequent
@@ -305,6 +375,12 @@ struct BookmarkManagerView: View {
         .onChange(of: showHiddenBookmarksPage) { _, isShowing in
             handleHiddenBookmarksVisibilityChange(isShowing: isShowing)
         }
+        .onChange(of: menuFrequentGroupLimit) { _, _ in
+            syncMenuGroupLimits()
+        }
+        .onChange(of: menuRecentGroupLimit) { _, _ in
+            syncMenuGroupLimits()
+        }
         .task(id: toastMessage) {
             guard let message = toastMessage else { return }
             try? await Task.sleep(for: .seconds(2))
@@ -317,10 +393,7 @@ struct BookmarkManagerView: View {
         }
         .alert(
             "出错了",
-            isPresented: Binding(
-                get: { model.errorMessage != nil },
-                set: { if !$0 { model.errorMessage = nil } }
-            ),
+            isPresented: modelErrorAlertBinding,
             presenting: model.errorMessage
         ) { _ in
             Button("好") { model.errorMessage = nil }
@@ -329,10 +402,7 @@ struct BookmarkManagerView: View {
         }
         .alert(
             "删除书签?",
-            isPresented: Binding(
-                get: { deleteConfirmation != nil },
-                set: { if !$0 { deleteConfirmation = nil } }
-            ),
+            isPresented: deleteConfirmationBinding,
             presenting: deleteConfirmation
         ) { confirmation in
             Button("取消", role: .cancel) {
@@ -347,10 +417,7 @@ struct BookmarkManagerView: View {
         }
         .alert(
             "模型配置",
-            isPresented: Binding(
-                get: { llmConfigMessage != nil },
-                set: { if !$0 { llmConfigMessage = nil } }
-            ),
+            isPresented: llmConfigAlertBinding,
             presenting: llmConfigMessage
         ) { _ in
             Button("好") { llmConfigMessage = nil }
@@ -363,7 +430,7 @@ struct BookmarkManagerView: View {
     private var toastView: some View {
         if let toastMessage {
             Label(toastMessage, systemImage: "checkmark.circle.fill")
-                .font(.headline)
+                .font(.system(size: 13, weight: .regular))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .glassEffect(.regular, in: Capsule())
@@ -401,6 +468,8 @@ struct BookmarkManagerView: View {
                 bookmarkManagementPage
             case .hiddenBookmarks:
                 hiddenBookmarkManagementPage
+            case .appearance:
+                appearancePage
             case .ai:
                 aiOptimizationPage
             case .developer:
@@ -429,8 +498,10 @@ struct BookmarkManagerView: View {
                     selection: $selection,
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
+                    showsURLHostOnly: showsURLHostOnly,
                     onOpen: nil,
                     onCopyURL: { bookmark in copyURL(bookmark) },
+                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签",
@@ -457,8 +528,10 @@ struct BookmarkManagerView: View {
                     selection: $selection,
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
+                    showsURLHostOnly: showsURLHostOnly,
                     onOpen: { bookmark in model.openBookmark(bookmark) },
                     onCopyURL: { bookmark in copyURL(bookmark) },
+                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "恢复到书签",
@@ -467,6 +540,47 @@ struct BookmarkManagerView: View {
             }
         }
         .navigationTitle("隐藏书签")
+    }
+
+    private var appearancePage: some View {
+        Form {
+            Section("书签") {
+                Toggle("显示完整网站域名", isOn: showsFullURLBinding)
+            }
+
+            Section("菜单栏") {
+                LabeledContent {
+                    Button {
+                        refreshAllFavicons()
+                    } label: {
+                        Text("刷新")
+                    }
+                    .buttonStyle(.bordered)
+                } label: {
+                    Text("刷新全部 favicon")
+                }
+
+                menuLimitStepper("常用数量", value: $menuFrequentGroupLimit)
+                menuLimitStepper("最近添加数量", value: $menuRecentGroupLimit)
+            }
+        }
+        .formStyle(.grouped)
+        .settingsContentMargins()
+        .navigationTitle("外观")
+    }
+
+    private func menuLimitStepper(_ title: String, value: Binding<Int>) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 10) {
+                Text("\(value.wrappedValue)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 24, alignment: .trailing)
+
+                Stepper(title, value: value, in: 0...20)
+                    .labelsHidden()
+            }
+        }
     }
 
     private var aiOptimizationPage: some View {
@@ -487,7 +601,7 @@ struct BookmarkManagerView: View {
                 Button {
                     saveLLMConfig()
                 } label: {
-                    Label("保存配置", systemImage: "square.and.arrow.down")
+                    Text("保存配置")
                 }
             }
         }
@@ -498,11 +612,6 @@ struct BookmarkManagerView: View {
 
     private var developerOptionsPage: some View {
         Form {
-            Section("隐藏书签") {
-                Toggle("显示隐藏书签页", isOn: $showHiddenBookmarksPage)
-                .keyboardShortcut("h", modifiers: [.command, .shift])
-            }
-
             Section("侧栏图标调试") {
                 Slider(value: $sidebarIconTileSize, in: 22...40, step: 1) {
                     Text("背景尺寸")
@@ -692,9 +801,8 @@ private extension EnvironmentValues {
 private extension View {
     func settingsContentMargins() -> some View {
         self
-            .contentMargins(.horizontal, 32, for: .scrollContent)
-            .padding(.horizontal, 18)
-            .padding(.top, -9)
+            .contentMargins(.horizontal, 18, for: .scrollContent)
+            .contentMargins(.top, 0, for: .scrollContent)
     }
 }
 

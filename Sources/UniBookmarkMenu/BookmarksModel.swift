@@ -28,20 +28,23 @@ final class BookmarksModel {
     private let usageStore: UsageStore
     private let spotlightIndexer: SpotlightIndexer?
     private let titleOptimizer: TitleOptimizer
-    private let groupSize: Int
+    private var frequentGroupLimit: Int
+    private var recentGroupLimit: Int
     private(set) var isOptimizingTitles = false
 
     init(
         store: BookmarkStore,
         usageStore: UsageStore,
         spotlightIndexer: SpotlightIndexer? = nil,
-        groupSize: Int = 5
+        frequentGroupLimit: Int = 5,
+        recentGroupLimit: Int = 5
     ) {
         self.store = store
         self.usageStore = usageStore
         self.spotlightIndexer = spotlightIndexer
         self.titleOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
-        self.groupSize = groupSize
+        self.frequentGroupLimit = frequentGroupLimit
+        self.recentGroupLimit = recentGroupLimit
         reload()
     }
 
@@ -104,6 +107,18 @@ final class BookmarksModel {
         }
         bookmark.isHidden = isHidden
         return update(bookmark)
+    }
+
+    func setMenuGroupLimits(frequent: Int, recent: Int) {
+        let nextFrequent = max(0, frequent)
+        let nextRecent = max(0, recent)
+        guard nextFrequent != frequentGroupLimit || nextRecent != recentGroupLimit else {
+            return
+        }
+        frequentGroupLimit = nextFrequent
+        recentGroupLimit = nextRecent
+        recomputeGroups(from: bookmarks.filter { !$0.isHidden })
+        onChange?()
     }
 
     func delete(id: UUID) {
@@ -180,13 +195,13 @@ final class BookmarksModel {
     }
 
     private func recomputeGroups(from all: [Bookmark]) {
-        let topFrequent = usageStore.topFrequent(among: all, limit: groupSize)
+        let topFrequent = usageStore.topFrequent(among: all, limit: frequentGroupLimit)
         let frequentIds = Set(topFrequent.map(\.id))
 
         // Recent excludes anything already shown in "frequent" so each
         // bookmark only appears once.
         let recentCandidates = all.filter { !frequentIds.contains($0.id) }
-        let topRecent = usageStore.recent(among: recentCandidates, limit: groupSize)
+        let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)
 
         let surfacedIds = frequentIds.union(topRecent.map(\.id))
 

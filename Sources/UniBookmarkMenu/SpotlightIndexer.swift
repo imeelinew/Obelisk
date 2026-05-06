@@ -12,7 +12,7 @@ import UniBookmarkCore
 /// bookmark set is tiny and Spotlight handles the deltas internally.
 @MainActor
 final class SpotlightIndexer {
-    private let domainIdentifier = "local.elidev.UniBookmark.bookmarks"
+    private let domainIdentifier = "local.elidev.Obelisk.bookmarks"
     private let rootDirectory: URL
     private var reindexGeneration = 0
     private var reindexTask: Task<Void, Never>?

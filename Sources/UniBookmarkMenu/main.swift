@@ -96,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "退出 UniBookmark", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "退出 Obelisk", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
 
         let editMenuItem = NSMenuItem()
@@ -118,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureStatusItem() {
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "UniBookmark")
+            button.image = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "Obelisk")
             button.title = ""
         }
     }
@@ -329,7 +329,7 @@ final class FaviconLoader {
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 8
         configuration.httpAdditionalHeaders = [
-            "User-Agent": "UniBookmark/1.0"
+            "User-Agent": "Obelisk/1.0"
         ]
         self.session = URLSession(configuration: configuration)
         loadIndex()

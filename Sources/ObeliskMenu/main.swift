@@ -4,7 +4,7 @@ import CoreSpotlight
 import CryptoKit
 import Foundation
 import Observation
-import UniBookmarkCore
+import ObeliskCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {

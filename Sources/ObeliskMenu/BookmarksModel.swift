@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import Observation
-import UniBookmarkCore
+import ObeliskCore
 
 @MainActor
 @Observable

@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import SwiftUI
-import UniBookmarkCore
+import ObeliskCore
 
 struct BookmarkListSection: Equatable, Identifiable {
     var title: String?

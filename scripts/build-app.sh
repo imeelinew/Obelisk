@@ -15,23 +15,23 @@ cd "$ROOT_DIR"
 
 # Try universal (arm64 + x86_64); requires full Xcode. Fall back to host arch
 # (good enough for personal use) when only Command Line Tools are installed.
-if swift build -c release --arch arm64 --arch x86_64 --product UniBookmarkMenu 2>/dev/null; then
+if swift build -c release --arch arm64 --arch x86_64 --product Obelisk 2>/dev/null; then
     BIN_DIR="$ROOT_DIR/.build/apple/Products/Release"
     echo "==> Built universal (arm64 + x86_64)"
 else
     echo "==> Universal build unavailable (need full Xcode); building host arch only"
-    swift build -c release --product UniBookmarkMenu
+    swift build -c release --product Obelisk
     BIN_DIR="$ROOT_DIR/.build/release"
 fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$BIN_DIR/UniBookmarkMenu" "$MACOS_DIR/Obelisk"
+cp "$BIN_DIR/Obelisk" "$MACOS_DIR/Obelisk"
 
 # Generate the app icon from the shared source artwork.
-swift "$ROOT_DIR/scripts/make-icon.swift" "$RESOURCES_DIR" "$ROOT_DIR/Sources/UniBookmarkMenu/Resources/AppIcon.png" >/dev/null
-cp "$ROOT_DIR/Sources/UniBookmarkMenu/Resources/AppIcon.png" "$RESOURCES_DIR/AppIcon.png"
+swift "$ROOT_DIR/scripts/make-icon.swift" "$RESOURCES_DIR" "$ROOT_DIR/Sources/ObeliskMenu/Resources/AppIcon.png" >/dev/null
+cp "$ROOT_DIR/Sources/ObeliskMenu/Resources/AppIcon.png" "$RESOURCES_DIR/AppIcon.png"
 
 # Strip debug symbols (saves a few MB; we don't ship a dSYM for personal use).
 strip -S "$MACOS_DIR/Obelisk" 2>/dev/null || true

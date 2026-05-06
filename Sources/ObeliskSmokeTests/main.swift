@@ -1,5 +1,5 @@
 import Foundation
-import UniBookmarkCore
+import ObeliskCore
 
 struct SmokeTests {
     static func main() throws {
@@ -12,7 +12,7 @@ struct SmokeTests {
         try testBatchDelete()
         try testTitleOptimizationPersistence()
         try testUsageGroupingFilters()
-        print("UniBookmark smoke tests passed")
+        print("Obelisk smoke tests passed")
     }
 
     private static func testDuplicateProtection() throws {
@@ -194,7 +194,7 @@ struct SmokeTests {
 
     private static func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UniBookmarkTests")
+            .appendingPathComponent("ObeliskTests")
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url

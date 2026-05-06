@@ -94,7 +94,7 @@ final class GlobalHotkeys {
             handlers[hotKeyID] = onPress
         } else {
             // Most likely a hotkey conflict. Personal-use app: log and move on.
-            NSLog("UniBookmark: failed to register global hotkey id=\(hotKeyID), status=\(status)")
+            NSLog("Obelisk: failed to register global hotkey id=\(hotKeyID), status=\(status)")
         }
     }
 }

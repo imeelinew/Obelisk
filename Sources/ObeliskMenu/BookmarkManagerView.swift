@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import UniBookmarkCore
+import ObeliskCore
 
 struct BookmarkManagerView: View {
     @Bindable var model: BookmarksModel
@@ -52,6 +52,22 @@ struct BookmarkManagerView: View {
         case developer
 
         var id: String { rawValue }
+
+        enum Group: String, CaseIterable, Identifiable {
+            case content = "内容"
+            case preferences = "偏好"
+            case advanced = "高级"
+
+            var id: String { rawValue }
+        }
+
+        var group: Group {
+            switch self {
+            case .bookmarks, .hiddenBookmarks: return .content
+            case .appearance, .ai:             return .preferences
+            case .developer:                   return .advanced
+            }
+        }
 
         var title: String {
             switch self {
@@ -460,9 +476,24 @@ struct BookmarkManagerView: View {
 
     private var settingsSidebar: some View {
         List(selection: $settingsPage) {
-            ForEach(visibleSettingsPages) { page in
+            // 顶部：书签 / 隐藏书签 直接铺开，不带分组标题。
+            ForEach(visibleSettingsPages.filter { $0.group == .content }) { page in
                 NavigationLink(value: page) {
                     SidebarPageLabel(page: page)
+                }
+            }
+
+            // 其余按 group 分 Section，跳过 .content 避免重复。
+            ForEach(SettingsPage.Group.allCases.filter { $0 != .content }) { group in
+                let pages = visibleSettingsPages.filter { $0.group == group }
+                if !pages.isEmpty {
+                    Section(group.rawValue) {
+                        ForEach(pages) { page in
+                            NavigationLink(value: page) {
+                                SidebarPageLabel(page: page)
+                            }
+                        }
+                    }
                 }
             }
         }

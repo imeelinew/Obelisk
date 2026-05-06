@@ -13,7 +13,7 @@ final class PageMetadataFetcher {
         config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 8
         config.httpAdditionalHeaders = [
-            "User-Agent": "UniBookmark/1.0",
+            "User-Agent": "Obelisk/1.0",
             "Accept": "text/html,application/xhtml+xml"
         ]
         self.session = URLSession(configuration: config)

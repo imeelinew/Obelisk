@@ -2,9 +2,13 @@ import AppKit
 import SwiftUI
 import UniBookmarkCore
 
-struct BookmarkListSection: Equatable {
+struct BookmarkListSection: Equatable, Identifiable {
     var title: String?
     var bookmarks: [Bookmark]
+
+    var id: String {
+        title ?? bookmarks.map(\.id.uuidString).joined(separator: ",")
+    }
 }
 
 struct NativeBookmarkList: NSViewRepresentable {

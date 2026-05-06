@@ -52,8 +52,9 @@ final class BookmarksModel {
             // Prune usage entries for deleted bookmarks. Cheap; only writes
             // when there are actually orphans.
             usageStore.cleanup(validIds: Set(all.map(\.id)))
-            recomputeGroups(from: all)
-            spotlightIndexer?.reindexAll(all)
+            let visibleBookmarks = all.filter { !$0.isHidden }
+            recomputeGroups(from: visibleBookmarks)
+            spotlightIndexer?.reindexAll(visibleBookmarks)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
             if errorMessage == priorLoadError {
@@ -74,9 +75,9 @@ final class BookmarksModel {
     /// would suppress the alert until the sheet dismisses (i.e. user clicks
     /// "取消"), making the alert show at the wrong time. The editor handles
     /// the returned message inline / via its own alert.
-    func add(title: String, url: String) -> String? {
+    func add(title: String, url: String, isHidden: Bool = false) -> String? {
         do {
-            try store.add(title: title, url: url)
+            try store.add(title: title, url: url, isHidden: isHidden)
             reload()
             return nil
         } catch {
@@ -113,7 +114,7 @@ final class BookmarksModel {
         }
 
         let candidates = bookmarks
-            .filter { !$0.titleOptimized }
+            .filter { !$0.titleOptimized && !$0.isHidden }
             .map {
                 TitleOptimizationCandidate(
                     id: $0.id,
@@ -149,7 +150,7 @@ final class BookmarksModel {
     func openBookmark(_ bookmark: Bookmark) {
         guard let url = URL(string: bookmark.url) else { return }
         usageStore.record(id: bookmark.id)
-        recomputeGroups(from: bookmarks)
+        recomputeGroups(from: bookmarks.filter { !$0.isHidden })
         NSWorkspace.shared.open(url)
         onChange?()
     }

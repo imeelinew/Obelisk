@@ -7,13 +7,12 @@ file-backed, no network sync.
 
 - Bundle ID: `local.elidev.UniBookmark`
 - `LSUIElement = true`
-- `Package.swift` deployment target: macOS 14
-- Liquid Glass styling (Tahoe / macOS 26) is opt-in via the linked SDK,
-  not via runtime checks. Building against the Xcode 26 SDK produces a
-  Liquid Glass binary; building against earlier SDKs produces a
-  Sonoma-styled binary from the same source.
+- `Package.swift` deployment target: macOS 26
+- Liquid Glass is treated as a system-provided baseline. Build with
+  Xcode 26 / the macOS 26 SDK; older SDKs and older macOS releases are
+  not supported on this branch.
 - Bundle short version string is sourced from `$VERSION` in
-  `scripts/build-app.sh` (default `1.1.0`).
+  `scripts/build-app.sh` (default `1.2.0`).
 - `User-Agent` header used by `FaviconLoader` and `PageMetadataFetcher`
   is `UniBookmark/1.0`.
 
@@ -56,6 +55,37 @@ Sources/UniBookmarkSmokeTests/
                               title persistence, usage grouping
 ```
 
+## macOS 26 UI baseline
+
+This branch follows the structure of Apple's
+`LandmarksBuildingAnAppWithLiquidGlass` sample as a constraint, not as
+loose inspiration:
+
+- Prefer system SwiftUI containers: `NavigationSplitView`, `NavigationStack`,
+  `List(selection:)`, `Form`, `.searchable`, and `.toolbar`.
+- Let toolbar items receive Liquid Glass from their toolbar context. Use
+  `ToolbarSpacer(.flexible)` and `ToolbarSpacer(.fixed)` to create the
+  same kind of grouping shown in the sample.
+- Do **not** hand-draw glass buttons, circular toolbar backgrounds,
+  gradients, hover fills, shadows, or custom materials for ordinary
+  toolbar/list controls.
+- Use explicit `glassEffect` only for truly custom floating controls,
+  matching the sample's badge-style use case. The bookmark manager window
+  currently has no such custom floating control.
+- Keep the bookmark list on SwiftUI's native `List(selection:)` path so
+  selection, scroll edge behavior, row backgrounds, and future system
+  styling stay owned by SwiftUI rather than AppKit drawing code.
+- Settings-style text entry must use `Form` rows with
+  `TextField(text:prompt:label:)` / `SecureField(text:prompt:label:)`.
+  Do not build these rows manually with `VStack`, wrap editable fields in
+  `LabeledContent`, or force `.textFieldStyle(.roundedBorder)` unless a
+  later Apple sample shows that exact pattern for macOS settings.
+
+The app still has an AppKit shell because it is an `LSUIElement` menu-bar
+app with an `NSStatusItem`, Carbon hotkey, and explicit settings window
+lifecycle. The manage window content should remain as close as possible to
+the system SwiftUI path above.
+
 ## External runtime data
 
 Root directory: `$UNIBOOKMARK_HOME` if set and non-empty, else
@@ -68,10 +98,12 @@ Root directory: `$UNIBOOKMARK_HOME` if set and non-empty, else
   "version": 1,
   "bookmarks": [
     {
-      "id":        "<UUID>",
-      "title":     "<string>",
-      "url":       "<string>",
-      "createdAt": "<ISO-8601>"
+      "id":             "<UUID>",
+      "title":          "<string>",
+      "url":            "<string>",
+      "createdAt":      "<ISO-8601>",
+      "titleOptimized": <bool>,
+      "isHidden":       <bool>
     }
   ]
 }
@@ -82,6 +114,12 @@ existed. `Bookmark.init(from:)` falls back to `.distantPast`.
 Bookmarks with `.distantPast` created-at are excluded from the
 "recent" group via `UsageStore.recent`. Older files may still contain
 the removed `pinned` key; decoding ignores it.
+
+`isHidden` is absent in legacy files written before hidden bookmarks
+existed. Decoding falls back to `false`. Hidden bookmarks stay in the
+same file but are excluded from the menubar menu, frecency groups,
+title optimization, and Spotlight indexing. They appear only in the
+manage window's "隐藏书签" page when that page is enabled.
 
 ### `usage.json`
 
@@ -135,8 +173,9 @@ clean up orphan items from any prior domain or identifier scheme.
 
 `GlobalHotkey` uses `RegisterEventHotKey` from `Carbon.HIToolbox`. No
 permission is required. The hotkey is hard-coded at the call site in
-`AppDelegate.registerGlobalHotkey()`: `kVK_ANSI_B + optionKey`. The
-stored properties `hotKeyRef` and `eventHandler` are
+`AppDelegate.registerGlobalHotkey()`: `⌥B` adds a normal bookmark and
+`⌥H` adds a hidden bookmark. The stored properties `hotKeyRef` and
+`eventHandler` are
 `nonisolated(unsafe)` so the nonisolated `deinit` can release them.
 The C event handler hops to the main actor via `DispatchQueue.main.async`
 before calling Swift code.
@@ -176,81 +215,89 @@ them is a regression.
    Recomputing groups elsewhere is prohibited.
 
 2. **Each bookmark appears in exactly one of frequent / recent / others.**
-   `recomputeGroups` deduplicates. `List(selection: Bookmark.ID?)`
-   relies on this; menubar `NSMenu` rendering also relies on it now.
+   `recomputeGroups` deduplicates visible bookmarks. Hidden bookmarks
+   are intentionally excluded from these groups. `List(selection:
+   Bookmark.ID?)` relies on this; menubar `NSMenu` rendering also
+   relies on it now.
 
-3. **Only menubar clicks count as usage.**
+3. **Hidden bookmarks are side-listed, not separately stored.**
+   `Bookmark.isHidden` is the only source of truth. `⌥H` creates a
+   hidden bookmark by default; the editor sheet can move a bookmark in
+   or out of the hidden set. Hidden bookmarks must not appear in the
+   menubar, Spotlight index, frecency groups, or title optimization.
+
+4. **Only menubar clicks count as usage.**
    `BookmarksModel.openBookmark(_:)` records to `usage.json`. The
    manage-window context-menu "在浏览器中打开" calls `NSWorkspace`
    directly. `application(_:continue:)` (Spotlight) likewise opens
    directly. The intent is: usage = "I navigated to this", not
    "I touched this row in a list".
 
-4. **`onChange` is the only path that triggers menubar rebuilds.**
+5. **`onChange` is the only path that triggers menubar rebuilds.**
    Wired in `applicationDidFinishLaunching`:
    `bookmarksModel.onChange = { self.scheduleRebuild() }`. The file
    watcher and `openBookmark` and `reload` all fire `onChange`.
    Calling `rebuildMenu` directly outside the debounce path is
    prohibited.
 
-5. **`BookmarkStore.add` / `update` / `delete` execute
+6. **`BookmarkStore.add` / `update` / `delete` execute
    under `flock` on `<root>/.lock`.** Any new mutator must use
    `withFileLock`.
 
-6. **`BookmarkFileWatcher.start()` opens new fds asynchronously after
+7. **`BookmarkFileWatcher.start()` opens new fds asynchronously after
    `stop()`.** Cancel handlers run on the main queue after the
    current call returns. fd numbers can be recycled. A synchronous
    reopen reintroduces an fd-number race (handler closes the new fd).
    `restartPending` coalesces re-entrant `start()` calls.
 
-7. **`FaviconLoader` is one shared instance.** Created in
+8. **`FaviconLoader` is one shared instance.** Created in
    `AppDelegate`, passed to `BookmarkManagerWindowController` and
    thence to `BookmarkManagerView`. Reading `loader.version` inside a
    SwiftUI view body subscribes that view to favicon-arrival events.
 
-8. **`NSImage` returned from `FaviconLoader.image(for:)` is `.copy()`-ed
+9. **`NSImage` returned from `FaviconLoader.image(for:)` is `.copy()`-ed
    before resizing.** AppKit may share the underlying instance.
 
-9. **`installMainMenu()` is required.** `LSUIElement = true` apps get
+10. **`installMainMenu()` is required.** `LSUIElement = true` apps get
    no main menu, so `⌘C/⌘V/⌘X/⌘A/⌘Z` will not dispatch to focused
    `TextField`s without a populated Edit menu in `NSApp.mainMenu`.
 
-10. **Activation policy toggles between `.accessory` and `.regular`.**
+11. **Activation policy toggles between `.accessory` and `.regular`.**
     `.accessory` at launch, on manage-window close, and after
     Spotlight `application(_:continue:)`. `.regular` when the manage
     window is shown. The dock icon is intentionally ephemeral.
 
-11. **Window title and subtitle are set via SwiftUI
+12. **Window title and subtitle are set via SwiftUI
     `.navigationTitle` / `.navigationSubtitle`.** Setting
     `NSWindow.title` / `NSWindow.subtitle` directly is overwritten by
     `NSHostingController` synchronization.
 
-12. **`URLComponents` cache key is `SHA256(host[:port]).prefix(8)` hex.**
+13. **`URLComponents` cache key is `SHA256(host[:port]).prefix(8)` hex.**
     Earlier code used a naive non-alphanumeric → `-` substitution
     that collided across hosts. `FaviconLoader.cacheKey` and
     `SpotlightIndexer.faviconCacheKeys` must agree on this scheme.
 
-13. **`BookmarkStoreError.errorDescription` is Chinese.** UI surfaces
+14. **`BookmarkStoreError.errorDescription` is Chinese.** UI surfaces
     pull localized descriptions. English / mixed strings for these
     cases are a regression.
 
-14. **Add/edit failures alert on the editor sheet, not the parent
+15. **Add/edit failures alert on the editor sheet, not the parent
     view.** `BookmarksModel.add` and `update` return `String?`
     (nil = success). `BookmarksModel.errorMessage` is reserved for
     load-time errors and other parent-level concerns. Routing add /
     update errors through `errorMessage` queues the alert behind the
     sheet, so it only appears after the user dismisses the sheet.
 
-15. **`PageMetadataFetcher` does not use `NSAttributedString(html:)`.**
+16. **`PageMetadataFetcher` does not use `NSAttributedString(html:)`.**
     That API loads WebKit on the main thread. Use the regex +
     explicit entity decoding path.
 
-16. **`AddBookmarkRequest.seq` is consumed in both `.onAppear` and
+17. **`AddBookmarkRequest.seq` is consumed in both `.onAppear` and
     `.onChange`.** `.onChange` does not fire for the value present at
     mount time; `.onAppear` covers the cold-launch hotkey path where
     the request is bumped before the view exists.
 
-17. **The app icon has a single source artwork.**
+18. **The app icon has a single source artwork.**
     Replace `Sources/UniBookmarkMenu/Resources/AppIcon.png` when the
     artwork changes; `scripts/make-icon.swift` derives the `.icns`
     renditions from that PNG during app packaging.
@@ -285,7 +332,7 @@ Implemented in `UsageStore.topFrequent`. `pow(0.95, days)` with
   `scripts/make-icon.swift`. The icon source is the shared
   `Sources/UniBookmarkMenu/Resources/AppIcon.png` artwork.
 - Writes `Info.plist`. Required keys:
-  `LSUIElement`, `LSMinimumSystemVersion=14.0`,
+  `LSUIElement`, `LSMinimumSystemVersion=26.0`,
   `NSUserActivityTypes=[com.apple.corespotlightitem]`,
   `NSAppleEventsUsageDescription`,
   `CFBundleIconFile=AppIcon`.
@@ -311,11 +358,11 @@ historical regressions:
 
 - Cold-launch global hotkey (manage window not yet open) — must
   open the add sheet, not just the manage list. Covered by
-  invariant 16.
-- Spotlight badge transparency around the app icon — covered by
   invariant 17.
+- Spotlight badge transparency around the app icon — covered by
+  invariant 18.
 - Duplicate-URL alert ordering during add — covered by
-  invariant 14.
+  invariant 15.
 - fd race when `bookmarks.json` is replaced repeatedly — covered
   by invariant 6.
 

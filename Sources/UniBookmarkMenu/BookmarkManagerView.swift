@@ -14,16 +14,20 @@ struct BookmarkManagerView: View {
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var llmConfig = LLMConfig()
     @State private var llmConfigMessage: String?
+    @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 32
+    @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 15
+    @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 8
+    @AppStorage("showHiddenBookmarksPage") private var showHiddenBookmarksPage = false
 
     enum Presentation: Identifiable {
         // `seq` is part of identity so re-issuing an add request with new
         // prefill while a stale sheet is somehow alive forces a fresh sheet.
-        case add(seq: Int, prefilledURL: String?, prefilledTitle: String?)
+        case add(seq: Int, prefilledURL: String?, prefilledTitle: String?, prefilledIsHidden: Bool)
         case edit(Bookmark)
 
         var id: String {
             switch self {
-            case .add(let seq, _, _): return "add-\(seq)"
+            case .add(let seq, _, _, _): return "add-\(seq)"
             case .edit(let bookmark): return "edit-\(bookmark.id.uuidString)"
             }
         }
@@ -31,30 +35,56 @@ struct BookmarkManagerView: View {
 
     enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
         case bookmarks
+        case hiddenBookmarks
         case ai
+        case developer
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .bookmarks: return "书签"
+            case .hiddenBookmarks: return "隐藏书签"
             case .ai: return "AI配置"
+            case .developer: return "开发者选项"
             }
         }
 
         var symbolName: String {
             switch self {
-            case .bookmarks: return ""
+            case .bookmarks: return "bookmark.fill"
+            case .hiddenBookmarks: return "eye.slash.fill"
             case .ai: return "sparkles"
+            case .developer: return "wrench.fill"
             }
         }
 
         var iconGradient: LinearGradient {
             switch self {
             case .bookmarks:
-                return LinearGradient(colors: [.orange, .yellow], startPoint: .topLeading, endPoint: .bottomTrailing)
+                return LinearGradient(
+                    colors: [Color(red: 1.0, green: 0.45, blue: 0.30), Color(red: 1.0, green: 0.28, blue: 0.22)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
             case .ai:
-                return LinearGradient(colors: [.purple, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
+                return LinearGradient(
+                    colors: [Color(red: 0.54, green: 0.44, blue: 1.0), Color(red: 0.34, green: 0.25, blue: 0.86)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .hiddenBookmarks:
+                return LinearGradient(
+                    colors: [Color(red: 0.48, green: 0.54, blue: 0.64), Color(red: 0.24, green: 0.29, blue: 0.38)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .developer:
+                return LinearGradient(
+                    colors: [Color(red: 1.0, green: 0.82, blue: 0.28), Color(red: 0.95, green: 0.62, blue: 0.10)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
             }
         }
     }
@@ -84,7 +114,19 @@ struct BookmarkManagerView: View {
     }
 
     private var filteredBookmarks: [Bookmark] {
-        filtered(model.bookmarks)
+        filtered(visibleBookmarks)
+    }
+
+    private var visibleBookmarks: [Bookmark] {
+        model.bookmarks.filter { !$0.isHidden }
+    }
+
+    private var hiddenBookmarks: [Bookmark] {
+        model.bookmarks.filter { $0.isHidden }
+    }
+
+    private var filteredHiddenBookmarks: [Bookmark] {
+        filtered(hiddenBookmarks)
     }
 
     private var bookmarkSections: [BookmarkListSection] {
@@ -106,6 +148,11 @@ struct BookmarkManagerView: View {
         return sections
     }
 
+    private var hiddenBookmarkSections: [BookmarkListSection] {
+        let bookmarks = filteredHiddenBookmarks
+        return bookmarks.isEmpty ? [] : [BookmarkListSection(title: nil, bookmarks: bookmarks)]
+    }
+
     private func filtered(_ bookmarks: [Bookmark]) -> [Bookmark] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
@@ -123,7 +170,8 @@ struct BookmarkManagerView: View {
         presentation = .add(
             seq: request.seq,
             prefilledURL: request.url,
-            prefilledTitle: request.title
+            prefilledTitle: request.title,
+            prefilledIsHidden: request.isHidden
         )
     }
 
@@ -153,7 +201,7 @@ struct BookmarkManagerView: View {
     }
 
     private var unoptimizedTitleCount: Int {
-        model.bookmarks.filter { !$0.titleOptimized }.count
+        model.bookmarks.filter { !$0.titleOptimized && !$0.isHidden }.count
     }
 
     private func optimizeTitles() {
@@ -179,23 +227,34 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private func handleHiddenBookmarksVisibilityChange(isShowing: Bool) {
+        guard !isShowing else { return }
+        guard settingsPage == SettingsPage.hiddenBookmarks else { return }
+        settingsPage = .bookmarks
+    }
+
     var body: some View {
         NavigationSplitView {
             settingsSidebar
         } detail: {
             settingsDetail
         }
+        .environment(\.sidebarIconTileSize, sidebarIconTileSize)
+        .environment(\.sidebarIconSymbolSize, sidebarIconSymbolSize)
+        .environment(\.sidebarIconCornerRadius, sidebarIconCornerRadius)
+        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索标题或网址")
         .toolbar {
             settingsToolbar
         }
         .sheet(item: $presentation) { kind in
             switch kind {
-            case .add(_, let prefilledURL, let prefilledTitle):
+            case .add(_, let prefilledURL, let prefilledTitle, let prefilledIsHidden):
                 BookmarkEditor(
                     mode: .add,
                     model: model,
                     prefilledURL: prefilledURL,
-                    prefilledTitle: prefilledTitle
+                    prefilledTitle: prefilledTitle,
+                    prefilledIsHidden: prefilledIsHidden
                 )
             case .edit(let bookmark):
                 BookmarkEditor(mode: .edit(bookmark), model: model)
@@ -211,6 +270,12 @@ struct BookmarkManagerView: View {
         }
         .onChange(of: addRequest.seq) { _, _ in
             consumePendingAddRequestIfNeeded()
+        }
+        .onChange(of: settingsPage) { _, _ in
+            selection.removeAll()
+        }
+        .onChange(of: showHiddenBookmarksPage) { _, isShowing in
+            handleHiddenBookmarksVisibilityChange(isShowing: isShowing)
         }
         .alert(
             "出错了",
@@ -270,7 +335,7 @@ struct BookmarkManagerView: View {
 
     private var settingsSidebar: some View {
         List(selection: $settingsPage) {
-            ForEach(SettingsPage.allCases) { page in
+            ForEach(visibleSettingsPages) { page in
                 NavigationLink(value: page) {
                     SidebarPageLabel(page: page)
                 }
@@ -280,14 +345,24 @@ struct BookmarkManagerView: View {
         .navigationSplitViewColumnWidth(min: 150, ideal: 180)
     }
 
+    private var visibleSettingsPages: [SettingsPage] {
+        SettingsPage.allCases.filter { page in
+            page != .hiddenBookmarks || showHiddenBookmarksPage
+        }
+    }
+
     @ViewBuilder
     private var settingsDetail: some View {
         NavigationStack {
             switch settingsPage {
             case .bookmarks:
                 bookmarkManagementPage
+            case .hiddenBookmarks:
+                hiddenBookmarkManagementPage
             case .ai:
                 aiOptimizationPage
+            case .developer:
+                developerOptionsPage
             }
         }
     }
@@ -307,59 +382,126 @@ struct BookmarkManagerView: View {
             } else if filteredBookmarks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             } else {
-                NativeBookmarkList(
-                    sections: bookmarkSections,
-                    selection: $selection,
-                    faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version
-                )
-                .padding(.top, -9)
+                bookmarkList
             }
         }
         .navigationTitle("书签")
-        .searchable(text: $searchText, prompt: "搜索标题或网址")
+    }
+
+    private var hiddenBookmarkManagementPage: some View {
+        Group {
+            if hiddenBookmarks.isEmpty {
+                ContentUnavailableView {
+                    Label("还没有隐藏书签", systemImage: "eye.slash")
+                } description: {
+                    Text("按 ⌥H 可以把当前浏览器标签添加为隐藏书签。")
+                }
+            } else if filteredHiddenBookmarks.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else {
+                List(selection: $selection) {
+                    ForEach(hiddenBookmarkSections) { section in
+                        Section(section.title ?? "") {
+                            ForEach(section.bookmarks) { bookmark in
+                                BookmarkRow(bookmark: bookmark, faviconLoader: faviconLoader)
+                                    .tag(bookmark.id)
+                            }
+                        }
+                    }
+                }
+                .listStyle(.inset)
+            }
+        }
+        .navigationTitle("隐藏书签")
+    }
+
+    private var bookmarkList: some View {
+        List(selection: $selection) {
+            ForEach(bookmarkSections) { section in
+                Section(section.title ?? "") {
+                    ForEach(section.bookmarks) { bookmark in
+                        BookmarkRow(bookmark: bookmark, faviconLoader: faviconLoader)
+                            .tag(bookmark.id)
+                    }
+                }
+            }
+        }
+        .listStyle(.inset)
     }
 
     private var aiOptimizationPage: some View {
-        List {
-            SettingsSectionHeader("模型配置")
-            LabeledContent {
-                SecureField("sk-...", text: $llmConfig.apiKey)
-                    .textFieldStyle(.roundedBorder)
-            } label: {
-                Label("API Key", systemImage: "key")
-            }
+        Form {
+            Section("模型配置") {
+                SecureField(text: $llmConfig.apiKey, prompt: Text("sk-...")) {
+                    Label("API Key", systemImage: "key")
+                }
 
-            LabeledContent {
-                TextField("gpt-4.1-mini", text: $llmConfig.model)
-                    .textFieldStyle(.roundedBorder)
-            } label: {
-                Label("Model", systemImage: "cpu")
-            }
+                TextField(text: $llmConfig.model, prompt: Text("gpt-4.1-mini")) {
+                    Label("Model", systemImage: "cpu")
+                }
 
-            LabeledContent {
-                TextField("https://api.openai.com/v1/chat/completions", text: $llmConfig.baseURL)
-                    .textFieldStyle(.roundedBorder)
-            } label: {
-                Label("Base URL", systemImage: "link")
-            }
+                TextField(text: $llmConfig.baseURL, prompt: Text("https://api.openai.com/v1/chat/completions")) {
+                    Label("Base URL", systemImage: "link")
+                }
 
-            Button {
-                saveLLMConfig()
-            } label: {
-                Label("保存配置", systemImage: "square.and.arrow.down")
+                Button {
+                    saveLLMConfig()
+                } label: {
+                    Label("保存配置", systemImage: "square.and.arrow.down")
+                }
             }
         }
+        .formStyle(.grouped)
         .settingsContentMargins()
         .navigationTitle("AI配置")
     }
 
+    private var developerOptionsPage: some View {
+        Form {
+            Section("隐藏书签") {
+                Toggle("显示隐藏书签页", isOn: $showHiddenBookmarksPage)
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+            }
+
+            Section("侧栏图标调试") {
+                Slider(value: $sidebarIconTileSize, in: 22...40, step: 1) {
+                    Text("背景尺寸")
+                } minimumValueLabel: {
+                    Text("22")
+                } maximumValueLabel: {
+                    Text("40")
+                }
+
+                Slider(value: $sidebarIconSymbolSize, in: 10...22, step: 1) {
+                    Text("符号尺寸")
+                } minimumValueLabel: {
+                    Text("10")
+                } maximumValueLabel: {
+                    Text("22")
+                }
+
+                Slider(value: $sidebarIconCornerRadius, in: 4...12, step: 1) {
+                    Text("圆角")
+                } minimumValueLabel: {
+                    Text("4")
+                } maximumValueLabel: {
+                    Text("12")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .settingsContentMargins()
+        .navigationTitle("开发者选项")
+    }
+
     @ToolbarContentBuilder
     private var settingsToolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            if settingsPage == .bookmarks {
+        if settingsPage == .bookmarks {
+            ToolbarSpacer(.flexible)
+
+            ToolbarItemGroup {
                 Button {
-                    presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil)
+                    presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil, prefilledIsHidden: false)
                 } label: {
                     Label("添加", systemImage: "plus")
                 }
@@ -373,7 +515,11 @@ struct BookmarkManagerView: View {
                 }
                 .disabled(!canDeleteSelection)
                 .help("删除选中的书签")
+            }
 
+            ToolbarSpacer(.fixed)
+
+            ToolbarItem {
                 Button {
                     if let bookmark = selectedBookmark {
                         presentation = .edit(bookmark)
@@ -382,9 +528,11 @@ struct BookmarkManagerView: View {
                     Label("编辑", systemImage: "pencil")
                 }
                 .disabled(!canUseSingleSelectionActions)
+            }
 
-                Spacer()
+            ToolbarSpacer(.fixed)
 
+            ToolbarItem {
                 Button {
                     optimizeTitles()
                 } label: {
@@ -396,6 +544,35 @@ struct BookmarkManagerView: View {
                 .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
                 .help("优化全部未处理的标题")
             }
+        } else if settingsPage == .hiddenBookmarks {
+            ToolbarSpacer(.flexible)
+
+            ToolbarItemGroup {
+                Button {
+                    presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil, prefilledIsHidden: true)
+                } label: {
+                    Label("添加", systemImage: "plus")
+                }
+                .disabled(selection.count > 1)
+                .help("添加隐藏书签")
+
+                Button {
+                    requestDelete(ids: selection)
+                } label: {
+                    Label("删除", systemImage: "minus")
+                }
+                .disabled(!canDeleteSelection)
+                .help("删除选中的隐藏书签")
+
+                Button {
+                    if let bookmark = selectedBookmark {
+                        presentation = .edit(bookmark)
+                    }
+                } label: {
+                    Label("编辑", systemImage: "pencil")
+                }
+                .disabled(!canUseSingleSelectionActions)
+            }
         }
     }
 }
@@ -405,46 +582,59 @@ private struct SidebarPageLabel: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if page == .bookmarks {
-                Image(nsImage: AppIcon.image(size: NSSize(width: 22, height: 22)))
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 22, height: 22)
-            } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(page.iconGradient)
-                    Image(systemName: page.symbolName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 22, height: 22)
-            }
+            SidebarCategoryIcon(page: page)
 
             Text(page.title)
         }
     }
 }
 
-private struct SettingsSectionHeader: View {
-    let title: String
-    let topSpacing: CGFloat
-
-    init(_ title: String, topSpacing: CGFloat = 0) {
-        self.title = title
-        self.topSpacing = topSpacing
-    }
+private struct SidebarCategoryIcon: View {
+    let page: BookmarkManagerView.SettingsPage
+    @Environment(\.sidebarIconTileSize) private var tileSize
+    @Environment(\.sidebarIconSymbolSize) private var symbolSize
+    @Environment(\.sidebarIconCornerRadius) private var cornerRadius
 
     var body: some View {
-        Text(title)
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .textCase(nil)
-            .padding(.top, topSpacing)
-            .frame(height: 28 + topSpacing, alignment: .topLeading)
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(page.iconGradient)
+
+            Image(systemName: page.symbolName)
+                .font(.system(size: symbolSize, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white)
+        }
+        .frame(width: tileSize, height: tileSize)
+    }
+}
+
+private struct SidebarIconTileSizeKey: EnvironmentKey {
+    static let defaultValue: Double = 32
+}
+
+private struct SidebarIconSymbolSizeKey: EnvironmentKey {
+    static let defaultValue: Double = 15
+}
+
+private struct SidebarIconCornerRadiusKey: EnvironmentKey {
+    static let defaultValue: Double = 8
+}
+
+private extension EnvironmentValues {
+    var sidebarIconTileSize: Double {
+        get { self[SidebarIconTileSizeKey.self] }
+        set { self[SidebarIconTileSizeKey.self] = newValue }
+    }
+
+    var sidebarIconSymbolSize: Double {
+        get { self[SidebarIconSymbolSizeKey.self] }
+        set { self[SidebarIconSymbolSizeKey.self] = newValue }
+    }
+
+    var sidebarIconCornerRadius: Double {
+        get { self[SidebarIconCornerRadiusKey.self] }
+        set { self[SidebarIconCornerRadiusKey.self] = newValue }
     }
 }
 
@@ -516,10 +706,12 @@ private struct BookmarkEditor: View {
     /// these win over clipboard-URL detection.
     var prefilledURL: String? = nil
     var prefilledTitle: String? = nil
+    var prefilledIsHidden: Bool = false
     @Environment(\.dismiss) private var dismiss
 
     @State private var title: String = ""
     @State private var url: String = ""
+    @State private var isHidden = false
     @State private var isFetchingTitle = false
     /// Tracks whether the user has typed in the title field. We never
     /// overwrite a manual title with an auto-fetched one.
@@ -554,6 +746,7 @@ private struct BookmarkEditor: View {
                     .onChange(of: url) { _, newValue in
                         scheduleTitleFetch(for: newValue)
                     }
+                Toggle("隐藏书签", isOn: $isHidden)
             }
         }
         .formStyle(.grouped)
@@ -588,10 +781,12 @@ private struct BookmarkEditor: View {
                 isProgrammaticTitleUpdate = true
                 title = bookmark.title
                 url = bookmark.url
+                isHidden = bookmark.isHidden
                 isProgrammaticTitleUpdate = false
                 // Don't auto-fetch when editing: preserve whatever the user already saved.
                 titleEditedByUser = true
             case .add:
+                isHidden = prefilledIsHidden
                 // Prefill from the global hotkey path takes precedence:
                 // a real browser-tab snapshot beats whatever happens to
                 // be on the clipboard. If a title is supplied, mark it as
@@ -633,11 +828,12 @@ private struct BookmarkEditor: View {
         let errorMessage: String?
         switch mode {
         case .add:
-            errorMessage = model.add(title: title, url: url)
+            errorMessage = model.add(title: title, url: url, isHidden: isHidden)
         case .edit(let bookmark):
             var updated = bookmark
             updated.title = title
             updated.url = url
+            updated.isHidden = isHidden
             errorMessage = model.update(updated)
         }
         if let errorMessage {

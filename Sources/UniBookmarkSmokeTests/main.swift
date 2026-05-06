@@ -6,6 +6,8 @@ struct SmokeTests {
         try testDuplicateProtection()
         try testWebURLValidation()
         try testLegacyCreatedAtFallback()
+        try testLegacyHiddenFallback()
+        try testHiddenBookmarkPersistence()
         try testBatchDelete()
         try testTitleOptimizationPersistence()
         try testUsageGroupingFilters()
@@ -68,6 +70,38 @@ struct SmokeTests {
         let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
         try expect(loaded.count == 1, "expected one legacy bookmark")
         try expect(loaded[0].createdAt == .distantPast, "expected legacy createdAt fallback")
+    }
+
+    private static func testLegacyHiddenFallback() throws {
+        let root = try temporaryDirectory()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fileURL = root.appendingPathComponent("bookmarks.json")
+        try """
+        {
+          "version": 1,
+          "bookmarks": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "title": "Old",
+              "url": "https://example.com"
+            }
+          ]
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
+        try expect(loaded.count == 1, "expected one legacy bookmark")
+        try expect(loaded[0].isHidden == false, "expected legacy hidden fallback to false")
+    }
+
+    private static func testHiddenBookmarkPersistence() throws {
+        let store = BookmarkStore(rootDirectory: try temporaryDirectory())
+        let hidden = try store.add(title: "Hidden", url: "https://hidden.example", isHidden: true)
+        let visible = try store.add(title: "Visible", url: "https://visible.example")
+
+        let loaded = try store.bookmarks()
+        try expect(loaded.first { $0.id == hidden.id }?.isHidden == true, "expected hidden bookmark flag to persist")
+        try expect(loaded.first { $0.id == visible.id }?.isHidden == false, "expected visible bookmark flag to default false")
     }
 
     private static func testBatchDelete() throws {

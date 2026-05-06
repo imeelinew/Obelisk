@@ -5,28 +5,23 @@ import Carbon.HIToolbox
 /// works without Accessibility permission, intercepts the keystroke before
 /// it reaches the focused app, and is still supported on macOS 26.
 @MainActor
-final class GlobalHotkey {
-    var onPress: (() -> Void)?
-
+final class GlobalHotkeys {
     // `nonisolated(unsafe)` because these are accessed from the nonisolated
-    // deinit. They're written only at init/deinit time, and the Carbon C
-    // callback reads them indirectly via the event-target lookup, never
-    // through these stored properties — so there's no real data race.
-    nonisolated(unsafe) private var hotKeyRef: EventHotKeyRef?
+    // deinit and Carbon callback. Hotkeys are registered once during launch and
+    // callbacks hop back to the main queue before invoking Swift closures.
+    nonisolated(unsafe) private var hotKeyRefs: [EventHotKeyRef] = []
     nonisolated(unsafe) private var eventHandler: EventHandlerRef?
-    private let hotKeyID: UInt32 = 1
+    nonisolated(unsafe) private var registeredIDs = Set<UInt32>()
+    private var handlers: [UInt32: () -> Void] = [:]
     /// `OSType` four-char signature ("UBMK") to namespace our hotkey ID.
-    private let signature: OSType = 0x55_42_4D_4B  // 'U' 'B' 'M' 'K'
+    private static let signature: OSType = 0x55_42_4D_4B  // 'U' 'B' 'M' 'K'
 
-    /// Carbon virtual key code (e.g. `kVK_ANSI_B = 11`) plus modifier bits
-    /// (`cmdKey`, `shiftKey`, `optionKey`, `controlKey`, OR-combined).
-    init(keyCode: UInt32, modifiers: UInt32) {
+    init() {
         installHandler()
-        register(keyCode: keyCode, modifiers: modifiers)
     }
 
     deinit {
-        if let hotKeyRef {
+        for hotKeyRef in hotKeyRefs {
             UnregisterEventHotKey(hotKeyRef)
         }
         if let eventHandler {
@@ -58,16 +53,20 @@ final class GlobalHotkey {
                     &pressedID
                 )
                 guard status == noErr else { return noErr }
+                guard pressedID.signature == GlobalHotkeys.signature else {
+                    return OSStatus(eventNotHandledErr)
+                }
+                let hotKeyID = pressedID.id
 
                 // Hop to main actor to call back into Swift code.
                 let token = userData
                 DispatchQueue.main.async {
-                    let me = Unmanaged<GlobalHotkey>.fromOpaque(token).takeUnretainedValue()
-                    if pressedID.id == me.hotKeyID {
-                        me.onPress?()
-                    }
+                    let me = Unmanaged<GlobalHotkeys>.fromOpaque(token).takeUnretainedValue()
+                    me.handlers[hotKeyID]?()
                 }
-                return noErr
+
+                let me = Unmanaged<GlobalHotkeys>.fromOpaque(userData).takeUnretainedValue()
+                return me.registeredIDs.contains(hotKeyID) ? noErr : OSStatus(eventNotHandledErr)
             },
             1,
             &spec,
@@ -76,8 +75,11 @@ final class GlobalHotkey {
         )
     }
 
-    private func register(keyCode: UInt32, modifiers: UInt32) {
-        let id = EventHotKeyID(signature: signature, id: hotKeyID)
+    /// Carbon virtual key code (e.g. `kVK_ANSI_B = 11`) plus modifier bits
+    /// (`cmdKey`, `shiftKey`, `optionKey`, `controlKey`, OR-combined).
+    func register(keyCode: UInt32, modifiers: UInt32, hotKeyID: UInt32, onPress: @escaping () -> Void) {
+        let id = EventHotKeyID(signature: Self.signature, id: hotKeyID)
+        var hotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
             keyCode,
             modifiers,
@@ -86,9 +88,13 @@ final class GlobalHotkey {
             0,
             &hotKeyRef
         )
-        if status != noErr {
+        if status == noErr, let hotKeyRef {
+            hotKeyRefs.append(hotKeyRef)
+            registeredIDs.insert(hotKeyID)
+            handlers[hotKeyID] = onPress
+        } else {
             // Most likely a hotkey conflict. Personal-use app: log and move on.
-            NSLog("UniBookmark: failed to register global hotkey, status=\(status)")
+            NSLog("UniBookmark: failed to register global hotkey id=\(hotKeyID), status=\(status)")
         }
     }
 }

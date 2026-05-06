@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         faviconLoader: faviconLoader,
         addRequest: addRequest
     )
-    private var globalHotkey: GlobalHotkey?
+    private var globalHotkeys: GlobalHotkeys?
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
         loader.onIconLoaded = { [weak self] in
@@ -57,19 +57,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// intercepts the keystroke at the system level so it never reaches the
     /// focused app — we get the press, the focused app does not.
     private func registerGlobalHotkey() {
-        let hotkey = GlobalHotkey(
+        let hotkeys = GlobalHotkeys()
+        hotkeys.register(
             keyCode: UInt32(kVK_ANSI_B),
-            modifiers: UInt32(optionKey)
-        )
-        hotkey.onPress = { [weak self] in
-            self?.handleGlobalHotkey()
+            modifiers: UInt32(optionKey),
+            hotKeyID: 1
+        ) { [weak self] in
+            self?.handleGlobalHotkey(isHidden: false)
         }
-        globalHotkey = hotkey
+
+        hotkeys.register(
+            keyCode: UInt32(kVK_ANSI_H),
+            modifiers: UInt32(optionKey),
+            hotKeyID: 2
+        ) { [weak self] in
+            self?.handleGlobalHotkey(isHidden: true)
+        }
+
+        globalHotkeys = hotkeys
     }
 
-    private func handleGlobalHotkey() {
+    private func handleGlobalHotkey(isHidden: Bool) {
         let tab = BrowserCurrentTab.fetch()
-        addRequest.request(url: tab?.url, title: tab?.title)
+        addRequest.request(url: tab?.url, title: tab?.title, isHidden: isHidden)
         NSApp.setActivationPolicy(.regular)
         managerWindow.show()
     }
@@ -136,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
-        } else if bookmarksModel.bookmarks.isEmpty {
+        } else if bookmarksModel.frequent.isEmpty && bookmarksModel.recent.isEmpty && bookmarksModel.others.isEmpty {
             let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)

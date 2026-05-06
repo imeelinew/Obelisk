@@ -19,11 +19,12 @@ Icon?
 # Editor / IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
 
-# Local data — UniBookmark stores user bookmarks under ~/Documents/UniBookmark,
+# Local data — Obelisk stores user bookmarks under ~/Documents/Obelisk,
 # so they are never in the repo. The patterns below guard against accidentally
 # copying a data directory or test database into the project tree.
 bookmarks.json

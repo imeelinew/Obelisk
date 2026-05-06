@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import Observation
-import UniBookmarkCore
+import ObeliskCore
 
 @MainActor
 @Observable
@@ -28,20 +28,23 @@ final class BookmarksModel {
     private let usageStore: UsageStore
     private let spotlightIndexer: SpotlightIndexer?
     private let titleOptimizer: TitleOptimizer
-    private let groupSize: Int
+    private var frequentGroupLimit: Int
+    private var recentGroupLimit: Int
     private(set) var isOptimizingTitles = false
 
     init(
         store: BookmarkStore,
         usageStore: UsageStore,
         spotlightIndexer: SpotlightIndexer? = nil,
-        groupSize: Int = 5
+        frequentGroupLimit: Int = 5,
+        recentGroupLimit: Int = 5
     ) {
         self.store = store
         self.usageStore = usageStore
         self.spotlightIndexer = spotlightIndexer
         self.titleOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
-        self.groupSize = groupSize
+        self.frequentGroupLimit = frequentGroupLimit
+        self.recentGroupLimit = recentGroupLimit
         reload()
     }
 
@@ -52,8 +55,9 @@ final class BookmarksModel {
             // Prune usage entries for deleted bookmarks. Cheap; only writes
             // when there are actually orphans.
             usageStore.cleanup(validIds: Set(all.map(\.id)))
-            recomputeGroups(from: all)
-            spotlightIndexer?.reindexAll(all)
+            let visibleBookmarks = all.filter { !$0.isHidden }
+            recomputeGroups(from: visibleBookmarks)
+            spotlightIndexer?.reindexAll(visibleBookmarks)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
             if errorMessage == priorLoadError {
@@ -74,9 +78,9 @@ final class BookmarksModel {
     /// would suppress the alert until the sheet dismisses (i.e. user clicks
     /// "取消"), making the alert show at the wrong time. The editor handles
     /// the returned message inline / via its own alert.
-    func add(title: String, url: String) -> String? {
+    func add(title: String, url: String, isHidden: Bool = false) -> String? {
         do {
-            try store.add(title: title, url: url)
+            try store.add(title: title, url: url, isHidden: isHidden)
             reload()
             return nil
         } catch {
@@ -94,6 +98,29 @@ final class BookmarksModel {
         }
     }
 
+    func setHidden(_ isHidden: Bool, for id: UUID) -> String? {
+        guard var bookmark = bookmarks.first(where: { $0.id == id }) else {
+            return "找不到这个书签"
+        }
+        guard bookmark.isHidden != isHidden else {
+            return nil
+        }
+        bookmark.isHidden = isHidden
+        return update(bookmark)
+    }
+
+    func setMenuGroupLimits(frequent: Int, recent: Int) {
+        let nextFrequent = max(0, frequent)
+        let nextRecent = max(0, recent)
+        guard nextFrequent != frequentGroupLimit || nextRecent != recentGroupLimit else {
+            return
+        }
+        frequentGroupLimit = nextFrequent
+        recentGroupLimit = nextRecent
+        recomputeGroups(from: bookmarks.filter { !$0.isHidden })
+        onChange?()
+    }
+
     func delete(id: UUID) {
         delete(ids: [id])
     }
@@ -107,13 +134,26 @@ final class BookmarksModel {
         }
     }
 
-    func optimizeAllTitles() async -> String {
+    enum TitleOptimizationScope {
+        case visible
+        case hidden
+    }
+
+    func optimizeAllTitles(scope: TitleOptimizationScope = .visible) async -> String {
         guard !isOptimizingTitles else {
             return "标题优化正在进行中"
         }
 
         let candidates = bookmarks
-            .filter { !$0.titleOptimized }
+            .filter { bookmark in
+                guard !bookmark.titleOptimized else { return false }
+                switch scope {
+                case .visible:
+                    return !bookmark.isHidden
+                case .hidden:
+                    return bookmark.isHidden
+                }
+            }
             .map {
                 TitleOptimizationCandidate(
                     id: $0.id,
@@ -149,19 +189,19 @@ final class BookmarksModel {
     func openBookmark(_ bookmark: Bookmark) {
         guard let url = URL(string: bookmark.url) else { return }
         usageStore.record(id: bookmark.id)
-        recomputeGroups(from: bookmarks)
+        recomputeGroups(from: bookmarks.filter { !$0.isHidden })
         NSWorkspace.shared.open(url)
         onChange?()
     }
 
     private func recomputeGroups(from all: [Bookmark]) {
-        let topFrequent = usageStore.topFrequent(among: all, limit: groupSize)
+        let topFrequent = usageStore.topFrequent(among: all, limit: frequentGroupLimit)
         let frequentIds = Set(topFrequent.map(\.id))
 
         // Recent excludes anything already shown in "frequent" so each
         // bookmark only appears once.
         let recentCandidates = all.filter { !frequentIds.contains($0.id) }
-        let topRecent = usageStore.recent(among: recentCandidates, limit: groupSize)
+        let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)
 
         let surfacedIds = frequentIds.union(topRecent.map(\.id))
 

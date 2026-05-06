@@ -4,7 +4,7 @@ import CoreSpotlight
 import CryptoKit
 import Foundation
 import Observation
-import UniBookmarkCore
+import ObeliskCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -18,7 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var bookmarksModel = BookmarksModel(
         store: store,
         usageStore: usageStore,
-        spotlightIndexer: spotlightIndexer
+        spotlightIndexer: spotlightIndexer,
+        frequentGroupLimit: UserDefaults.standard.object(forKey: "menuFrequentGroupLimit") as? Int ?? 5,
+        recentGroupLimit: UserDefaults.standard.object(forKey: "menuRecentGroupLimit") as? Int ?? 5
     )
     private let addRequest = AddBookmarkRequest()
     private lazy var managerWindow = BookmarkManagerWindowController(
@@ -26,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         faviconLoader: faviconLoader,
         addRequest: addRequest
     )
-    private var globalHotkey: GlobalHotkey?
+    private var globalHotkeys: GlobalHotkeys?
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
         loader.onIconLoaded = { [weak self] in
@@ -57,19 +59,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// intercepts the keystroke at the system level so it never reaches the
     /// focused app — we get the press, the focused app does not.
     private func registerGlobalHotkey() {
-        let hotkey = GlobalHotkey(
+        let hotkeys = GlobalHotkeys()
+        hotkeys.register(
             keyCode: UInt32(kVK_ANSI_B),
-            modifiers: UInt32(optionKey)
-        )
-        hotkey.onPress = { [weak self] in
-            self?.handleGlobalHotkey()
+            modifiers: UInt32(optionKey),
+            hotKeyID: 1
+        ) { [weak self] in
+            self?.handleGlobalHotkey(isHidden: false)
         }
-        globalHotkey = hotkey
+
+        hotkeys.register(
+            keyCode: UInt32(kVK_ANSI_H),
+            modifiers: UInt32(optionKey),
+            hotKeyID: 2
+        ) { [weak self] in
+            self?.handleGlobalHotkey(isHidden: true)
+        }
+
+        globalHotkeys = hotkeys
     }
 
-    private func handleGlobalHotkey() {
+    private func handleGlobalHotkey(isHidden: Bool) {
         let tab = BrowserCurrentTab.fetch()
-        addRequest.request(url: tab?.url, title: tab?.title)
+        addRequest.request(url: tab?.url, title: tab?.title, isHidden: isHidden)
         NSApp.setActivationPolicy(.regular)
         managerWindow.show()
     }
@@ -84,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "退出 UniBookmark", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "退出 Obelisk", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
 
         let editMenuItem = NSMenuItem()
@@ -106,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureStatusItem() {
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "UniBookmark")
+            button.image = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: "Obelisk")
             button.title = ""
         }
     }
@@ -136,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
-        } else if bookmarksModel.bookmarks.isEmpty {
+        } else if bookmarksModel.frequent.isEmpty && bookmarksModel.recent.isEmpty && bookmarksModel.others.isEmpty {
             let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -317,7 +329,7 @@ final class FaviconLoader {
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 8
         configuration.httpAdditionalHeaders = [
-            "User-Agent": "UniBookmark/1.0"
+            "User-Agent": "Obelisk/1.0"
         ]
         self.session = URLSession(configuration: configuration)
         loadIndex()
@@ -356,6 +368,36 @@ final class FaviconLoader {
 
         fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
         return nil
+    }
+
+    func refresh(urlString: String) {
+        guard
+            let pageURL = URL(string: urlString),
+            let key = cacheKey(for: pageURL)
+        else {
+            return
+        }
+
+        let fileURL = cacheDirectory.appendingPathComponent("\(key).png")
+        try? FileManager.default.removeItem(at: fileURL)
+        index.removeValue(forKey: key)
+        saveIndex()
+        version &+= 1
+        onIconLoaded?()
+        fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
+    }
+
+    func refreshAll(urlStrings: [String]) {
+        try? FileManager.default.removeItem(at: cacheDirectory)
+        inFlight.removeAll()
+        index.removeAll()
+        saveIndex()
+        version &+= 1
+        onIconLoaded?()
+
+        for urlString in Set(urlStrings) {
+            _ = image(for: urlString)
+        }
     }
 
     private func fetchIfNeeded(pageURL: URL, key: String, fileURL: URL) {

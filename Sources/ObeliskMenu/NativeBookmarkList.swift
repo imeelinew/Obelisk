@@ -1,10 +1,15 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
-import UniBookmarkCore
+import ObeliskCore
 
-struct BookmarkListSection: Equatable {
+struct BookmarkListSection: Equatable, Identifiable {
     var title: String?
     var bookmarks: [Bookmark]
+
+    var id: String {
+        title ?? bookmarks.map(\.id.uuidString).joined(separator: ",")
+    }
 }
 
 struct NativeBookmarkList: NSViewRepresentable {
@@ -12,6 +17,14 @@ struct NativeBookmarkList: NSViewRepresentable {
     @Binding var selection: Set<Bookmark.ID>
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
+    var showsURLHostOnly: Bool = false
+    var onOpen: ((Bookmark) -> Void)?
+    var onCopyURL: ((Bookmark) -> Void)?
+    var onRefreshFavicon: ((Bookmark) -> Void)?
+    var onEdit: ((Bookmark) -> Void)?
+    var onDelete: ((Set<Bookmark.ID>) -> Void)?
+    var hiddenStateActionTitle: String?
+    var onSetHidden: ((Bookmark) -> Void)?
     fileprivate static let contentInset: CGFloat = 18
     fileprivate static let rowHeight: CGFloat = 50
     fileprivate static let headerHeight: CGFloat = 24
@@ -41,6 +54,9 @@ struct NativeBookmarkList: NSViewRepresentable {
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         tableView.hoverDelegate = context.coordinator
+        tableView.menuDelegate = context.coordinator
+        tableView.target = context.coordinator
+        tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
 
         let column = NSTableColumn(identifier: Self.columnIdentifier)
         column.resizingMask = .autoresizingMask
@@ -67,7 +83,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("BookmarkColumn")
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
         var parent: NativeBookmarkList
         fileprivate var items: [NativeBookmarkListItem] = []
         weak var scrollView: NSScrollView?
@@ -142,6 +158,62 @@ struct NativeBookmarkList: NSViewRepresentable {
             row == hoveredRow
         }
 
+        func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
+            guard row >= 0, row < items.count else { return false }
+            return items[row].bookmark != nil
+        }
+
+        func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu? {
+            guard row >= 0, row < items.count, let bookmark = items[row].bookmark else {
+                return nil
+            }
+
+            let menu = NSMenu()
+
+            if parent.onOpen != nil {
+                menu.addItem(menuItem("打开", action: #selector(openFromMenu(_:)), bookmark: bookmark))
+            }
+            if parent.onCopyURL != nil {
+                menu.addItem(menuItem("复制 URL", action: #selector(copyURLFromMenu(_:)), bookmark: bookmark))
+            }
+            if parent.onRefreshFavicon != nil {
+                menu.addItem(menuItem("刷新 favicon", action: #selector(refreshFaviconFromMenu(_:)), bookmark: bookmark))
+            }
+            if parent.onEdit != nil {
+                menu.addItem(menuItem("编辑", action: #selector(editFromMenu(_:)), bookmark: bookmark))
+            }
+            if parent.onDelete != nil {
+                menu.addItem(NSMenuItem.separator())
+                menu.addItem(menuItem("删除", action: #selector(deleteFromMenu(_:)), bookmark: bookmark))
+            }
+            if let hiddenStateActionTitle = parent.hiddenStateActionTitle, parent.onSetHidden != nil {
+                menu.addItem(NSMenuItem.separator())
+                menu.addItem(menuItem(hiddenStateActionTitle, action: #selector(setHiddenFromMenu(_:)), bookmark: bookmark))
+            }
+
+            return menu.items.isEmpty ? nil : menu
+        }
+
+        func bookmarkMenuTableViewCopySelection(_ tableView: BookmarkMenuTableView) {
+            guard let bookmark = singleSelectedBookmark(in: tableView) else { return }
+            parent.onCopyURL?(bookmark)
+        }
+
+        func bookmarkMenuTableViewEditSelection(_ tableView: BookmarkMenuTableView) {
+            guard let bookmark = singleSelectedBookmark(in: tableView) else { return }
+            parent.onEdit?(bookmark)
+        }
+
+        func bookmarkMenuTableViewDeleteSelection(_ tableView: BookmarkMenuTableView) {
+            guard !parent.selection.isEmpty else { return }
+            parent.onDelete?(parent.selection)
+        }
+
+        func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView) {
+            guard let bookmark = singleSelectedBookmark(in: tableView) else { return }
+            parent.onOpen?(bookmark)
+        }
+
         func numberOfRows(in tableView: NSTableView) -> Int {
             items.count
         }
@@ -197,6 +269,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                 ) as? BookmarkTableCellView ?? BookmarkTableCellView()
                 view.configure(
                     bookmark: bookmark,
+                    showsURLHostOnly: parent.showsURLHostOnly,
                     favicon: parent.faviconLoader.image(for: bookmark.url)
                 )
                 return view
@@ -217,6 +290,45 @@ struct NativeBookmarkList: NSViewRepresentable {
             parent.selection = selectedIDs
         }
 
+        @objc func handleDoubleClick(_ sender: NSTableView) {
+            let row = sender.clickedRow
+            guard row >= 0, row < items.count, let bookmark = items[row].bookmark else {
+                return
+            }
+            parent.onOpen?(bookmark)
+        }
+
+        @objc private func openFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            parent.onOpen?(bookmark)
+        }
+
+        @objc private func copyURLFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            parent.onCopyURL?(bookmark)
+        }
+
+        @objc private func refreshFaviconFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            parent.onRefreshFavicon?(bookmark)
+        }
+
+        @objc private func editFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            parent.onEdit?(bookmark)
+        }
+
+        @objc private func deleteFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            let selectedIDs = parent.selection.isEmpty ? [bookmark.id] : parent.selection
+            parent.onDelete?(selectedIDs)
+        }
+
+        @objc private func setHiddenFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            parent.onSetHidden?(bookmark)
+        }
+
         func syncSelectionToTable() {
             guard let tableView else { return }
             var rowIndexes = IndexSet()
@@ -229,6 +341,24 @@ struct NativeBookmarkList: NSViewRepresentable {
             isSyncingSelection = true
             tableView.selectRowIndexes(rowIndexes, byExtendingSelection: false)
             isSyncingSelection = false
+        }
+
+        private func menuItem(_ title: String, action: Selector, bookmark: Bookmark) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = bookmark
+            return item
+        }
+
+        private func singleSelectedBookmark(in tableView: NSTableView) -> Bookmark? {
+            guard tableView.selectedRowIndexes.count == 1,
+                  let row = tableView.selectedRowIndexes.first,
+                  row >= 0,
+                  row < items.count
+            else {
+                return nil
+            }
+            return items[row].bookmark
         }
 
         private static let parentRowHeight = NativeBookmarkList.rowHeight
@@ -272,6 +402,16 @@ protocol HoverTableViewDelegate: AnyObject {
     func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int)
 }
 
+@MainActor
+protocol BookmarkMenuTableViewDelegate: AnyObject {
+    func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool
+    func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu?
+    func bookmarkMenuTableViewCopySelection(_ tableView: BookmarkMenuTableView)
+    func bookmarkMenuTableViewEditSelection(_ tableView: BookmarkMenuTableView)
+    func bookmarkMenuTableViewDeleteSelection(_ tableView: BookmarkMenuTableView)
+    func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView)
+}
+
 /// Centralized hover tracking. Per-row NSTrackingAreas are unreliable inside
 /// scroll views — during inertial scroll, mouseEntered fires for rows passing
 /// under the cursor while paired mouseExited events are frequently dropped,
@@ -280,7 +420,7 @@ protocol HoverTableViewDelegate: AnyObject {
 /// `row(at:)`. Cursor-driven recomputation runs on mouseMoved events and on
 /// scroll-driven content bounds changes (see Coordinator). One row at a time;
 /// no enter/exit pairing to lose.
-final class HoverTableView: NSTableView {
+final class HoverTableView: BookmarkMenuTableView {
     weak var hoverDelegate: HoverTableViewDelegate?
     private var hoverTrackingArea: NSTrackingArea?
 
@@ -316,6 +456,51 @@ final class HoverTableView: NSTableView {
         let point = convert(mouse, from: nil)
         let inside = bounds.contains(point) && visibleRect.contains(point)
         hoverDelegate?.hoverTableView(self, didHoverRow: inside ? row(at: point) : -1)
+    }
+}
+
+class BookmarkMenuTableView: NSTableView {
+    weak var menuDelegate: BookmarkMenuTableViewDelegate?
+
+    override func keyDown(with event: NSEvent) {
+        let characters = event.charactersIgnoringModifiers ?? ""
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        if modifiers == .command, characters == "c" {
+            menuDelegate?.bookmarkMenuTableViewCopySelection(self)
+            return
+        }
+
+        if modifiers == .command, characters == "e" {
+            menuDelegate?.bookmarkMenuTableViewEditSelection(self)
+            return
+        }
+
+        if modifiers.isEmpty, event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) {
+            menuDelegate?.bookmarkMenuTableViewDeleteSelection(self)
+            return
+        }
+
+        if modifiers.isEmpty, event.keyCode == UInt16(kVK_Return) || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) {
+            menuDelegate?.bookmarkMenuTableViewOpenSelection(self)
+            return
+        }
+
+        super.keyDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = row(at: point)
+        guard row >= 0, menuDelegate?.bookmarkMenuTableView(self, shouldSelectContextRow: row) == true else {
+            return nil
+        }
+
+        if !selectedRowIndexes.contains(row) {
+            selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+
+        return menuDelegate?.bookmarkMenuTableView(self, menuForRow: row)
     }
 }
 
@@ -422,7 +607,7 @@ private final class BookmarkTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(bookmark: Bookmark, favicon: NSImage?) {
+    func configure(bookmark: Bookmark, showsURLHostOnly: Bool, favicon: NSImage?) {
         if let favicon {
             faviconView.image = favicon
             faviconView.contentTintColor = nil
@@ -431,8 +616,15 @@ private final class BookmarkTableCellView: NSTableCellView {
             faviconView.contentTintColor = nil
         }
         titleField.stringValue = bookmark.title
-        urlField.stringValue = bookmark.url
+        urlField.stringValue = displayURL(for: bookmark.url, showsHostOnly: showsURLHostOnly)
         applyNativeTextColors()
+    }
+
+    private func displayURL(for urlString: String, showsHostOnly: Bool) -> String {
+        guard showsHostOnly, let host = URL(string: urlString)?.host(percentEncoded: false) else {
+            return urlString
+        }
+        return host
     }
 
     private func applyNativeTextColors() {

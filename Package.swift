@@ -3,26 +3,26 @@
 import PackageDescription
 
 let package = Package(
-    name: "UniBookmark",
+    name: "Obelisk",
     platforms: [
-        .macOS(.v14)
+        .macOS("26.0")
     ],
     products: [
-        .executable(name: "UniBookmarkMenu", targets: ["UniBookmarkMenu"]),
-        .executable(name: "UniBookmarkSmokeTests", targets: ["UniBookmarkSmokeTests"])
+        .executable(name: "Obelisk", targets: ["ObeliskMenu"]),
+        .executable(name: "ObeliskSmokeTests", targets: ["ObeliskSmokeTests"])
     ],
     targets: [
-        .target(name: "UniBookmarkCore"),
+        .target(name: "ObeliskCore"),
         .executableTarget(
-            name: "UniBookmarkMenu",
-            dependencies: ["UniBookmarkCore"],
+            name: "ObeliskMenu",
+            dependencies: ["ObeliskCore"],
             resources: [
                 .process("Resources")
             ]
         ),
         .executableTarget(
-            name: "UniBookmarkSmokeTests",
-            dependencies: ["UniBookmarkCore"]
+            name: "ObeliskSmokeTests",
+            dependencies: ["ObeliskCore"]
         )
     ]
 )

@@ -1,5 +1,5 @@
 import Foundation
-import UniBookmarkCore
+import ObeliskCore
 
 enum TitleOptimizerError: LocalizedError {
     case missingConfig(URL)

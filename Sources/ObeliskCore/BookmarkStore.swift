@@ -6,23 +6,26 @@ public struct Bookmark: Codable, Identifiable, Equatable {
     public var url: String
     public var createdAt: Date
     public var titleOptimized: Bool
+    public var isHidden: Bool
 
     public init(
         id: UUID = UUID(),
         title: String,
         url: String,
         createdAt: Date = Date(),
-        titleOptimized: Bool = false
+        titleOptimized: Bool = false,
+        isHidden: Bool = false
     ) {
         self.id = id
         self.title = title
         self.url = url
         self.createdAt = createdAt
         self.titleOptimized = titleOptimized
+        self.isHidden = isHidden
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, url, createdAt, titleOptimized
+        case id, title, url, createdAt, titleOptimized, isHidden
     }
 
     public init(from decoder: Decoder) throws {
@@ -34,6 +37,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         // never show up in "recently added" rather than failing to load.
         createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? .distantPast
         titleOptimized = (try? c.decode(Bool.self, forKey: .titleOptimized)) ?? false
+        isHidden = (try? c.decode(Bool.self, forKey: .isHidden)) ?? false
     }
 }
 
@@ -94,7 +98,7 @@ public final class BookmarkStore {
         return FileManager.default
             .homeDirectoryForCurrentUser
             .appendingPathComponent("Documents")
-            .appendingPathComponent("UniBookmark")
+            .appendingPathComponent("Obelisk")
     }
 
     public func load() throws -> BookmarkDatabase {
@@ -114,7 +118,7 @@ public final class BookmarkStore {
     }
 
     @discardableResult
-    public func add(title: String, url: String) throws -> Bookmark {
+    public func add(title: String, url: String, isHidden: Bool = false) throws -> Bookmark {
         let trimmedURL = try validatedWebURL(url)
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
@@ -128,7 +132,7 @@ public final class BookmarkStore {
                 throw BookmarkStoreError.duplicateURL(trimmedURL)
             }
 
-            let bookmark = Bookmark(title: trimmedTitle, url: trimmedURL)
+            let bookmark = Bookmark(title: trimmedTitle, url: trimmedURL, isHidden: isHidden)
             database.bookmarks.append(bookmark)
             database.bookmarks.sort {
                 $0.title.localizedStandardCompare($1.title) == .orderedAscending

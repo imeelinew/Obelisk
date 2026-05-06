@@ -2,17 +2,17 @@ import CoreSpotlight
 import CryptoKit
 import Foundation
 import UniformTypeIdentifiers
-import UniBookmarkCore
+import ObeliskCore
 
 /// Indexes bookmarks into the user's CoreSpotlight index so they appear in
 /// system search. Each bookmark becomes a `CSSearchableItem` keyed by its
-/// UUID under the domain `local.elidev.UniBookmark.bookmarks`.
+/// UUID under the domain `local.elidev.Obelisk.bookmarks`.
 ///
 /// Re-indexing is full-replace by domain; we don't track diffs because the
 /// bookmark set is tiny and Spotlight handles the deltas internally.
 @MainActor
 final class SpotlightIndexer {
-    private let domainIdentifier = "local.elidev.UniBookmark.bookmarks"
+    private let domainIdentifier = "local.elidev.Obelisk.bookmarks"
     private let rootDirectory: URL
     private var reindexGeneration = 0
     private var reindexTask: Task<Void, Never>?

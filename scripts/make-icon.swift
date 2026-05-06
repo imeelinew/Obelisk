@@ -23,7 +23,7 @@ func defaultSourcePath() -> String {
     let scriptPath = CommandLine.arguments[0] as NSString
     let scriptDir = scriptPath.deletingLastPathComponent as NSString
     let rootDir = scriptDir.deletingLastPathComponent as NSString
-    return rootDir.appendingPathComponent("Sources/UniBookmarkMenu/Resources/AppIcon.png")
+    return rootDir.appendingPathComponent("Sources/ObeliskMenu/Resources/AppIcon.png")
 }
 
 func render(source: NSImage, size pixels: Int) -> Data? {

@@ -29,9 +29,20 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$BIN_DIR/Obelisk" "$MACOS_DIR/Obelisk"
 
-# Generate the app icon from the shared source artwork.
-swift "$ROOT_DIR/scripts/make-icon.swift" "$RESOURCES_DIR" "$ROOT_DIR/Sources/ObeliskMenu/Resources/AppIcon.png" >/dev/null
-cp "$ROOT_DIR/Sources/ObeliskMenu/Resources/AppIcon.png" "$RESOURCES_DIR/AppIcon.png"
+# Compile the Icon Composer source. This keeps the app icon aligned with
+# Apple's macOS 26 icon pipeline instead of flattening or re-drawing it here.
+DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}" \
+    xcrun actool \
+    --compile "$RESOURCES_DIR" \
+    --output-partial-info-plist "$CONTENTS_DIR/IconInfo.plist" \
+    --platform macosx \
+    --minimum-deployment-target 26.0 \
+    --target-device mac \
+    --app-icon Obelisk \
+    "$ROOT_DIR/icon/Obelisk.icon" >/dev/null
+
+cp "$ROOT_DIR/icon/Obelisk-iOS-Default-1024x1024@1x.png" "$RESOURCES_DIR/AppIcon.png"
+cp "$ROOT_DIR/Sources/ObeliskMenu/Resources/PyramidSymbol.svg" "$RESOURCES_DIR/PyramidSymbol.svg"
 
 # Strip debug symbols (saves a few MB; we don't ship a dSYM for personal use).
 strip -S "$MACOS_DIR/Obelisk" 2>/dev/null || true
@@ -44,7 +55,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <key>CFBundleExecutable</key>
   <string>Obelisk</string>
   <key>CFBundleIconFile</key>
-  <string>AppIcon</string>
+  <string>Obelisk</string>
+  <key>CFBundleIconName</key>
+  <string>Obelisk</string>
   <key>CFBundleIdentifier</key>
   <string>local.elidev.Obelisk</string>
   <key>CFBundleName</key>

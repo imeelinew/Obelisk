@@ -313,6 +313,8 @@ struct BookmarkManagerView: View {
             showToast("网址格式不正确", kind: .error)
         case .openFailed:
             showToast("无法打开无痕窗口", kind: .error)
+        case .automationPermissionRequired:
+            showToast("请允许 Obelisk 控制电脑后重试", kind: .error)
         }
     }
 
@@ -822,7 +824,7 @@ struct BookmarkManagerView: View {
                 Toggle(isOn: $openHiddenBookmarksIncognito) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("使用无痕窗口打开隐藏书签")
-                        Text("支持 Dia、Chrome、Edge、Brave 等 Chromium 浏览器。默认浏览器不支持时不会打开。")
+                        Text("Dia 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

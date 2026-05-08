@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 
 enum PrivateBrowserOpenResult {
@@ -6,6 +7,7 @@ enum PrivateBrowserOpenResult {
     case unsupportedBrowser
     case invalidURL
     case openFailed
+    case automationPermissionRequired
 }
 
 enum PrivateBrowserOpener {
@@ -21,6 +23,7 @@ enum PrivateBrowserOpener {
     ]
 
     private static let diaBundleID = "company.thebrowser.dia"
+    private static let diaIncognitoWindowIDKey = "diaIncognitoWindowID"
 
     static func openIncognito(urlString: String) -> PrivateBrowserOpenResult {
         guard let url = URL(string: urlString) else {
@@ -53,19 +56,40 @@ enum PrivateBrowserOpener {
     }
 
     private static func openDiaIncognito(url: URL) -> PrivateBrowserOpenResult {
+        guard accessibilityPermissionIsGranted(prompt: true) else {
+            return .automationPermissionRequired
+        }
+
         let source = """
         set targetURL to "\(appleScriptEscaped(url.absoluteString))"
+        set savedWindowID to "\(appleScriptEscaped(UserDefaults.standard.string(forKey: diaIncognitoWindowIDKey) ?? ""))"
         tell application id "\(diaBundleID)" to activate
-        delay 0.2
+        delay 0.15
+
+        tell application id "\(diaBundleID)"
+            if savedWindowID is not "" then
+                try
+                    tell (first window whose id is savedWindowID)
+                        make new tab at end of tabs with properties {URL:targetURL}
+                        set visible to true
+                    end tell
+                    return savedWindowID
+                end try
+            end if
+        end tell
+
         tell application "System Events"
             tell process "Dia"
                 click menu item "New Incognito Window" of menu 1 of menu bar item "File" of menu bar 1
             end tell
         end tell
         delay 0.8
+
         tell application id "\(diaBundleID)"
             tell front window
                 set URL of active tab to targetURL
+                set visible to true
+                return id as text
             end tell
         end tell
         """
@@ -75,12 +99,23 @@ enum PrivateBrowserOpener {
         }
 
         var error: NSDictionary?
-        script.executeAndReturnError(&error)
+        let output = script.executeAndReturnError(&error)
         if let error {
             NSLog("Obelisk: failed to open Dia incognito window: \(error)")
             return .openFailed
         }
+        let windowID = (output.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !windowID.isEmpty {
+            UserDefaults.standard.set(windowID, forKey: diaIncognitoWindowIDKey)
+        }
         return .opened
+    }
+
+    private static func accessibilityPermissionIsGranted(prompt: Bool) -> Bool {
+        let options = [
+            "AXTrustedCheckOptionPrompt": prompt
+        ] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
     }
 
     private static func appleScriptEscaped(_ value: String) -> String {

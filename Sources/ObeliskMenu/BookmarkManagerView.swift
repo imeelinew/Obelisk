@@ -9,7 +9,7 @@ struct BookmarkManagerView: View {
     @State private var selection: Set<Bookmark.ID> = []
     @State private var presentation: Presentation?
     @State private var deleteConfirmation: DeleteConfirmation?
-    @State private var toastMessage: String?
+    @State private var toast: Toast?
     @State private var searchText = ""
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var llmConfig = LLMConfig()
@@ -24,12 +24,38 @@ struct BookmarkManagerView: View {
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
+    @AppStorage("openHiddenBookmarksIncognito") private var openHiddenBookmarksIncognito = false
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
 
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
         return 1.0 - min(0.5, max(0.0, windowSeeThrough))
+    }
+
+    struct Toast: Equatable, Identifiable {
+        enum Kind: Equatable {
+            case success
+            case error
+        }
+
+        let id = UUID()
+        let message: String
+        let kind: Kind
+
+        var systemImage: String {
+            switch kind {
+            case .success: return "checkmark.circle.fill"
+            case .error: return "xmark.circle.fill"
+            }
+        }
+
+        var foregroundStyle: Color {
+            switch kind {
+            case .success: return .primary
+            case .error: return Color(red: 0.82, green: 0.18, blue: 0.18)
+            }
+        }
     }
 
     enum Presentation: Identifiable {
@@ -271,6 +297,25 @@ struct BookmarkManagerView: View {
         showToast("刷新全部 favicon 成功")
     }
 
+    private func openHiddenBookmark(_ bookmark: Bookmark) {
+        guard openHiddenBookmarksIncognito else {
+            guard let url = URL(string: bookmark.url) else { return }
+            NSWorkspace.shared.open(url)
+            return
+        }
+
+        switch PrivateBrowserOpener.openIncognito(urlString: bookmark.url) {
+        case .opened:
+            break
+        case .unsupportedBrowser:
+            showToast("当前默认浏览器不支持无痕打开", kind: .error)
+        case .invalidURL:
+            showToast("网址格式不正确", kind: .error)
+        case .openFailed:
+            showToast("无法打开无痕窗口", kind: .error)
+        }
+    }
+
     private func syncMenuGroupLimits() {
         model.setMenuGroupLimits(frequent: menuFrequentGroupLimit, recent: menuRecentGroupLimit)
     }
@@ -297,9 +342,9 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private func showToast(_ message: String) {
+    private func showToast(_ message: String, kind: Toast.Kind = .success) {
         withAnimation(.spring(duration: 0.24, bounce: 0.18)) {
-            toastMessage = message
+            toast = Toast(message: message, kind: kind)
         }
     }
 
@@ -489,13 +534,13 @@ struct BookmarkManagerView: View {
         .onChange(of: menuRecentGroupLimit) { _, _ in
             syncMenuGroupLimits()
         }
-        .task(id: toastMessage) {
-            guard let message = toastMessage else { return }
+        .task(id: toast) {
+            guard let currentToast = toast else { return }
             try? await Task.sleep(for: .seconds(2))
             await MainActor.run {
-                guard toastMessage == message else { return }
+                guard toast == currentToast else { return }
                 withAnimation(.easeOut(duration: 0.18)) {
-                    toastMessage = nil
+                    toast = nil
                 }
             }
         }
@@ -536,9 +581,10 @@ struct BookmarkManagerView: View {
 
     @ViewBuilder
     private var toastView: some View {
-        if let toastMessage {
-            Label(toastMessage, systemImage: "checkmark.circle.fill")
+        if let toast {
+            Label(toast.message, systemImage: toast.systemImage)
                 .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(toast.foregroundStyle)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .glassEffect(.regular, in: Capsule())
@@ -654,7 +700,7 @@ struct BookmarkManagerView: View {
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmark in model.openBookmark(bookmark) },
+                    onOpen: { bookmark in openHiddenBookmark(bookmark) },
                     onCopyURL: { bookmark in copyURL(bookmark) },
                     onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
@@ -771,6 +817,17 @@ struct BookmarkManagerView: View {
                 }
                 .help("Obelisk 使用 AES-GCM 加密 bookmarks.json、usage.json 和 llm.json。")
             }
+
+            Section("隐藏书签") {
+                Toggle(isOn: $openHiddenBookmarksIncognito) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("使用无痕窗口打开隐藏书签")
+                        Text("支持 Dia、Chrome、Edge、Brave 等 Chromium 浏览器。默认浏览器不支持时不会打开。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
@@ -780,6 +837,18 @@ struct BookmarkManagerView: View {
 
     private var developerOptionsPage: some View {
         Form {
+            Section("Toast 调试") {
+                HStack(spacing: 10) {
+                    Button("成功 Toast") {
+                        showToast("操作成功")
+                    }
+
+                    Button("失败 Toast") {
+                        showToast("操作失败", kind: .error)
+                    }
+                }
+            }
+
             Section("侧栏图标调试") {
                 centeredValueSlider("背景尺寸", value: $sidebarIconTileSize, range: 16...28)
                 centeredValueSlider("符号尺寸", value: $sidebarIconSymbolSize, range: 6...16)

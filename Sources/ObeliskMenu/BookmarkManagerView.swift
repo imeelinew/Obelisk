@@ -14,9 +14,9 @@ struct BookmarkManagerView: View {
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var llmConfig = LLMConfig()
     @State private var llmConfigMessage: String?
-    @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 32
-    @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 15
-    @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 8
+    @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 22
+    @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 11
+    @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 6
     @AppStorage("showHiddenBookmarksPage") private var showHiddenBookmarksPage = false
     @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
     @AppStorage("menuFrequentGroupLimit") private var menuFrequentGroupLimit = 5
@@ -678,35 +678,33 @@ struct BookmarkManagerView: View {
     private var developerOptionsPage: some View {
         Form {
             Section("侧栏图标调试") {
-                Slider(value: $sidebarIconTileSize, in: 22...40, step: 1) {
-                    Text("背景尺寸")
-                } minimumValueLabel: {
-                    Text("22")
-                } maximumValueLabel: {
-                    Text("40")
-                }
-
-                Slider(value: $sidebarIconSymbolSize, in: 10...22, step: 1) {
-                    Text("符号尺寸")
-                } minimumValueLabel: {
-                    Text("10")
-                } maximumValueLabel: {
-                    Text("22")
-                }
-
-                Slider(value: $sidebarIconCornerRadius, in: 4...12, step: 1) {
-                    Text("圆角")
-                } minimumValueLabel: {
-                    Text("4")
-                } maximumValueLabel: {
-                    Text("12")
-                }
+                centeredValueSlider("背景尺寸", value: $sidebarIconTileSize, range: 16...28)
+                centeredValueSlider("符号尺寸", value: $sidebarIconSymbolSize, range: 6...16)
+                centeredValueSlider("圆角", value: $sidebarIconCornerRadius, range: 2...10)
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("开发者选项")
+    }
+
+    private func centeredValueSlider(
+        _ title: LocalizedStringKey,
+        value: Binding<Double>,
+        range: ClosedRange<Double>
+    ) -> some View {
+        HStack(spacing: 14) {
+            Text(title)
+                .frame(width: 72, alignment: .leading)
+
+            Slider(value: value, in: range, step: 1)
+
+            Text("\(Int(value.wrappedValue))")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: 28, alignment: .trailing)
+        }
     }
 
     @ToolbarContentBuilder

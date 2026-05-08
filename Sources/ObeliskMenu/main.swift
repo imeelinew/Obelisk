@@ -12,13 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = BookmarkStore()
     private let usageStore = UsageStore()
-    private lazy var spotlightIndexer = SpotlightIndexer(rootDirectory: store.rootDirectory)
     private var bookmarkWatcher: BookmarkFileWatcher?
     private var rebuildDebounce: DispatchWorkItem?
     private lazy var bookmarksModel = BookmarksModel(
         store: store,
         usageStore: usageStore,
-        spotlightIndexer: spotlightIndexer,
         frequentGroupLimit: UserDefaults.standard.object(forKey: "menuFrequentGroupLimit") as? Int ?? 5,
         recentGroupLimit: UserDefaults.standard.object(forKey: "menuRecentGroupLimit") as? Int ?? 5
     )
@@ -41,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         installMainMenu()
         configureStatusItem()
+        clearLegacySpotlightIndex()
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
         }
@@ -121,6 +120,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = AppIcon.menuBarImage()
             button.title = ""
         }
+    }
+
+    private func clearLegacySpotlightIndex() {
+        CSSearchableIndex.default().deleteSearchableItems(withDomainIdentifiers: [
+            "local.elidev.Obelisk.bookmarks",
+            "local.elidev.UniBookmark.bookmarks"
+        ]) { _ in }
     }
 
     private func startBookmarkWatcher() {
@@ -252,31 +258,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
-    }
-
-    func application(
-        _ application: NSApplication,
-        continue userActivity: NSUserActivity,
-        restorationHandler: @escaping ([NSUserActivityRestoring]) -> Void
-    ) -> Bool {
-        guard
-            userActivity.activityType == CSSearchableItemActionType,
-            let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
-            let id = spotlightIndexer.bookmarkID(for: identifier)
-        else {
-            return false
-        }
-
-        bookmarksModel.reload()
-        guard let bookmark = bookmarksModel.bookmarks.first(where: { $0.id == id }) else {
-            return false
-        }
-        if let url = URL(string: bookmark.url) {
-            NSWorkspace.shared.open(url)
-        }
-        restorationHandler([])
-        NSApp.setActivationPolicy(.accessory)
-        return true
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {

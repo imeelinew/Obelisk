@@ -20,9 +20,11 @@ public final class UsageStore {
 
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let secureCodec: SecureJSONFileCodec
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.fileURL = rootDirectory.appendingPathComponent("usage.json")
+        self.secureCodec = SecureJSONFileCodec()
 
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -34,7 +36,7 @@ public final class UsageStore {
 
     public func load() -> [UUID: UsageRecord] {
         guard
-            let data = try? Data(contentsOf: fileURL),
+            let data = try? secureCodec.readData(from: fileURL),
             let raw = try? decoder.decode([String: UsageRecord].self, from: data)
         else {
             return [:]
@@ -113,7 +115,7 @@ public final class UsageStore {
                 withIntermediateDirectories: true
             )
             let data = try encoder.encode(payload)
-            try data.write(to: fileURL, options: [.atomic])
+            try secureCodec.writeData(data, to: fileURL)
         } catch {
             // Usage data is best-effort; losing a write is not fatal.
         }

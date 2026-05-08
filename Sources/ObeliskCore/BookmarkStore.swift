@@ -77,10 +77,12 @@ public final class BookmarkStore {
 
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let secureCodec: SecureJSONFileCodec
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
         self.fileURL = rootDirectory.appendingPathComponent("bookmarks.json")
+        self.secureCodec = SecureJSONFileCodec()
 
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -103,7 +105,7 @@ public final class BookmarkStore {
 
     public func load() throws -> BookmarkDatabase {
         try ensureStoreExists()
-        let data = try Data(contentsOf: fileURL)
+        let data = try secureCodec.readData(from: fileURL)
         return try decoder.decode(BookmarkDatabase.self, from: data)
     }
 
@@ -114,7 +116,7 @@ public final class BookmarkStore {
         )
 
         let data = try encoder.encode(database)
-        try data.write(to: fileURL, options: [.atomic])
+        try secureCodec.writeData(data, to: fileURL)
     }
 
     @discardableResult

@@ -12,6 +12,7 @@ struct SmokeTests {
         try testBatchDelete()
         try testTitleOptimizationPersistence()
         try testUsageGroupingFilters()
+        try testEncryptedBookmarkStoreRoundTrip()
         print("Obelisk smoke tests passed")
     }
 
@@ -190,6 +191,28 @@ struct SmokeTests {
             usageStore.recent(among: bookmarks, limit: 5).map(\.id) == [lowCount.id, frequent.id],
             "expected recent group to skip legacy dates"
         )
+    }
+
+    private static func testEncryptedBookmarkStoreRoundTrip() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        LocalJSONEncryption.isEnabled = true
+
+        let store = BookmarkStore(rootDirectory: root)
+        let bookmark = try store.add(title: "Private", url: "https://private.example")
+        let raw = try Data(contentsOf: store.fileURL)
+        let rawText = String(decoding: raw, as: UTF8.self)
+
+        try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted envelope marker")
+        try expect(!rawText.contains("private.example"), "expected encrypted file to hide bookmark URL")
+        try expect(try store.bookmarks().map(\.id) == [bookmark.id], "expected encrypted bookmark to read back")
+
+        LocalJSONEncryption.isEnabled = false
+        try SecureJSONFileCodec().rewriteFile(at: store.fileURL)
+        let plaintext = try String(contentsOf: store.fileURL, encoding: .utf8)
+        try expect(plaintext.contains("private.example"), "expected disabled encryption to write plaintext JSON")
     }
 
     private static func temporaryDirectory() throws -> URL {

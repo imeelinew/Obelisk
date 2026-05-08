@@ -14,6 +14,7 @@ struct BookmarkManagerView: View {
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var llmConfig = LLMConfig()
     @State private var llmConfigMessage: String?
+    @State private var hiddenBookmarksUnlocked = false
     @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 22
     @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 11
     @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 6
@@ -22,6 +23,7 @@ struct BookmarkManagerView: View {
     @AppStorage("menuFrequentGroupLimit") private var menuFrequentGroupLimit = 5
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
+    @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
 
@@ -49,6 +51,7 @@ struct BookmarkManagerView: View {
         case hiddenBookmarks
         case appearance
         case ai
+        case security
         case developer
 
         var id: String { rawValue }
@@ -65,7 +68,7 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks, .hiddenBookmarks: return .content
             case .appearance, .ai:             return .preferences
-            case .developer:                   return .advanced
+            case .security, .developer:        return .advanced
             }
         }
 
@@ -75,6 +78,7 @@ struct BookmarkManagerView: View {
             case .hiddenBookmarks: return "隐藏书签"
             case .appearance: return "外观"
             case .ai: return "AI配置"
+            case .security: return "安全"
             case .developer: return "开发者选项"
             }
         }
@@ -85,6 +89,7 @@ struct BookmarkManagerView: View {
             case .hiddenBookmarks: return "eye.slash.fill"
             case .appearance: return "paintpalette.fill"
             case .ai: return "sparkles"
+            case .security: return "lock.fill"
             case .developer: return "wrench.fill"
             }
         }
@@ -112,6 +117,12 @@ struct BookmarkManagerView: View {
             case .appearance:
                 return LinearGradient(
                     colors: [Color(red: 0.46, green: 0.82, blue: 0.50), Color(red: 0.14, green: 0.62, blue: 0.30)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .security:
+                return LinearGradient(
+                    colors: [Color(red: 0.72, green: 0.52, blue: 1.0), Color(red: 0.42, green: 0.24, blue: 0.86)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -309,10 +320,55 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private func setLocalJSONEncryptionEnabled(_ isEnabled: Bool) {
+        if !isEnabled {
+            Task {
+                guard await AuthenticationGate.authenticate(reason: "关闭本地数据加密") else {
+                    await MainActor.run {
+                        encryptLocalJSONData = true
+                    }
+                    return
+                }
+                await MainActor.run {
+                    applyLocalJSONEncryptionEnabled(false)
+                }
+            }
+            return
+        }
+
+        applyLocalJSONEncryptionEnabled(true)
+    }
+
+    private func applyLocalJSONEncryptionEnabled(_ isEnabled: Bool) {
+        let previousValue = encryptLocalJSONData
+        encryptLocalJSONData = isEnabled
+        LocalJSONEncryption.isEnabled = isEnabled
+
+        do {
+            try rewriteLocalJSONFiles()
+            model.reload()
+            loadLLMConfig()
+            showToast(isEnabled ? "本地 JSON 已加密" : "本地 JSON 已改为明文")
+        } catch {
+            encryptLocalJSONData = previousValue
+            LocalJSONEncryption.isEnabled = previousValue
+            llmConfigMessage = error.localizedDescription
+        }
+    }
+
+    private func rewriteLocalJSONFiles() throws {
+        let root = BookmarkStore.defaultRootDirectory()
+        let codec = SecureJSONFileCodec()
+        for filename in ["llm.json", "bookmarks.json", "usage.json"] {
+            try codec.rewriteFile(at: root.appendingPathComponent(filename))
+        }
+    }
+
     private func handleHiddenBookmarksVisibilityChange(isShowing: Bool) {
         guard !isShowing else { return }
         guard settingsPage == SettingsPage.hiddenBookmarks else { return }
         settingsPage = .bookmarks
+        hiddenBookmarksUnlocked = false
     }
 
     private var modelErrorAlertBinding: Binding<Bool> {
@@ -338,6 +394,26 @@ struct BookmarkManagerView: View {
 
     private func toggleHiddenBookmarksPageVisibility() {
         showHiddenBookmarksPage.toggle()
+    }
+
+    private var settingsPageBinding: Binding<SettingsPage?> {
+        Binding<SettingsPage?>(
+            get: { settingsPage },
+            set: { nextPage in
+                guard let nextPage else { return }
+                if nextPage == .hiddenBookmarks, !hiddenBookmarksUnlocked {
+                    Task {
+                        guard await AuthenticationGate.authenticate(reason: "查看隐藏书签") else { return }
+                        await MainActor.run {
+                            hiddenBookmarksUnlocked = true
+                            settingsPage = .hiddenBookmarks
+                        }
+                    }
+                    return
+                }
+                settingsPage = nextPage
+            }
+        )
     }
 
     var body: some View {
@@ -475,7 +551,7 @@ struct BookmarkManagerView: View {
     }
 
     private var settingsSidebar: some View {
-        List(selection: $settingsPage) {
+        List(selection: settingsPageBinding) {
             // 顶部：书签 / 隐藏书签 直接铺开，不带分组标题。
             ForEach(visibleSettingsPages.filter { $0.group == .content }) { page in
                 NavigationLink(value: page) {
@@ -519,6 +595,8 @@ struct BookmarkManagerView: View {
                 appearancePage
             case .ai:
                 aiOptimizationPage
+            case .security:
+                securityPage
             case .developer:
                 developerOptionsPage
             }
@@ -673,6 +751,31 @@ struct BookmarkManagerView: View {
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("AI配置")
+    }
+
+    private var securityPage: some View {
+        Form {
+            Section("安全") {
+                Toggle(
+                    isOn: Binding(
+                        get: { encryptLocalJSONData },
+                        set: { setLocalJSONEncryptionEnabled($0) }
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("开启加密功能")
+                        Text("Obelisk 使用 AES-GCM 加密 bookmarks.json、usage.json 和 llm.json。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help("Obelisk 使用 AES-GCM 加密 bookmarks.json、usage.json 和 llm.json。")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
+        .settingsContentMargins()
+        .navigationTitle("安全")
     }
 
     private var developerOptionsPage: some View {

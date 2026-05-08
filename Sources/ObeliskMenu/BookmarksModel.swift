@@ -26,7 +26,6 @@ final class BookmarksModel {
 
     private let store: BookmarkStore
     private let usageStore: UsageStore
-    private let spotlightIndexer: SpotlightIndexer?
     private let titleOptimizer: TitleOptimizer
     private var frequentGroupLimit: Int
     private var recentGroupLimit: Int
@@ -35,13 +34,11 @@ final class BookmarksModel {
     init(
         store: BookmarkStore,
         usageStore: UsageStore,
-        spotlightIndexer: SpotlightIndexer? = nil,
         frequentGroupLimit: Int = 5,
         recentGroupLimit: Int = 5
     ) {
         self.store = store
         self.usageStore = usageStore
-        self.spotlightIndexer = spotlightIndexer
         self.titleOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
         self.frequentGroupLimit = frequentGroupLimit
         self.recentGroupLimit = recentGroupLimit
@@ -57,7 +54,6 @@ final class BookmarksModel {
             usageStore.cleanup(validIds: Set(all.map(\.id)))
             let visibleBookmarks = all.filter { !$0.isHidden }
             recomputeGroups(from: visibleBookmarks)
-            spotlightIndexer?.reindexAll(visibleBookmarks)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
             if errorMessage == priorLoadError {

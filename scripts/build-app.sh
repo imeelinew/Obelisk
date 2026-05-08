@@ -74,10 +74,6 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <string>26.0</string>
   <key>LSUIElement</key>
   <true/>
-  <key>NSUserActivityTypes</key>
-  <array>
-    <string>com.apple.corespotlightitem</string>
-  </array>
   <key>NSAppleEventsUsageDescription</key>
   <string>Obelisk uses AppleScript to read the URL and title of the active tab from your frontmost browser when you press the global add-bookmark shortcut (⌥B).</string>
   <key>NSHumanReadableCopyright</key>

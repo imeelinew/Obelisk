@@ -60,7 +60,7 @@ final class LLMConfigStore {
     }
 
     func load() -> LLMConfig {
-        guard let data = try? Data(contentsOf: configURL),
+        guard let data = try? SecureJSONFileCodec().readData(from: configURL),
               let config = try? JSONDecoder().decode(LLMConfig.self, from: data)
         else {
             return LLMConfig()
@@ -76,7 +76,7 @@ final class LLMConfigStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(config)
-        try data.write(to: configURL, options: [.atomic])
+        try SecureJSONFileCodec().writeData(data, to: configURL)
     }
 }
 

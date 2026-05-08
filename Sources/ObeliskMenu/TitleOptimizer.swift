@@ -53,14 +53,21 @@ struct LLMConfig: Codable, Equatable {
 }
 
 final class LLMConfigStore {
-    let configURL: URL
+    let rootDirectory: URL
+    var configURL: URL {
+        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "llm.json")
+    }
 
     init(rootDirectory: URL) {
-        self.configURL = rootDirectory.appendingPathComponent("llm.json")
+        self.rootDirectory = rootDirectory
     }
 
     func load() -> LLMConfig {
-        guard let data = try? SecureJSONFileCodec().readData(from: configURL),
+        let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
+            rootDirectory: rootDirectory,
+            logicalName: "llm.json"
+        )
+        guard let data = try? SecureJSONFileCodec().readData(from: readableURL),
               let config = try? JSONDecoder().decode(LLMConfig.self, from: data)
         else {
             return LLMConfig()

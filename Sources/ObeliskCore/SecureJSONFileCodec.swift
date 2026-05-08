@@ -11,6 +11,51 @@ public enum LocalJSONEncryption {
     }
 }
 
+public enum ObeliskPrivateStorage {
+    public static let directoryName = "PrivateData"
+
+    public static func dataDirectory(in rootDirectory: URL) -> URL {
+        rootDirectory.appendingPathComponent(directoryName, isDirectory: true)
+    }
+
+    public static func faviconDirectory(in rootDirectory: URL) -> URL {
+        dataDirectory(in: rootDirectory).appendingPathComponent("Favicons", isDirectory: true)
+    }
+
+    public static func legacyFileURL(rootDirectory: URL, logicalName: String) -> URL {
+        rootDirectory.appendingPathComponent(logicalName)
+    }
+
+    public static func privateFileURL(rootDirectory: URL, logicalName: String) -> URL {
+        dataDirectory(in: rootDirectory).appendingPathComponent("\(obscuredName(for: logicalName)).bin")
+    }
+
+    public static func activeFileURL(rootDirectory: URL, logicalName: String) -> URL {
+        LocalJSONEncryption.isEnabled
+            ? privateFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
+            : legacyFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
+    }
+
+    public static func existingReadableFileURL(rootDirectory: URL, logicalName: String) -> URL {
+        let activeURL = activeFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
+        if FileManager.default.fileExists(atPath: activeURL.path) {
+            return activeURL
+        }
+
+        let fallbackURL = LocalJSONEncryption.isEnabled
+            ? legacyFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
+            : privateFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
+
+        return FileManager.default.fileExists(atPath: fallbackURL.path) ? fallbackURL : activeURL
+    }
+
+    public static func obscuredName(for logicalName: String) -> String {
+        let material = "local.elidev.Obelisk.private-storage.v1:\(logicalName)"
+        let digest = SHA256.hash(data: Data(material.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 public enum SecureJSONFileCodecError: LocalizedError {
     case keychainReadFailed(OSStatus)
     case keychainWriteFailed(OSStatus)
@@ -56,6 +101,10 @@ public final class SecureJSONFileCodec {
 
     public func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = [.atomic]) throws {
         let output = try LocalJSONEncryption.isEnabled ? encrypt(data) : data
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try output.write(to: url, options: options)
     }
 

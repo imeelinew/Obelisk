@@ -392,10 +392,10 @@ struct BookmarkManagerView: View {
         LocalJSONEncryption.isEnabled = isEnabled
 
         do {
-            try rewriteLocalJSONFiles()
+            try migrateLocalPrivateStorage(isEnabled: isEnabled)
             model.reload()
             loadLLMConfig()
-            showToast(isEnabled ? "本地 JSON 已加密" : "本地 JSON 已改为明文")
+            showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
         } catch {
             encryptLocalJSONData = previousValue
             LocalJSONEncryption.isEnabled = previousValue
@@ -403,12 +403,35 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private func rewriteLocalJSONFiles() throws {
+    private func migrateLocalPrivateStorage(isEnabled: Bool) throws {
         let root = BookmarkStore.defaultRootDirectory()
         let codec = SecureJSONFileCodec()
+
         for filename in ["llm.json", "bookmarks.json", "usage.json"] {
-            try codec.rewriteFile(at: root.appendingPathComponent(filename))
+            let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: filename)
+            let privateURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: filename)
+            let sourceURL = isEnabled ? legacyURL : privateURL
+            let destinationURL = isEnabled ? privateURL : legacyURL
+
+            if FileManager.default.fileExists(atPath: sourceURL.path) {
+                let plaintext = try codec.readData(from: sourceURL)
+                try FileManager.default.createDirectory(
+                    at: destinationURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try codec.writeData(plaintext, to: destinationURL)
+                try? FileManager.default.removeItem(at: sourceURL)
+            } else if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try codec.rewriteFile(at: destinationURL)
+            }
         }
+
+        if isEnabled {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent("favicons", isDirectory: true))
+        } else {
+            try? FileManager.default.removeItem(at: ObeliskPrivateStorage.faviconDirectory(in: root))
+        }
+        faviconLoader.reloadStorage()
     }
 
     private func handleHiddenBookmarksVisibilityChange(isShowing: Bool) {
@@ -812,12 +835,12 @@ struct BookmarkManagerView: View {
                 ) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("开启加密功能")
-                        Text("Obelisk 使用 AES-GCM 加密 bookmarks.json、usage.json 和 llm.json。")
+                        Text("开启后 Obelisk 会使用 AES-GCM 加密您的书签、使用记录、模型配置和 favicon 缓存。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
-                .help("Obelisk 使用 AES-GCM 加密 bookmarks.json、usage.json 和 llm.json。")
+                .help("开启后 Obelisk 会使用 AES-GCM 加密您的书签、使用记录、模型配置和 favicon 缓存。")
             }
 
             Section("隐藏书签") {

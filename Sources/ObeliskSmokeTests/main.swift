@@ -204,13 +204,17 @@ struct SmokeTests {
         let bookmark = try store.add(title: "Private", url: "https://private.example")
         let raw = try Data(contentsOf: store.fileURL)
         let rawText = String(decoding: raw, as: UTF8.self)
+        let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
 
         try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted envelope marker")
         try expect(!rawText.contains("private.example"), "expected encrypted file to hide bookmark URL")
+        try expect(store.fileURL.pathExtension == "bin", "expected encrypted bookmark store to use an obscured bin file")
+        try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected encrypted bookmark store to avoid legacy filename")
         try expect(try store.bookmarks().map(\.id) == [bookmark.id], "expected encrypted bookmark to read back")
 
         LocalJSONEncryption.isEnabled = false
-        try SecureJSONFileCodec().rewriteFile(at: store.fileURL)
+        let database = try store.load()
+        try store.save(database)
         let plaintext = try String(contentsOf: store.fileURL, encoding: .utf8)
         try expect(plaintext.contains("private.example"), "expected disabled encryption to write plaintext JSON")
     }

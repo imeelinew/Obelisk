@@ -73,7 +73,9 @@ public enum BookmarkStoreError: LocalizedError {
 
 public final class BookmarkStore {
     public let rootDirectory: URL
-    public let fileURL: URL
+    public var fileURL: URL {
+        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "bookmarks.json")
+    }
 
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -81,7 +83,6 @@ public final class BookmarkStore {
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
-        self.fileURL = rootDirectory.appendingPathComponent("bookmarks.json")
         self.secureCodec = SecureJSONFileCodec()
 
         self.encoder = JSONEncoder()
@@ -105,7 +106,11 @@ public final class BookmarkStore {
 
     public func load() throws -> BookmarkDatabase {
         try ensureStoreExists()
-        let data = try secureCodec.readData(from: fileURL)
+        let url = ObeliskPrivateStorage.existingReadableFileURL(
+            rootDirectory: rootDirectory,
+            logicalName: "bookmarks.json"
+        )
+        let data = try secureCodec.readData(from: url)
         return try decoder.decode(BookmarkDatabase.self, from: data)
     }
 
@@ -243,7 +248,11 @@ public final class BookmarkStore {
     }
 
     private func ensureStoreExists() throws {
-        guard !FileManager.default.fileExists(atPath: fileURL.path) else {
+        let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
+            rootDirectory: rootDirectory,
+            logicalName: "bookmarks.json"
+        )
+        guard !FileManager.default.fileExists(atPath: readableURL.path) else {
             return
         }
         try save(BookmarkDatabase())

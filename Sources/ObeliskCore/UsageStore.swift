@@ -16,14 +16,17 @@ public struct UsageRecord: Codable, Equatable {
 /// `score = count * 0.95 ^ daysSinceLastClick`
 /// — a bookmark clicked once every ~14 days roughly holds its score.
 public final class UsageStore {
-    public let fileURL: URL
+    public let rootDirectory: URL
+    public var fileURL: URL {
+        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "usage.json")
+    }
 
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let secureCodec: SecureJSONFileCodec
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
-        self.fileURL = rootDirectory.appendingPathComponent("usage.json")
+        self.rootDirectory = rootDirectory
         self.secureCodec = SecureJSONFileCodec()
 
         self.encoder = JSONEncoder()
@@ -35,8 +38,12 @@ public final class UsageStore {
     }
 
     public func load() -> [UUID: UsageRecord] {
+        let url = ObeliskPrivateStorage.existingReadableFileURL(
+            rootDirectory: rootDirectory,
+            logicalName: "usage.json"
+        )
         guard
-            let data = try? secureCodec.readData(from: fileURL),
+            let data = try? secureCodec.readData(from: url),
             let raw = try? decoder.decode([String: UsageRecord].self, from: data)
         else {
             return [:]

@@ -291,8 +291,8 @@ final class FaviconLoader {
     /// in their body get re-rendered so cached lookups pick up new icons.
     private(set) var version: Int = 0
 
-    @ObservationIgnored private let cacheDirectory: URL
-    @ObservationIgnored private let indexURL: URL
+    @ObservationIgnored private let rootDirectory: URL
+    @ObservationIgnored private let secureCodec = SecureJSONFileCodec()
     @ObservationIgnored private var inFlight: Set<String> = []
     @ObservationIgnored private var index: [String: FaviconRecord] = [:]
     @ObservationIgnored private let session: URLSession
@@ -303,8 +303,7 @@ final class FaviconLoader {
     @ObservationIgnored private let negativeTTL: TimeInterval = 7 * 24 * 3600
 
     init(rootDirectory: URL) {
-        self.cacheDirectory = rootDirectory.appendingPathComponent("favicons", isDirectory: true)
-        self.indexURL = cacheDirectory.appendingPathComponent("index.json")
+        self.rootDirectory = rootDirectory
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
@@ -316,6 +315,28 @@ final class FaviconLoader {
         loadIndex()
     }
 
+    private var legacyCacheDirectory: URL {
+        rootDirectory.appendingPathComponent("favicons", isDirectory: true)
+    }
+
+    private var cacheDirectory: URL {
+        LocalJSONEncryption.isEnabled
+            ? ObeliskPrivateStorage.faviconDirectory(in: rootDirectory)
+            : legacyCacheDirectory
+    }
+
+    private var indexURL: URL {
+        LocalJSONEncryption.isEnabled
+            ? cacheDirectory.appendingPathComponent("\(ObeliskPrivateStorage.obscuredName(for: "favicons/index.json")).bin")
+            : cacheDirectory.appendingPathComponent("index.json")
+    }
+
+    private func iconURL(for key: String) -> URL {
+        LocalJSONEncryption.isEnabled
+            ? cacheDirectory.appendingPathComponent("\(ObeliskPrivateStorage.obscuredName(for: "favicons/\(key).png")).bin")
+            : cacheDirectory.appendingPathComponent("\(key).png")
+    }
+
     func image(for urlString: String) -> NSImage? {
         guard
             let pageURL = URL(string: urlString),
@@ -324,11 +345,11 @@ final class FaviconLoader {
             return nil
         }
 
-        let fileURL = cacheDirectory.appendingPathComponent("\(key).png")
+        let fileURL = iconURL(for: key)
         let record = index[key]
         let now = Date()
 
-        if let image = NSImage(contentsOf: fileURL) {
+        if let image = imageFromCache(at: fileURL) {
             // Copy before mutating size; the underlying NSImage may be cached
             // and shared, and changing size on a shared instance can affect
             // unrelated rendering elsewhere.
@@ -359,7 +380,7 @@ final class FaviconLoader {
             return
         }
 
-        let fileURL = cacheDirectory.appendingPathComponent("\(key).png")
+        let fileURL = iconURL(for: key)
         try? FileManager.default.removeItem(at: fileURL)
         index.removeValue(forKey: key)
         saveIndex()
@@ -379,6 +400,14 @@ final class FaviconLoader {
         for urlString in Set(urlStrings) {
             _ = image(for: urlString)
         }
+    }
+
+    func reloadStorage() {
+        inFlight.removeAll()
+        index.removeAll()
+        loadIndex()
+        version &+= 1
+        onIconLoaded?()
     }
 
     private func fetchIfNeeded(pageURL: URL, key: String, fileURL: URL) {
@@ -411,7 +440,7 @@ final class FaviconLoader {
                     at: self.cacheDirectory,
                     withIntermediateDirectories: true
                 )
-                try pngData.write(to: fileURL, options: [.atomic])
+                try self.writeCacheData(pngData, to: fileURL)
                 self.recordResult(key: key, success: true)
                 self.version &+= 1
                 self.onIconLoaded?()
@@ -607,7 +636,7 @@ final class FaviconLoader {
     // MARK: - Index persistence
 
     private func loadIndex() {
-        guard let data = try? Data(contentsOf: indexURL) else { return }
+        guard let data = try? readCacheData(from: indexURL) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         if let decoded = try? decoder.decode([String: FaviconRecord].self, from: data) {
@@ -629,9 +658,29 @@ final class FaviconLoader {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(index)
-            try data.write(to: indexURL, options: [.atomic])
+            try writeCacheData(data, to: indexURL)
         } catch {
             // Index is a cache; losing it just means we'll re-test more sites.
+        }
+    }
+
+    private func imageFromCache(at url: URL) -> NSImage? {
+        guard let data = try? readCacheData(from: url) else { return nil }
+        return NSImage(data: data)
+    }
+
+    private func readCacheData(from url: URL) throws -> Data {
+        if LocalJSONEncryption.isEnabled {
+            return try secureCodec.readData(from: url)
+        }
+        return try Data(contentsOf: url)
+    }
+
+    private func writeCacheData(_ data: Data, to url: URL) throws {
+        if LocalJSONEncryption.isEnabled {
+            try secureCodec.writeData(data, to: url)
+        } else {
+            try data.write(to: url, options: [.atomic])
         }
     }
 }

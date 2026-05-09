@@ -83,8 +83,16 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 PLIST
 
 # Ad-hoc sign so macOS Gatekeeper doesn't quarantine on first launch.
-# Personal use only — for distribution to others you'd need a Developer ID.
-codesign --force --deep --sign - "$APP_DIR"
+# iCloud containers require a real Apple Developer signing identity. Use:
+#   CODESIGN_IDENTITY="Apple Development: ..." scripts/build-app.sh
+# for iCloud entitlement testing; ad-hoc builds intentionally omit them so the
+# app remains launchable.
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+if [[ "$CODESIGN_IDENTITY" == "-" ]]; then
+  codesign --force --deep --sign - "$APP_DIR"
+else
+  codesign --force --deep --sign "$CODESIGN_IDENTITY" --entitlements "$ROOT_DIR/Obelisk.entitlements" "$APP_DIR"
+fi
 
 # Verify
 codesign --verify --deep --strict "$APP_DIR"

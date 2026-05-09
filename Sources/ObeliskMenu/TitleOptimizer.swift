@@ -53,12 +53,16 @@ struct LLMConfig: Codable, Equatable {
 }
 
 final class LLMConfigStore {
-    let rootDirectory: URL
+    private(set) var rootDirectory: URL
     var configURL: URL {
         ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "llm.json")
     }
 
     init(rootDirectory: URL) {
+        self.rootDirectory = rootDirectory
+    }
+
+    func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
     }
 
@@ -121,7 +125,7 @@ final class TitleOptimizer {
         let titles: [Item]
     }
 
-    private let rootDirectory: URL
+    private var rootDirectory: URL
     private let configStore: LLMConfigStore
     private let session: URLSession
     private let encoder = JSONEncoder()
@@ -134,6 +138,11 @@ final class TitleOptimizer {
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: configuration)
+    }
+
+    func updateRootDirectory(_ rootDirectory: URL) {
+        self.rootDirectory = rootDirectory
+        configStore.updateRootDirectory(rootDirectory)
     }
 
     func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String] {

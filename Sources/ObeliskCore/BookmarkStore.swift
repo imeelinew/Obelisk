@@ -72,7 +72,7 @@ public enum BookmarkStoreError: LocalizedError {
 }
 
 public final class BookmarkStore {
-    public let rootDirectory: URL
+    public private(set) var rootDirectory: URL
     public var fileURL: URL {
         ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "bookmarks.json")
     }
@@ -98,10 +98,26 @@ public final class BookmarkStore {
             return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
         }
 
+        if ICloudDocumentSync.isEnabled, let cachedRoot = ICloudDocumentSync.cachedRootDirectory() {
+            return cachedRoot
+        }
+
+        return defaultLocalRootDirectory()
+    }
+
+    public static func defaultLocalRootDirectory() -> URL {
+        if let override = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"], !override.isEmpty {
+            return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
+        }
+
         return FileManager.default
             .homeDirectoryForCurrentUser
             .appendingPathComponent("Documents")
             .appendingPathComponent("Obelisk")
+    }
+
+    public func updateRootDirectory(_ rootDirectory: URL) {
+        self.rootDirectory = rootDirectory
     }
 
     public func load() throws -> BookmarkDatabase {

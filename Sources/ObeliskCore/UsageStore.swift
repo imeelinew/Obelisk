@@ -16,7 +16,7 @@ public struct UsageRecord: Codable, Equatable {
 /// `score = count * 0.95 ^ daysSinceLastClick`
 /// — a bookmark clicked once every ~14 days roughly holds its score.
 public final class UsageStore {
-    public let rootDirectory: URL
+    public private(set) var rootDirectory: URL
     public var fileURL: URL {
         ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "usage.json")
     }
@@ -35,6 +35,10 @@ public final class UsageStore {
 
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
+    }
+
+    public func updateRootDirectory(_ rootDirectory: URL) {
+        self.rootDirectory = rootDirectory
     }
 
     public func load() -> [UUID: UsageRecord] {
@@ -115,6 +119,10 @@ public final class UsageStore {
     }
 
     private func save(_ dict: [UUID: UsageRecord]) {
+        saveAll(dict)
+    }
+
+    public func saveAll(_ dict: [UUID: UsageRecord]) {
         let payload = Dictionary(uniqueKeysWithValues: dict.map { ($0.key.uuidString, $0.value) })
         do {
             try FileManager.default.createDirectory(

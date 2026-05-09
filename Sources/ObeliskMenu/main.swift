@@ -24,7 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var managerWindow = BookmarkManagerWindowController(
         model: bookmarksModel,
         faviconLoader: faviconLoader,
-        addRequest: addRequest
+        addRequest: addRequest,
+        onStorageRootChanged: { [weak self] rootDirectory in
+            self?.handleStorageRootChanged(rootDirectory)
+        }
     )
     private var globalHotkeys: GlobalHotkeys?
     private lazy var faviconLoader: FaviconLoader = {
@@ -135,6 +138,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // wired in applicationDidFinishLaunching.
             self?.bookmarksModel.reload()
         }
+    }
+
+    private func handleStorageRootChanged(_ rootDirectory: URL) {
+        faviconLoader.updateRootDirectory(rootDirectory)
+        bookmarkWatcher = nil
+        startBookmarkWatcher()
+        scheduleRebuild()
     }
 
     private func scheduleRebuild() {
@@ -291,7 +301,7 @@ final class FaviconLoader {
     /// in their body get re-rendered so cached lookups pick up new icons.
     private(set) var version: Int = 0
 
-    @ObservationIgnored private let rootDirectory: URL
+    @ObservationIgnored private var rootDirectory: URL
     @ObservationIgnored private let secureCodec = SecureJSONFileCodec()
     @ObservationIgnored private var inFlight: Set<String> = []
     @ObservationIgnored private var index: [String: FaviconRecord] = [:]
@@ -408,6 +418,11 @@ final class FaviconLoader {
         loadIndex()
         version &+= 1
         onIconLoaded?()
+    }
+
+    func updateRootDirectory(_ rootDirectory: URL) {
+        self.rootDirectory = rootDirectory
+        reloadStorage()
     }
 
     private func fetchIfNeeded(pageURL: URL, key: String, fileURL: URL) {
@@ -673,14 +688,14 @@ final class FaviconLoader {
         if LocalJSONEncryption.isEnabled {
             return try secureCodec.readData(from: url)
         }
-        return try Data(contentsOf: url)
+        return try CoordinatedFileAccess.readData(from: url)
     }
 
     private func writeCacheData(_ data: Data, to url: URL) throws {
         if LocalJSONEncryption.isEnabled {
             try secureCodec.writeData(data, to: url)
         } else {
-            try data.write(to: url, options: [.atomic])
+            try CoordinatedFileAccess.writeData(data, to: url)
         }
     }
 }

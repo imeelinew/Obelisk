@@ -11,6 +11,74 @@ public enum LocalJSONEncryption {
     }
 }
 
+public enum ICloudDocumentSyncError: LocalizedError {
+    case unavailable
+
+    public var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            return "iCloud Drive 不可用。请确认已登录 Apple 账户并开启 iCloud Drive。"
+        }
+    }
+}
+
+public enum ICloudDocumentSync {
+    public static let enabledKey = "syncWithICloudDrive"
+    public static let cachedRootPathKey = "iCloudDocumentSyncRootPath"
+    public static let containerIdentifier = "iCloud.local.elidev.Obelisk"
+
+    public static var isEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: enabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
+    }
+
+    public static func cachedRootDirectory() -> URL? {
+        guard let path = UserDefaults.standard.string(forKey: cachedRootPathKey), !path.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    public static func setCachedRootDirectory(_ url: URL) {
+        UserDefaults.standard.set(url.path, forKey: cachedRootPathKey)
+    }
+
+    public static func resolveRootDirectory() async throws -> URL {
+        try await Task.detached(priority: .userInitiated) {
+            let rootURL: URL
+            if let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) {
+                rootURL = containerURL
+                    .appendingPathComponent("Documents", isDirectory: true)
+                    .appendingPathComponent("Obelisk", isDirectory: true)
+            } else if let cloudDocumentsURL = cloudDocumentsFallbackURL() {
+                rootURL = cloudDocumentsURL.appendingPathComponent("Obelisk", isDirectory: true)
+            } else {
+                throw ICloudDocumentSyncError.unavailable
+            }
+
+            try FileManager.default.createDirectory(
+                at: rootURL,
+                withIntermediateDirectories: true
+            )
+            return rootURL
+        }.value
+    }
+
+    private static func cloudDocumentsFallbackURL() -> URL? {
+        let url = FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Mobile Documents", isDirectory: true)
+            .appendingPathComponent("com~apple~CloudDocs", isDirectory: true)
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return url
+    }
+}
+
 public enum ObeliskPrivateStorage {
     public static let directoryName = "PrivateData"
 
@@ -56,6 +124,56 @@ public enum ObeliskPrivateStorage {
     }
 }
 
+public enum CoordinatedFileAccess {
+    public static func readData(from url: URL) throws -> Data {
+        guard ICloudDocumentSync.isEnabled else {
+            return try Data(contentsOf: url)
+        }
+
+        var result: Result<Data, Error>?
+        var coordinatorError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinatorError) { coordinatedURL in
+            result = Result {
+                try Data(contentsOf: coordinatedURL)
+            }
+        }
+
+        if let coordinatorError {
+            throw coordinatorError
+        }
+        return try result?.get() ?? Data(contentsOf: url)
+    }
+
+    public static func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = [.atomic]) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        guard ICloudDocumentSync.isEnabled else {
+            try data.write(to: url, options: options)
+            return
+        }
+
+        var writeError: Error?
+        var coordinatorError: NSError?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: [], error: &coordinatorError) { coordinatedURL in
+            do {
+                try data.write(to: coordinatedURL, options: options)
+            } catch {
+                writeError = error
+            }
+        }
+
+        if let coordinatorError {
+            throw coordinatorError
+        }
+        if let writeError {
+            throw writeError
+        }
+    }
+}
+
 public enum SecureJSONFileCodecError: LocalizedError {
     case keychainReadFailed(OSStatus)
     case keychainWriteFailed(OSStatus)
@@ -95,17 +213,13 @@ public final class SecureJSONFileCodec {
     }
 
     public func readData(from url: URL) throws -> Data {
-        let data = try Data(contentsOf: url)
+        let data = try CoordinatedFileAccess.readData(from: url)
         return try decryptIfNeeded(data)
     }
 
     public func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = [.atomic]) throws {
         let output = try LocalJSONEncryption.isEnabled ? encrypt(data) : data
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try output.write(to: url, options: options)
+        try CoordinatedFileAccess.writeData(output, to: url, options: options)
     }
 
     public func isEncryptedFile(at url: URL) -> Bool {

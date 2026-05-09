@@ -6,6 +6,7 @@ struct BookmarkManagerView: View {
     @Bindable var model: BookmarksModel
     let faviconLoader: FaviconLoader
     let addRequest: AddBookmarkRequest
+    let onStorageRootChanged: (URL) -> Void
     @State private var selection: Set<Bookmark.ID> = []
     @State private var presentation: Presentation?
     @State private var deleteConfirmation: DeleteConfirmation?
@@ -15,6 +16,7 @@ struct BookmarkManagerView: View {
     @State private var llmConfig = LLMConfig()
     @State private var llmConfigMessage: String?
     @State private var hiddenBookmarksUnlocked = false
+    @State private var isSwitchingICloudSync = false
     @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 22
     @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 11
     @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 6
@@ -24,6 +26,7 @@ struct BookmarkManagerView: View {
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
+    @AppStorage(ICloudDocumentSync.enabledKey) private var syncWithICloudDrive = false
     @AppStorage("openHiddenBookmarksIncognito") private var openHiddenBookmarksIncognito = false
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
@@ -76,6 +79,7 @@ struct BookmarkManagerView: View {
         case bookmarks
         case hiddenBookmarks
         case appearance
+        case sync
         case ai
         case security
         case developer
@@ -93,7 +97,7 @@ struct BookmarkManagerView: View {
         var group: Group {
             switch self {
             case .bookmarks, .hiddenBookmarks: return .content
-            case .appearance, .ai:             return .preferences
+            case .appearance, .sync, .ai:      return .preferences
             case .security, .developer:        return .advanced
             }
         }
@@ -103,6 +107,7 @@ struct BookmarkManagerView: View {
             case .bookmarks: return "书签"
             case .hiddenBookmarks: return "隐藏书签"
             case .appearance: return "外观"
+            case .sync: return "同步"
             case .ai: return "AI配置"
             case .security: return "安全"
             case .developer: return "开发者选项"
@@ -114,6 +119,7 @@ struct BookmarkManagerView: View {
             case .bookmarks: return "bookmark.fill"
             case .hiddenBookmarks: return "eye.slash.fill"
             case .appearance: return "paintpalette.fill"
+            case .sync: return "icloud.fill"
             case .ai: return "sparkles"
             case .security: return "lock.fill"
             case .developer: return "wrench.fill"
@@ -143,6 +149,12 @@ struct BookmarkManagerView: View {
             case .appearance:
                 return LinearGradient(
                     colors: [Color(red: 0.46, green: 0.82, blue: 0.50), Color(red: 0.14, green: 0.62, blue: 0.30)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .sync:
+                return LinearGradient(
+                    colors: [Color(red: 0.46, green: 0.78, blue: 1.0), Color(red: 0.18, green: 0.50, blue: 0.92)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -351,7 +363,7 @@ struct BookmarkManagerView: View {
     }
 
     private var llmConfigStore: LLMConfigStore {
-        LLMConfigStore(rootDirectory: BookmarkStore.defaultRootDirectory())
+        LLMConfigStore(rootDirectory: model.rootDirectory)
     }
 
     private func loadLLMConfig() {
@@ -364,6 +376,38 @@ struct BookmarkManagerView: View {
             showToast("模型配置已保存")
         } catch {
             llmConfigMessage = error.localizedDescription
+        }
+    }
+
+    private func setICloudDocumentSyncEnabled(_ isEnabled: Bool) {
+        guard !isSwitchingICloudSync else { return }
+        isSwitchingICloudSync = true
+
+        Task {
+            do {
+                let currentConfig = llmConfigStore.load()
+                let targetRoot: URL
+
+                if isEnabled {
+                    targetRoot = try await ICloudDocumentSync.resolveRootDirectory()
+                    ICloudDocumentSync.setCachedRootDirectory(targetRoot)
+                } else {
+                    targetRoot = BookmarkStore.defaultLocalRootDirectory()
+                }
+
+                try model.migrateStorageRoot(to: targetRoot)
+                try LLMConfigStore(rootDirectory: targetRoot).save(currentConfig)
+                ICloudDocumentSync.isEnabled = isEnabled
+                syncWithICloudDrive = isEnabled
+                onStorageRootChanged(targetRoot)
+                loadLLMConfig()
+                showToast(isEnabled ? "iCloud 同步已开启" : "iCloud 同步已关闭")
+            } catch {
+                syncWithICloudDrive = ICloudDocumentSync.isEnabled
+                llmConfigMessage = error.localizedDescription
+            }
+
+            isSwitchingICloudSync = false
         }
     }
 
@@ -594,7 +638,7 @@ struct BookmarkManagerView: View {
             Text("共计删除 \(confirmation.count) 个书签。")
         }
         .alert(
-            "模型配置",
+            "提示",
             isPresented: llmConfigAlertBinding,
             presenting: llmConfigMessage
         ) { _ in
@@ -664,6 +708,8 @@ struct BookmarkManagerView: View {
                 hiddenBookmarkManagementPage
             case .appearance:
                 appearancePage
+            case .sync:
+                syncPage
             case .ai:
                 aiOptimizationPage
             case .security:
@@ -780,6 +826,35 @@ struct BookmarkManagerView: View {
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("外观")
+    }
+
+    private var syncPage: some View {
+        Form {
+            Section("iCloud") {
+                Toggle(
+                    isOn: Binding(
+                        get: { syncWithICloudDrive },
+                        set: { setICloudDocumentSyncEnabled($0) }
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("使用 iCloud 同步")
+                        Text("开启后 Obelisk 会通过 iCloud Drive 同步书签数据，并使用系统文件协调处理读写。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(isSwitchingICloudSync)
+
+                if isSwitchingICloudSync {
+                    ProgressView()
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
+        .settingsContentMargins()
+        .navigationTitle("同步")
     }
 
     private func menuLimitStepper(_ title: String, value: Binding<Int>) -> some View {

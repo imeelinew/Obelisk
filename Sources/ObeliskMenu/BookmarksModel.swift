@@ -31,6 +31,10 @@ final class BookmarksModel {
     private var recentGroupLimit: Int
     private(set) var isOptimizingTitles = false
 
+    var rootDirectory: URL {
+        store.rootDirectory
+    }
+
     init(
         store: BookmarkStore,
         usageStore: UsageStore,
@@ -43,6 +47,72 @@ final class BookmarksModel {
         self.frequentGroupLimit = frequentGroupLimit
         self.recentGroupLimit = recentGroupLimit
         reload()
+    }
+
+    func migrateStorageRoot(to rootDirectory: URL) throws {
+        let sourceDatabase = try store.load()
+        let sourceUsage = usageStore.load()
+        store.updateRootDirectory(rootDirectory)
+        usageStore.updateRootDirectory(rootDirectory)
+        titleOptimizer.updateRootDirectory(rootDirectory)
+
+        let targetDatabase = (try? store.load()) ?? BookmarkDatabase()
+        try store.save(mergedDatabase(targetDatabase, with: sourceDatabase))
+        usageStore.saveAll(mergedUsage(usageStore.load(), with: sourceUsage))
+        reload()
+    }
+
+    private func mergedDatabase(_ target: BookmarkDatabase, with source: BookmarkDatabase) -> BookmarkDatabase {
+        var bookmarks = target.bookmarks
+        var existingIds = Set(bookmarks.map(\.id))
+        var existingURLs = Set(bookmarks.map { normalizedURL($0.url) })
+
+        for bookmark in source.bookmarks {
+            if let idx = bookmarks.firstIndex(where: { $0.id == bookmark.id }) {
+                if bookmark.createdAt >= bookmarks[idx].createdAt {
+                    bookmarks[idx] = bookmark
+                }
+                continue
+            }
+
+            let urlKey = normalizedURL(bookmark.url)
+            guard !existingIds.contains(bookmark.id), !existingURLs.contains(urlKey) else {
+                continue
+            }
+
+            bookmarks.append(bookmark)
+            existingIds.insert(bookmark.id)
+            existingURLs.insert(urlKey)
+        }
+
+        bookmarks.sort {
+            $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+        return BookmarkDatabase(version: max(target.version, source.version), bookmarks: bookmarks)
+    }
+
+    private func mergedUsage(
+        _ target: [UUID: UsageRecord],
+        with source: [UUID: UsageRecord]
+    ) -> [UUID: UsageRecord] {
+        target.merging(source) { old, new in
+            UsageRecord(
+                count: max(old.count, new.count),
+                lastClickedAt: max(old.lastClickedAt, new.lastClickedAt)
+            )
+        }
+    }
+
+    private func normalizedURL(_ raw: String) -> String {
+        guard var components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return raw.lowercased()
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        if components.path.hasSuffix("/") {
+            components.path.removeLast()
+        }
+        return components.string ?? raw.lowercased()
     }
 
     func reload() {

@@ -494,7 +494,7 @@ struct BookmarkManagerView: View {
         let root = BookmarkStore.defaultRootDirectory()
         let codec = SecureJSONFileCodec()
 
-        for filename in ["llm.json", "bookmarks.json", "usage.json"] {
+        for filename in ["llm.json", "bookmarks.json", "bookmark_state.json", "usage.json"] {
             let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: filename)
             let privateURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: filename)
             let sourceURL = isEnabled ? legacyURL : privateURL

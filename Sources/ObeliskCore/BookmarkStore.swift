@@ -43,6 +43,13 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         isHidden = (try? c.decode(Bool.self, forKey: .isHidden)) ?? false
         archivedAt = try? c.decodeIfPresent(Date.self, forKey: .archivedAt)
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(url, forKey: .url)
+    }
 }
 
 public struct BookmarkDatabase: Codable, Equatable {
@@ -84,10 +91,12 @@ public final class BookmarkStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let secureCodec: SecureJSONFileCodec
+    private let stateStore: BookmarkStateStore
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
         self.secureCodec = SecureJSONFileCodec()
+        self.stateStore = BookmarkStateStore(rootDirectory: rootDirectory)
 
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -122,6 +131,7 @@ public final class BookmarkStore {
 
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
+        stateStore.updateRootDirectory(rootDirectory)
     }
 
     public func load() throws -> BookmarkDatabase {
@@ -131,7 +141,9 @@ public final class BookmarkStore {
             logicalName: "bookmarks.json"
         )
         let data = try secureCodec.readData(from: url)
-        return try decoder.decode(BookmarkDatabase.self, from: data)
+        var database = try decoder.decode(BookmarkDatabase.self, from: data)
+        database.bookmarks = try applyStoredState(to: database.bookmarks)
+        return database
     }
 
     public func save(_ database: BookmarkDatabase) throws {
@@ -140,6 +152,7 @@ public final class BookmarkStore {
             withIntermediateDirectories: true
         )
 
+        try persistState(from: database.bookmarks)
         let data = try encoder.encode(database)
         try secureCodec.writeData(data, to: fileURL)
     }
@@ -163,6 +176,12 @@ public final class BookmarkStore {
             database.bookmarks.append(bookmark)
             database.bookmarks.sort {
                 $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+            try stateStore.update { state in
+                state.createdAtById[bookmark.id] = bookmark.createdAt
+                if isHidden {
+                    state.hiddenIds.insert(bookmark.id)
+                }
             }
             try save(database)
             return bookmark
@@ -202,6 +221,14 @@ public final class BookmarkStore {
         try withFileLock {
             var database = try load()
             database.bookmarks.removeAll { ids.contains($0.id) }
+            try stateStore.update { state in
+                state.hiddenIds.subtract(ids)
+                state.manualArchivedIds.subtract(ids)
+                state.titleOptimizedIds.subtract(ids)
+                for id in ids {
+                    state.createdAtById.removeValue(forKey: id)
+                }
+            }
             try save(database)
         }
     }
@@ -212,17 +239,12 @@ public final class BookmarkStore {
         }
 
         try withFileLock {
-            var database = try load()
-            var changed = false
-            for idx in database.bookmarks.indices where ids.contains(database.bookmarks[idx].id) {
-                let nextValue = isArchived ? date : nil
-                if database.bookmarks[idx].archivedAt != nextValue {
-                    database.bookmarks[idx].archivedAt = nextValue
-                    changed = true
+            try stateStore.update { state in
+                if isArchived {
+                    state.manualArchivedIds.formUnion(ids)
+                } else {
+                    state.manualArchivedIds.subtract(ids)
                 }
-            }
-            if changed {
-                try save(database)
             }
         }
     }
@@ -235,6 +257,7 @@ public final class BookmarkStore {
         return try withFileLock {
             var database = try load()
             var changedCount = 0
+            var changedIds: Set<UUID> = []
             for idx in database.bookmarks.indices {
                 let bookmark = database.bookmarks[idx]
                 guard !bookmark.titleOptimized,
@@ -247,11 +270,15 @@ public final class BookmarkStore {
                     database.bookmarks[idx].title = title
                 }
                 database.bookmarks[idx].titleOptimized = true
+                changedIds.insert(bookmark.id)
                 changedCount += 1
             }
             if changedCount > 0 {
                 database.bookmarks.sort {
                     $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                }
+                try stateStore.update { state in
+                    state.titleOptimizedIds.formUnion(changedIds)
                 }
                 try save(database)
             }
@@ -280,6 +307,24 @@ public final class BookmarkStore {
             updated.title = trimmedTitle
             updated.url = trimmedURL
             database.bookmarks[idx] = updated
+            try stateStore.update { state in
+                state.createdAtById[updated.id] = updated.createdAt
+                if updated.titleOptimized {
+                    state.titleOptimizedIds.insert(updated.id)
+                } else {
+                    state.titleOptimizedIds.remove(updated.id)
+                }
+                if updated.isHidden {
+                    state.hiddenIds.insert(updated.id)
+                } else {
+                    state.hiddenIds.remove(updated.id)
+                }
+                if updated.archivedAt != nil {
+                    state.manualArchivedIds.insert(updated.id)
+                } else {
+                    state.manualArchivedIds.remove(updated.id)
+                }
+            }
             database.bookmarks.sort {
                 $0.title.localizedStandardCompare($1.title) == .orderedAscending
             }
@@ -297,6 +342,67 @@ public final class BookmarkStore {
             return
         }
         try save(BookmarkDatabase())
+    }
+
+    private func applyStoredState(to bookmarks: [Bookmark]) throws -> [Bookmark] {
+        var state = stateStore.load()
+        let originalState = state
+        var migrated = false
+        let validIds = Set(bookmarks.map(\.id))
+
+        state.hiddenIds.formIntersection(validIds)
+        state.manualArchivedIds.formIntersection(validIds)
+        state.titleOptimizedIds.formIntersection(validIds)
+        state.createdAtById = state.createdAtById.filter { validIds.contains($0.key) }
+
+        let hydrated = bookmarks.map { bookmark in
+            var bookmark = bookmark
+            if bookmark.createdAt > .distantPast, state.createdAtById[bookmark.id] == nil {
+                state.createdAtById[bookmark.id] = bookmark.createdAt
+                migrated = true
+            }
+            if bookmark.isHidden {
+                state.hiddenIds.insert(bookmark.id)
+                migrated = true
+            }
+            if bookmark.titleOptimized {
+                state.titleOptimizedIds.insert(bookmark.id)
+                migrated = true
+            }
+
+            bookmark.createdAt = state.createdAtById[bookmark.id] ?? .distantPast
+            bookmark.isHidden = state.hiddenIds.contains(bookmark.id)
+            bookmark.titleOptimized = state.titleOptimizedIds.contains(bookmark.id)
+            bookmark.archivedAt = state.manualArchivedIds.contains(bookmark.id) ? Date.distantPast : nil
+            return bookmark
+        }
+
+        if migrated || state != originalState {
+            try stateStore.save(state)
+        }
+        return hydrated
+    }
+
+    private func persistState(from bookmarks: [Bookmark]) throws {
+        let validIds = Set(bookmarks.map(\.id))
+        try stateStore.update { state in
+            state.hiddenIds = Set(bookmarks.filter(\.isHidden).map(\.id))
+            state.manualArchivedIds = Set(bookmarks.filter { $0.archivedAt != nil }.map(\.id))
+            state.titleOptimizedIds = Set(bookmarks.filter(\.titleOptimized).map(\.id))
+            state.createdAtById = Dictionary(
+                uniqueKeysWithValues: bookmarks.compactMap { bookmark in
+                    guard bookmark.createdAt > .distantPast else {
+                        return nil
+                    }
+                    return (bookmark.id, bookmark.createdAt)
+                }
+            )
+
+            state.hiddenIds.formIntersection(validIds)
+            state.manualArchivedIds.formIntersection(validIds)
+            state.titleOptimizedIds.formIntersection(validIds)
+            state.createdAtById = state.createdAtById.filter { validIds.contains($0.key) }
+        }
     }
 
     private func validatedWebURL(_ rawURL: String) throws -> String {

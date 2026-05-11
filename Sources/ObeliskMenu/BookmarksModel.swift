@@ -41,6 +41,11 @@ final class BookmarksModel {
         store.rootDirectory
     }
 
+    func invalidateStorageCaches() {
+        store.invalidateCache()
+        usageStore.invalidateCache()
+    }
+
     private var autoArchiveEnabled: Bool {
         UserDefaults.standard.bool(forKey: Self.autoArchiveEnabledKey)
     }
@@ -69,19 +74,36 @@ final class BookmarksModel {
     }
 
     func migrateStorageRoot(to rootDirectory: URL) throws {
-        let sourceDatabase = try store.load()
-        let sourceUsage = usageStore.load()
+        try Self.migrateStorageData(from: store.rootDirectory, to: rootDirectory)
+        adoptStorageRoot(rootDirectory)
+    }
+
+    func adoptStorageRoot(_ rootDirectory: URL) {
         store.updateRootDirectory(rootDirectory)
         usageStore.updateRootDirectory(rootDirectory)
         titleOptimizer.updateRootDirectory(rootDirectory)
-
-        let targetDatabase = (try? store.load()) ?? BookmarkDatabase()
-        try store.save(mergedDatabase(targetDatabase, with: sourceDatabase))
-        usageStore.saveAll(mergedUsage(usageStore.load(), with: sourceUsage))
         reload()
     }
 
-    private func mergedDatabase(_ target: BookmarkDatabase, with source: BookmarkDatabase) -> BookmarkDatabase {
+    nonisolated static func migrateStorageData(from sourceRoot: URL, to targetRoot: URL) throws {
+        let encrypted = LocalJSONEncryption.isEnabled
+        try ObeliskStorageMigrator.normalizeJSONFiles(in: sourceRoot, encrypted: encrypted)
+        try ObeliskStorageMigrator.normalizeJSONFiles(in: targetRoot, encrypted: encrypted)
+
+        let sourceStore = BookmarkStore(rootDirectory: sourceRoot)
+        let sourceUsageStore = UsageStore(rootDirectory: sourceRoot)
+        let targetStore = BookmarkStore(rootDirectory: targetRoot)
+        let targetUsageStore = UsageStore(rootDirectory: targetRoot)
+
+        let sourceDatabase = try sourceStore.load()
+        let sourceUsage = sourceUsageStore.load()
+        let targetDatabase = (try? targetStore.load()) ?? BookmarkDatabase()
+
+        try targetStore.save(mergedDatabase(targetDatabase, with: sourceDatabase))
+        targetUsageStore.saveAll(mergedUsage(targetUsageStore.load(), with: sourceUsage))
+    }
+
+    nonisolated private static func mergedDatabase(_ target: BookmarkDatabase, with source: BookmarkDatabase) -> BookmarkDatabase {
         var bookmarks = target.bookmarks
         var existingIds = Set(bookmarks.map(\.id))
         var existingURLs = Set(bookmarks.map { normalizedURL($0.url) })
@@ -110,7 +132,7 @@ final class BookmarksModel {
         return BookmarkDatabase(version: max(target.version, source.version), bookmarks: bookmarks)
     }
 
-    private func mergedUsage(
+    nonisolated private static func mergedUsage(
         _ target: [UUID: UsageRecord],
         with source: [UUID: UsageRecord]
     ) -> [UUID: UsageRecord] {
@@ -122,7 +144,7 @@ final class BookmarksModel {
         }
     }
 
-    private func normalizedURL(_ raw: String) -> String {
+    nonisolated private static func normalizedURL(_ raw: String) -> String {
         guard var components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return raw.lowercased()
         }
@@ -140,9 +162,10 @@ final class BookmarksModel {
             // Prune usage entries for deleted bookmarks. Cheap; only writes
             // when there are actually orphans.
             usageStore.cleanup(validIds: Set(all.map(\.id)))
+            let usage = usageStore.load()
             bookmarks = all
-            let visibleBookmarks = visibleBookmarks(from: all)
-            recomputeGroups(from: visibleBookmarks)
+            let visibleBookmarks = visibleBookmarks(from: all, usage: usage)
+            recomputeGroups(from: visibleBookmarks, usage: usage)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
             if errorMessage == priorLoadError {
@@ -163,7 +186,8 @@ final class BookmarksModel {
         let priorRecent = recent.map(\.id)
         let priorOthers = others.map(\.id)
 
-        recomputeGroups(from: visibleBookmarks(from: bookmarks))
+        let usage = usageStore.load()
+        recomputeGroups(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
 
         let changed = frequent.map(\.id) != priorFrequent
             || recent.map(\.id) != priorRecent
@@ -229,7 +253,8 @@ final class BookmarksModel {
         }
         frequentGroupLimit = nextFrequent
         recentGroupLimit = nextRecent
-        recomputeGroups(from: visibleBookmarks(from: bookmarks))
+        let usage = usageStore.load()
+        recomputeGroups(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
         onChange?()
     }
 
@@ -312,8 +337,8 @@ final class BookmarksModel {
         openBookmark(bookmark)
     }
 
-    private func recomputeGroups(from all: [Bookmark]) {
-        let topFrequent = usageStore.topFrequent(among: all, limit: frequentGroupLimit)
+    private func recomputeGroups(from all: [Bookmark], usage: [UUID: UsageRecord]) {
+        let topFrequent = usageStore.topFrequent(among: all, usage: usage, limit: frequentGroupLimit)
         let frequentIds = Set(topFrequent.map(\.id))
 
         // Recent excludes anything already shown in "frequent" so each
@@ -329,7 +354,8 @@ final class BookmarksModel {
     }
 
     func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
-        isEffectivelyArchived(bookmark, in: bookmarks)
+        let usage = usageStore.load()
+        return isEffectivelyArchived(bookmark, in: bookmarks, usage: usage)
     }
 
     private struct AutoArchiveContext {
@@ -338,17 +364,18 @@ final class BookmarksModel {
         var now: Date
     }
 
-    private func visibleBookmarks(from all: [Bookmark], now: Date = Date()) -> [Bookmark] {
-        all.filter { !$0.isHidden && !isEffectivelyArchived($0, in: all, now: now) }
+    private func visibleBookmarks(from all: [Bookmark], usage: [UUID: UsageRecord], now: Date = Date()) -> [Bookmark] {
+        let context = autoArchiveContext(in: all, usage: usage, now: now)
+        return all.filter { !$0.isHidden && !isEffectivelyArchived($0, context: context, usage: usage) }
     }
 
-    private func autoArchiveContext(in all: [Bookmark], now: Date = Date()) -> AutoArchiveContext? {
+    private func autoArchiveContext(in all: [Bookmark], usage: [UUID: UsageRecord], now: Date = Date()) -> AutoArchiveContext? {
         guard autoArchiveEnabled else {
             return nil
         }
 
         let active = all.filter { !$0.isHidden && $0.archivedAt == nil }
-        let topFrequent = usageStore.topFrequent(among: active, limit: frequentGroupLimit, now: now)
+        let topFrequent = usageStore.topFrequent(among: active, usage: usage, limit: frequentGroupLimit, now: now)
         let frequentIds = Set(topFrequent.map(\.id))
         let recentCandidates = active.filter { !frequentIds.contains($0.id) }
         let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)
@@ -358,15 +385,32 @@ final class BookmarksModel {
         return AutoArchiveContext(protectedIds: protectedIds, cutoff: cutoff, now: now)
     }
 
-    private func lastActiveDate(for bookmark: Bookmark) -> Date {
+    private func lastActiveDate(for bookmark: Bookmark, usage: [UUID: UsageRecord]) -> Date {
         let createdAt = bookmark.createdAt == .distantPast ? .distantPast : bookmark.createdAt
-        guard let lastClickedAt = usageStore.record(for: bookmark.id)?.lastClickedAt else {
+        guard let lastClickedAt = usage[bookmark.id]?.lastClickedAt else {
             return createdAt
         }
         return max(createdAt, lastClickedAt)
     }
 
-    private func isEffectivelyArchived(_ bookmark: Bookmark, in all: [Bookmark], now: Date = Date()) -> Bool {
+    private func isEffectivelyArchived(
+        _ bookmark: Bookmark,
+        in all: [Bookmark],
+        usage: [UUID: UsageRecord],
+        now: Date = Date()
+    ) -> Bool {
+        isEffectivelyArchived(
+            bookmark,
+            context: autoArchiveContext(in: all, usage: usage, now: now),
+            usage: usage
+        )
+    }
+
+    private func isEffectivelyArchived(
+        _ bookmark: Bookmark,
+        context: AutoArchiveContext?,
+        usage: [UUID: UsageRecord]
+    ) -> Bool {
         guard autoArchiveEnabled else {
             return false
         }
@@ -376,12 +420,11 @@ final class BookmarksModel {
         if bookmark.archivedAt != nil {
             return true
         }
-        guard let context = autoArchiveContext(in: all, now: now),
-              !context.protectedIds.contains(bookmark.id)
+        guard let context, !context.protectedIds.contains(bookmark.id)
         else {
             return false
         }
 
-        return context.now.timeIntervalSince(lastActiveDate(for: bookmark)) >= context.cutoff
+        return context.now.timeIntervalSince(lastActiveDate(for: bookmark, usage: usage)) >= context.cutoff
     }
 }

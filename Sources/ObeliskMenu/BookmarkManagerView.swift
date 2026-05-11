@@ -428,7 +428,7 @@ struct BookmarkManagerView: View {
 
         Task {
             do {
-                let currentConfig = llmConfigStore.load()
+                let sourceRoot = model.rootDirectory
                 let targetRoot: URL
 
                 if isEnabled {
@@ -438,10 +438,19 @@ struct BookmarkManagerView: View {
                     targetRoot = BookmarkStore.defaultLocalRootDirectory()
                 }
 
-                try model.migrateStorageRoot(to: targetRoot)
-                try LLMConfigStore(rootDirectory: targetRoot).save(currentConfig)
+                try await Task.detached(priority: .userInitiated) {
+                    let currentConfig = LLMConfigStore(rootDirectory: sourceRoot).load()
+                    let encrypted = LocalJSONEncryption.isEnabled
+                    try ObeliskStorageMigrator.normalizeStorage(in: sourceRoot, encrypted: encrypted)
+                    try ObeliskStorageMigrator.normalizeStorage(in: targetRoot, encrypted: encrypted)
+                    try BookmarksModel.migrateStorageData(from: sourceRoot, to: targetRoot)
+                    try ObeliskStorageMigrator.migrateFavicons(from: sourceRoot, to: targetRoot, encrypted: encrypted)
+                    try LLMConfigStore(rootDirectory: targetRoot).save(currentConfig)
+                }.value
+
                 ICloudDocumentSync.isEnabled = isEnabled
                 syncWithICloudDrive = isEnabled
+                model.adoptStorageRoot(targetRoot)
                 onStorageRootChanged(targetRoot)
                 loadLLMConfig()
                 showToast(isEnabled ? "iCloud 同步已开启" : "iCloud 同步已关闭")
@@ -480,6 +489,7 @@ struct BookmarkManagerView: View {
 
         do {
             try migrateLocalPrivateStorage(isEnabled: isEnabled)
+            onStorageRootChanged(model.rootDirectory)
             model.reload()
             loadLLMConfig()
             showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
@@ -491,29 +501,15 @@ struct BookmarkManagerView: View {
     }
 
     private func migrateLocalPrivateStorage(isEnabled: Bool) throws {
-        let root = BookmarkStore.defaultRootDirectory()
-        let codec = SecureJSONFileCodec()
+        let root = model.rootDirectory
+        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: isEnabled)
 
-        for filename in ["llm.json", "bookmarks.json", "bookmark_state.json", "usage.json"] {
-            let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: filename)
-            let privateURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: filename)
-            let sourceURL = isEnabled ? legacyURL : privateURL
-            let destinationURL = isEnabled ? privateURL : legacyURL
-
-            if FileManager.default.fileExists(atPath: sourceURL.path) {
-                let plaintext = try codec.readData(from: sourceURL)
-                try FileManager.default.createDirectory(
-                    at: destinationURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try codec.writeData(plaintext, to: destinationURL)
-                try? FileManager.default.removeItem(at: sourceURL)
-            } else if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try codec.rewriteFile(at: destinationURL)
-            }
+        if let iCloudRoot = ICloudDocumentSync.cachedRootDirectory(),
+           iCloudRoot.standardizedFileURL != root.standardizedFileURL {
+            try ObeliskStorageMigrator.normalizeStorage(in: iCloudRoot, encrypted: isEnabled)
         }
 
-        try faviconLoader.migrateStorage(toEncrypted: isEnabled)
+        faviconLoader.reloadStorage()
     }
 
     private func handleHiddenBookmarksVisibilityChange(isShowing: Bool) {

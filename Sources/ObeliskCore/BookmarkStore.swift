@@ -92,6 +92,7 @@ public final class BookmarkStore {
     private let decoder: JSONDecoder
     private let secureCodec: SecureJSONFileCodec
     private let stateStore: BookmarkStateStore
+    private var cachedDatabase: BookmarkDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
@@ -132,17 +133,31 @@ public final class BookmarkStore {
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
         stateStore.updateRootDirectory(rootDirectory)
+        invalidateCache()
+    }
+
+    public func invalidateCache() {
+        cachedDatabase = nil
+        stateStore.invalidateCache()
     }
 
     public func load() throws -> BookmarkDatabase {
+        if let cachedDatabase {
+            return cachedDatabase
+        }
+
         try ensureStoreExists()
         let url = ObeliskPrivateStorage.existingReadableFileURL(
             rootDirectory: rootDirectory,
             logicalName: "bookmarks.json"
         )
-        let data = try secureCodec.readData(from: url)
+        let data = try secureCodec.readData(
+            from: url,
+            coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+        )
         var database = try decoder.decode(BookmarkDatabase.self, from: data)
         database.bookmarks = try applyStoredState(to: database.bookmarks)
+        cachedDatabase = database
         return database
     }
 
@@ -154,7 +169,19 @@ public final class BookmarkStore {
 
         try persistState(from: database.bookmarks)
         let data = try encoder.encode(database)
-        try secureCodec.writeData(data, to: fileURL)
+        try secureCodec.writeData(
+            data,
+            to: fileURL,
+            encrypted: LocalJSONEncryption.isEnabled,
+            coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+        )
+        for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmarks.json") {
+            try? CoordinatedFileAccess.removeItem(
+                at: staleURL,
+                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            )
+        }
+        cachedDatabase = database
     }
 
     @discardableResult
@@ -245,6 +272,15 @@ public final class BookmarkStore {
                 } else {
                     state.manualArchivedIds.subtract(ids)
                 }
+            }
+            if var cachedDatabase {
+                cachedDatabase.bookmarks = cachedDatabase.bookmarks.map { bookmark in
+                    guard ids.contains(bookmark.id) else { return bookmark }
+                    var updated = bookmark
+                    updated.archivedAt = isArchived ? Date.distantPast : nil
+                    return updated
+                }
+                self.cachedDatabase = cachedDatabase
             }
         }
     }

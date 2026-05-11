@@ -63,6 +63,7 @@ public final class BookmarkStateStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let secureCodec: SecureJSONFileCodec
+    private var cachedState: BookmarkStateDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
@@ -78,19 +79,34 @@ public final class BookmarkStateStore {
 
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
+        invalidateCache()
+    }
+
+    public func invalidateCache() {
+        cachedState = nil
     }
 
     public func load() -> BookmarkStateDatabase {
+        if let cachedState {
+            return cachedState
+        }
+
         let url = ObeliskPrivateStorage.existingReadableFileURL(
             rootDirectory: rootDirectory,
             logicalName: "bookmark_state.json"
         )
         guard
-            let data = try? secureCodec.readData(from: url),
+            let data = try? secureCodec.readData(
+                from: url,
+                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            ),
             let state = try? decoder.decode(BookmarkStateDatabase.self, from: data)
         else {
-            return BookmarkStateDatabase()
+            let empty = BookmarkStateDatabase()
+            cachedState = empty
+            return empty
         }
+        cachedState = state
         return state
     }
 
@@ -101,7 +117,19 @@ public final class BookmarkStateStore {
         )
 
         let data = try encoder.encode(state)
-        try secureCodec.writeData(data, to: fileURL)
+        try secureCodec.writeData(
+            data,
+            to: fileURL,
+            encrypted: LocalJSONEncryption.isEnabled,
+            coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+        )
+        for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmark_state.json") {
+            try? CoordinatedFileAccess.removeItem(
+                at: staleURL,
+                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            )
+        }
+        cachedState = state
     }
 
     public func update(_ body: (inout BookmarkStateDatabase) -> Void) throws {

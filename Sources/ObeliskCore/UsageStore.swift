@@ -24,6 +24,7 @@ public final class UsageStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let secureCodec: SecureJSONFileCodec
+    private var cachedUsage: [UUID: UsageRecord]?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
@@ -39,17 +40,30 @@ public final class UsageStore {
 
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
+        invalidateCache()
+    }
+
+    public func invalidateCache() {
+        cachedUsage = nil
     }
 
     public func load() -> [UUID: UsageRecord] {
+        if let cachedUsage {
+            return cachedUsage
+        }
+
         let url = ObeliskPrivateStorage.existingReadableFileURL(
             rootDirectory: rootDirectory,
             logicalName: "usage.json"
         )
         guard
-            let data = try? secureCodec.readData(from: url),
+            let data = try? secureCodec.readData(
+                from: url,
+                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            ),
             let raw = try? decoder.decode([String: UsageRecord].self, from: data)
         else {
+            cachedUsage = [:]
             return [:]
         }
 
@@ -59,6 +73,7 @@ public final class UsageStore {
                 result[id] = value
             }
         }
+        cachedUsage = result
         return result
     }
 
@@ -94,7 +109,16 @@ public final class UsageStore {
         minCount: Int = 3,
         now: Date = Date()
     ) -> [Bookmark] {
-        let usage = load()
+        topFrequent(among: bookmarks, usage: load(), limit: limit, minCount: minCount, now: now)
+    }
+
+    public func topFrequent(
+        among bookmarks: [Bookmark],
+        usage: [UUID: UsageRecord],
+        limit: Int,
+        minCount: Int = 3,
+        now: Date = Date()
+    ) -> [Bookmark] {
         let scored: [(bookmark: Bookmark, score: Double)] = bookmarks.compactMap { bm in
             guard let record = usage[bm.id], record.count >= minCount else {
                 return nil
@@ -127,6 +151,7 @@ public final class UsageStore {
     }
 
     public func saveAll(_ dict: [UUID: UsageRecord]) {
+        cachedUsage = dict
         let payload = Dictionary(uniqueKeysWithValues: dict.map { ($0.key.uuidString, $0.value) })
         do {
             try FileManager.default.createDirectory(
@@ -134,7 +159,18 @@ public final class UsageStore {
                 withIntermediateDirectories: true
             )
             let data = try encoder.encode(payload)
-            try secureCodec.writeData(data, to: fileURL)
+            try secureCodec.writeData(
+                data,
+                to: fileURL,
+                encrypted: LocalJSONEncryption.isEnabled,
+                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            )
+            for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "usage.json") {
+                try? CoordinatedFileAccess.removeItem(
+                    at: staleURL,
+                    coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+                )
+            }
         } catch {
             // Usage data is best-effort; losing a write is not fatal.
         }

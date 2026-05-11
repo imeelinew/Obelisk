@@ -20,6 +20,13 @@ def dump_json(path, payload):
         f.write("\n")
 
 
+def first_existing(*paths):
+    for path in paths:
+        if path.exists():
+            return path
+    return paths[0]
+
+
 def unique_sorted(values):
     return sorted(set(values))
 
@@ -42,8 +49,11 @@ def main():
     args = parser.parse_args()
 
     root = Path(args.root).expanduser()
-    bookmarks_path = root / "bookmarks.json"
-    state_path = root / "bookmark_state.json"
+    data_root = root / "Data"
+    bookmarks_path = first_existing(data_root / "bookmarks.json", root / "bookmarks.json")
+    state_path = first_existing(data_root / "bookmark_state.json", root / "bookmark_state.json")
+    target_bookmarks_path = data_root / "bookmarks.json"
+    target_state_path = data_root / "bookmark_state.json"
 
     if not bookmarks_path.exists():
         raise SystemExit(f"bookmarks.json not found: {bookmarks_path}")
@@ -125,8 +135,12 @@ def main():
     if state_path.exists():
         shutil.copy2(state_path, state_path.with_suffix(f".json.{stamp}.bak"))
 
-    dump_json(bookmarks_path, next_database)
-    dump_json(state_path, next_state)
+    dump_json(target_bookmarks_path, next_database)
+    dump_json(target_state_path, next_state)
+    if bookmarks_path != target_bookmarks_path:
+        bookmarks_path.unlink(missing_ok=True)
+    if state_path != target_state_path:
+        state_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

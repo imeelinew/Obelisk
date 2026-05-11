@@ -41,7 +41,10 @@ DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}" \
     --app-icon Obelisk \
     "$ROOT_DIR/icon/Obelisk.icon" >/dev/null
 
-cp "$ROOT_DIR/icon/Obelisk-iOS-Default-1024x1024@1x.png" "$RESOURCES_DIR/AppIcon.png"
+ICONSET_DIR="$(mktemp -d)"
+trap 'rm -rf "$ICONSET_DIR"' EXIT
+iconutil -c iconset "$RESOURCES_DIR/Obelisk.icns" -o "$ICONSET_DIR/AppIcon.iconset"
+cp "$ICONSET_DIR/AppIcon.iconset/icon_128x128@2x.png" "$RESOURCES_DIR/AppIcon.png"
 cp "$ROOT_DIR/Sources/ObeliskMenu/Resources/PyramidSymbol.svg" "$RESOURCES_DIR/PyramidSymbol.svg"
 
 # Strip debug symbols (saves a few MB; we don't ship a dSYM for personal use).

@@ -30,6 +30,8 @@ struct BookmarkManagerView: View {
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
     @AppStorage(ICloudDocumentSync.enabledKey) private var syncWithICloudDrive = false
     @AppStorage("openHiddenBookmarksIncognito") private var openHiddenBookmarksIncognito = false
+    @AppStorage("silentAddEnabled") private var silentAddEnabled = false
+    @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
 
@@ -958,6 +960,28 @@ struct BookmarkManagerView: View {
                     }
 
                     LabeledContent("当前透明度", value: "\(Int(windowSeeThrough * 100))%")
+                }
+            }
+
+            Section("快捷键") {
+                Toggle(isOn: $silentAddEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("静默添加书签")
+                        Text("按 ⌥B / ⌥H 后直接将当前浏览器标签加入书签，不弹出设置窗口，改为系统通知提醒。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if silentAddEnabled {
+                    Toggle(isOn: $autoOptimizeNewBookmarks) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("自动优化新书签标题")
+                            Text("静默添加后自动使用已配置的模型优化书签标题。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }

@@ -6,11 +6,13 @@ import Foundation
 import Observation
 import ObeliskCore
 import os
+import UserNotifications
 
 private let faviconLog = Logger(subsystem: "local.elidev.Obelisk", category: "Favicon")
+private let addLog = Logger(subsystem: "local.elidev.Obelisk", category: "AddBookmark")
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private let maxMenuTitlePixelWidth: CGFloat = 300
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = BookmarkStore()
@@ -40,6 +42,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return loader
     }()
+    private let notificationCenter = UNUserNotificationCenter.current()
+    private var notificationAuthorized = false
+    private var pendingOptimizationTask: Task<Void, Never>?
+    private var silentAddEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "silentAddEnabled")
+    }
+    private var autoOptimizeNewBookmarks: Bool {
+        UserDefaults.standard.bool(forKey: "autoOptimizeNewBookmarks")
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -53,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         normalizeActiveStorageRoot()
         registerGlobalHotkey()
         rebuildMenu()
+        requestNotificationAuthorization()
     }
 
     /// Wave 5: ⌥B from anywhere → fetch the frontmost browser's current
@@ -87,9 +99,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleGlobalHotkey(isHidden: Bool) {
         let tab = BrowserCurrentTab.fetch()
-        addRequest.request(url: tab?.url, title: tab?.title, isHidden: isHidden)
-        NSApp.setActivationPolicy(.regular)
-        managerWindow.show()
+        if silentAddEnabled {
+            handleSilentAdd(url: tab?.url, title: tab?.title, isHidden: isHidden)
+        } else {
+            addRequest.request(url: tab?.url, title: tab?.title, isHidden: isHidden)
+            NSApp.setActivationPolicy(.regular)
+            managerWindow.show()
+        }
+    }
+
+    private func handleSilentAdd(url: String?, title: String?, isHidden: Bool) {
+        guard let url, !url.isEmpty else {
+            postBookmarkNotification(
+                title: "无法添加书签",
+                body: "当前浏览器标签无有效网址"
+            )
+            return
+        }
+
+        let resolvedTitle = (title?.isEmpty == false) ? title! : url
+        if let error = bookmarksModel.add(title: resolvedTitle, url: url, isHidden: isHidden) {
+            postBookmarkNotification(
+                title: "添加失败",
+                body: error
+            )
+            return
+        }
+
+        let bookmarkType = isHidden ? "隐藏书签" : "书签"
+        postBookmarkNotification(
+            title: "已添加\(bookmarkType)",
+            body: resolvedTitle
+        )
+
+        if autoOptimizeNewBookmarks {
+            pendingOptimizationTask?.cancel()
+            pendingOptimizationTask = Task { [weak self] in
+                let message = await self?.bookmarksModel.optimizeAllTitles(
+                    scope: isHidden ? .hidden : .visible
+                )
+                if let message {
+                    self?.postBookmarkNotification(
+                        title: "标题优化完成",
+                        body: message
+                    )
+                }
+            }
+        }
+    }
+
+    private func requestNotificationAuthorization() {
+        notificationCenter.delegate = self
+        let options: UNAuthorizationOptions = [.alert, .sound]
+        notificationCenter.requestAuthorization(options: options) { [weak self] granted, error in
+            DispatchQueue.main.async {
+                self?.notificationAuthorized = granted
+                if let error {
+                    addLog.error("通知权限请求失败: \(error.localizedDescription)")
+                } else if !granted {
+                    addLog.warning("用户未授权通知权限")
+                } else {
+                    addLog.info("通知权限已授权")
+                }
+            }
+        }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    private func postBookmarkNotification(title: String, body: String) {
+        guard notificationAuthorized else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        notificationCenter.add(request) { error in
+            if let error {
+                addLog.error("发送通知失败: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// LSUIElement apps get no main menu by default, which means ⌘C/⌘V/⌘X/⌘A

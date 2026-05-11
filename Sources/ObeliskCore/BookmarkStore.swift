@@ -7,6 +7,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
     public var createdAt: Date
     public var titleOptimized: Bool
     public var isHidden: Bool
+    public var archivedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -14,7 +15,8 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         url: String,
         createdAt: Date = Date(),
         titleOptimized: Bool = false,
-        isHidden: Bool = false
+        isHidden: Bool = false,
+        archivedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -22,10 +24,11 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         self.createdAt = createdAt
         self.titleOptimized = titleOptimized
         self.isHidden = isHidden
+        self.archivedAt = archivedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, url, createdAt, titleOptimized, isHidden
+        case id, title, url, createdAt, titleOptimized, isHidden, archivedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -38,6 +41,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? .distantPast
         titleOptimized = (try? c.decode(Bool.self, forKey: .titleOptimized)) ?? false
         isHidden = (try? c.decode(Bool.self, forKey: .isHidden)) ?? false
+        archivedAt = try? c.decodeIfPresent(Date.self, forKey: .archivedAt)
     }
 }
 
@@ -199,6 +203,27 @@ public final class BookmarkStore {
             var database = try load()
             database.bookmarks.removeAll { ids.contains($0.id) }
             try save(database)
+        }
+    }
+
+    public func setArchived(_ isArchived: Bool, ids: Set<UUID>, at date: Date = Date()) throws {
+        guard !ids.isEmpty else {
+            return
+        }
+
+        try withFileLock {
+            var database = try load()
+            var changed = false
+            for idx in database.bookmarks.indices where ids.contains(database.bookmarks[idx].id) {
+                let nextValue = isArchived ? date : nil
+                if database.bookmarks[idx].archivedAt != nextValue {
+                    database.bookmarks[idx].archivedAt = nextValue
+                    changed = true
+                }
+            }
+            if changed {
+                try save(database)
+            }
         }
     }
 

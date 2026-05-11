@@ -24,6 +24,8 @@ struct BookmarkManagerView: View {
     @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
     @AppStorage("menuFrequentGroupLimit") private var menuFrequentGroupLimit = 5
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
+    @AppStorage(BookmarksModel.autoArchiveEnabledKey) private var autoArchiveEnabled = false
+    @AppStorage(BookmarksModel.archiveAfterDaysKey) private var archiveAfterDays = BookmarksModel.defaultArchiveAfterDays
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
     @AppStorage(ICloudDocumentSync.enabledKey) private var syncWithICloudDrive = false
@@ -78,6 +80,7 @@ struct BookmarkManagerView: View {
     enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
         case bookmarks
         case hiddenBookmarks
+        case archive
         case appearance
         case sync
         case ai
@@ -96,7 +99,7 @@ struct BookmarkManagerView: View {
 
         var group: Group {
             switch self {
-            case .bookmarks, .hiddenBookmarks: return .content
+            case .bookmarks, .hiddenBookmarks, .archive: return .content
             case .appearance, .sync, .ai:      return .preferences
             case .security, .developer:        return .advanced
             }
@@ -106,6 +109,7 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks: return "书签"
             case .hiddenBookmarks: return "隐藏书签"
+            case .archive: return "归档"
             case .appearance: return "外观"
             case .sync: return "同步"
             case .ai: return "AI配置"
@@ -118,6 +122,7 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks: return "bookmark.fill"
             case .hiddenBookmarks: return "eye.slash.fill"
+            case .archive: return "archivebox.fill"
             case .appearance: return "paintpalette.fill"
             case .sync: return "icloud.fill"
             case .ai: return "sparkles"
@@ -143,6 +148,12 @@ struct BookmarkManagerView: View {
             case .hiddenBookmarks:
                 return LinearGradient(
                     colors: [Color(red: 0.58, green: 0.66, blue: 0.80), Color(red: 0.34, green: 0.44, blue: 0.62)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .archive:
+                return LinearGradient(
+                    colors: [Color(red: 0.66, green: 0.72, blue: 0.80), Color(red: 0.38, green: 0.46, blue: 0.56)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -203,15 +214,20 @@ struct BookmarkManagerView: View {
     }
 
     private var visibleBookmarks: [Bookmark] {
-        model.bookmarks.filter { !$0.isHidden }
+        model.bookmarks.filter { !$0.isHidden && !isEffectivelyArchived($0) }
     }
 
     private var hiddenBookmarks: [Bookmark] {
-        model.bookmarks.filter { $0.isHidden }
+        model.bookmarks.filter { $0.isHidden && !isEffectivelyArchived($0) }
     }
 
     private var filteredHiddenBookmarks: [Bookmark] {
         filtered(hiddenBookmarks)
+    }
+
+    private var archivedBookmarks: [Bookmark] {
+        guard autoArchiveEnabled else { return [] }
+        return model.bookmarks.filter { !$0.isHidden && $0.archivedAt != nil }
     }
 
     private var bookmarkSections: [BookmarkListSection] {
@@ -236,6 +252,15 @@ struct BookmarkManagerView: View {
     private var hiddenBookmarkSections: [BookmarkListSection] {
         let bookmarks = filteredHiddenBookmarks
         return bookmarks.isEmpty ? [] : [BookmarkListSection(title: nil, bookmarks: bookmarks)]
+    }
+
+    private var archivedBookmarkSections: [BookmarkListSection] {
+        let bookmarks = filtered(archivedBookmarks)
+        return bookmarks.isEmpty ? [] : [BookmarkListSection(title: nil, bookmarks: bookmarks)]
+    }
+
+    private func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
+        autoArchiveEnabled && bookmark.archivedAt != nil
     }
 
     private func filtered(_ bookmarks: [Bookmark]) -> [Bookmark] {
@@ -299,6 +324,24 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private func setArchived(_ isArchived: Bool, for bookmark: Bookmark) {
+        if let errorMessage = model.setArchived(isArchived, for: bookmark.id) {
+            model.errorMessage = errorMessage
+        } else {
+            selection.remove(bookmark.id)
+        }
+    }
+
+    private func openArchivedBookmark(_ bookmark: Bookmark) {
+        model.openArchivedBookmark(bookmark)
+        selection.remove(bookmark.id)
+    }
+
+    private func syncArchiveSettings() {
+        archiveAfterDays = min(180, max(7, archiveAfterDays))
+        model.reload()
+    }
+
     private func refreshFavicon(for bookmark: Bookmark) {
         faviconLoader.refresh(urlString: bookmark.url)
         showToast("刷新 favicon 成功")
@@ -342,11 +385,11 @@ struct BookmarkManagerView: View {
     }
 
     private var unoptimizedTitleCount: Int {
-        model.bookmarks.filter { !$0.titleOptimized && !$0.isHidden }.count
+        model.bookmarks.filter { !$0.titleOptimized && !$0.isHidden && !isEffectivelyArchived($0) }.count
     }
 
     private var hiddenUnoptimizedTitleCount: Int {
-        model.bookmarks.filter { !$0.titleOptimized && $0.isHidden }.count
+        model.bookmarks.filter { !$0.titleOptimized && $0.isHidden && !isEffectivelyArchived($0) }.count
     }
 
     private func optimizeTitles(scope: BookmarksModel.TitleOptimizationScope = .visible) {
@@ -470,12 +513,7 @@ struct BookmarkManagerView: View {
             }
         }
 
-        if isEnabled {
-            try? FileManager.default.removeItem(at: root.appendingPathComponent("favicons", isDirectory: true))
-        } else {
-            try? FileManager.default.removeItem(at: ObeliskPrivateStorage.faviconDirectory(in: root))
-        }
-        faviconLoader.reloadStorage()
+        try faviconLoader.migrateStorage(toEncrypted: isEnabled)
     }
 
     private func handleHiddenBookmarksVisibilityChange(isShowing: Bool) {
@@ -706,6 +744,8 @@ struct BookmarkManagerView: View {
                 bookmarkManagementPage
             case .hiddenBookmarks:
                 hiddenBookmarkManagementPage
+            case .archive:
+                archivePage
             case .appearance:
                 appearancePage
             case .sync:
@@ -747,7 +787,9 @@ struct BookmarkManagerView: View {
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签",
-                    onSetHidden: { bookmark in setHidden(true, for: bookmark) }
+                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
+                    archiveStateActionTitle: autoArchiveEnabled ? "归档" : nil,
+                    onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil
                 )
             }
         }
@@ -784,10 +826,98 @@ struct BookmarkManagerView: View {
         .navigationTitle("隐藏书签")
     }
 
+    private var archivePage: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section("自动归档") {
+                    Toggle(
+                        isOn: Binding(
+                            get: { autoArchiveEnabled },
+                            set: { newValue in
+                                autoArchiveEnabled = newValue
+                                syncArchiveSettings()
+                            }
+                        )
+                    ) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("自动归档闲置书签")
+                            Text("开启后 Obelisk 会自动归档您一段时间没有使用的书签。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    LabeledContent("闲置天数") {
+                        HStack(spacing: 10) {
+                            Text("\(archiveAfterDays)")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(minWidth: 24, alignment: .trailing)
+
+                            Stepper(
+                                "闲置天数",
+                                value: Binding(
+                                    get: { archiveAfterDays },
+                                    set: { newValue in
+                                        archiveAfterDays = min(180, max(7, newValue))
+                                        syncArchiveSettings()
+                                    }
+                                ),
+                                in: 7...180
+                            )
+                            .labelsHidden()
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
+            .settingsContentMargins()
+            .frame(height: 190)
+
+            if autoArchiveEnabled {
+                if archivedBookmarks.isEmpty {
+                    ContentUnavailableView {
+                        Label("没有归档书签", systemImage: "archivebox")
+                    } description: {
+                        Text("闲置书签会在达到设定天数后自动归档。")
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if archivedBookmarkSections.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    NativeBookmarkList(
+                        sections: archivedBookmarkSections,
+                        selection: $selection,
+                        faviconLoader: faviconLoader,
+                        faviconVersion: faviconLoader.version,
+                        showsURLHostOnly: showsURLHostOnly,
+                        onOpen: { bookmark in openArchivedBookmark(bookmark) },
+                        onCopyURL: { bookmark in copyURL(bookmark) },
+                        onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                        onEdit: { bookmark in presentation = .edit(bookmark) },
+                        onDelete: { ids in requestDelete(ids: ids) },
+                        archiveStateActionTitle: "恢复到书签",
+                        onSetArchived: { bookmark in setArchived(false, for: bookmark) }
+                    )
+                }
+            }
+        }
+        .navigationTitle("归档")
+    }
+
     private var appearancePage: some View {
         Form {
-            Section("书签") {
-                Toggle("显示完整网站域名", isOn: showsFullURLBinding)
+            Section("域名显示") {
+                Toggle(isOn: showsFullURLBinding) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("显示完整网站域名")
+                        Text("开启后书签列表会显示完整 URL。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Section("菜单栏") {
@@ -802,12 +932,19 @@ struct BookmarkManagerView: View {
                     Text("刷新全部 favicon")
                 }
 
-                menuLimitStepper("常用数量", value: $menuFrequentGroupLimit)
-                menuLimitStepper("最近添加数量", value: $menuRecentGroupLimit)
+                menuLimitStepper("常用数量", desc: "菜单栏「常用」分组最多显示的书签数量。", value: $menuFrequentGroupLimit)
+                menuLimitStepper("最近添加数量", desc: "菜单栏「最近添加」分组最多显示的书签数量。", value: $menuRecentGroupLimit)
             }
 
             Section("窗口") {
-                Toggle("启用窗口透明效果", isOn: $windowTransparencyEnabled)
+                Toggle(isOn: $windowTransparencyEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("启用窗口透明效果")
+                        Text("为设置窗口启用 Liquid Glass 半透明材质。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
                 if windowTransparencyEnabled {
                     Slider(value: $windowSeeThrough, in: 0...0.5, step: 0.05) {
@@ -857,16 +994,24 @@ struct BookmarkManagerView: View {
         .navigationTitle("同步")
     }
 
-    private func menuLimitStepper(_ title: String, value: Binding<Int>) -> some View {
-        LabeledContent(title) {
-            HStack(spacing: 10) {
-                Text("\(value.wrappedValue)")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 24, alignment: .trailing)
+    private func menuLimitStepper(_ title: String, desc: String? = nil, value: Binding<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent(title) {
+                HStack(spacing: 10) {
+                    Text("\(value.wrappedValue)")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 24, alignment: .trailing)
 
-                Stepper(title, value: value, in: 0...20)
-                    .labelsHidden()
+                    Stepper(title, value: value, in: 0...20)
+                        .labelsHidden()
+                }
+            }
+
+            if let desc {
+                Text(desc)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -874,16 +1019,31 @@ struct BookmarkManagerView: View {
     private var aiOptimizationPage: some View {
         Form {
             Section("模型配置") {
-                SecureField(text: $llmConfig.apiKey, prompt: Text("sk-...")) {
-                    Label("API Key", systemImage: "key")
+                VStack(alignment: .leading, spacing: 4) {
+                    SecureField(text: $llmConfig.apiKey, prompt: Text("sk-...")) {
+                        Label("API Key", systemImage: "key")
+                    }
+                    Text("你的 OpenAI 兼容 API Key。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
-                TextField(text: $llmConfig.model, prompt: Text("gpt-4.1-mini")) {
-                    Label("Model", systemImage: "cpu")
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField(text: $llmConfig.model, prompt: Text("gpt-4.1-mini")) {
+                        Label("Model", systemImage: "cpu")
+                    }
+                    Text("用于优化书签标题的模型名称，如 gpt-4.1-mini。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
-                TextField(text: $llmConfig.baseURL, prompt: Text("https://api.openai.com/v1/chat/completions")) {
-                    Label("Base URL", systemImage: "link")
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField(text: $llmConfig.baseURL, prompt: Text("https://api.openai.com/v1/chat/completions")) {
+                        Label("Base URL", systemImage: "link")
+                    }
+                    Text("OpenAI 兼容 API 的 endpoint 地址。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Button {
@@ -950,9 +1110,9 @@ struct BookmarkManagerView: View {
             }
 
             Section("侧栏图标调试") {
-                centeredValueSlider("背景尺寸", value: $sidebarIconTileSize, range: 16...28)
-                centeredValueSlider("符号尺寸", value: $sidebarIconSymbolSize, range: 6...16)
-                centeredValueSlider("圆角", value: $sidebarIconCornerRadius, range: 2...10)
+                centeredValueSlider("背景尺寸", desc: "侧栏图标背景色块的尺寸。", value: $sidebarIconTileSize, range: 16...28)
+                centeredValueSlider("符号尺寸", desc: "侧栏图标中 SF Symbol 的字体大小。", value: $sidebarIconSymbolSize, range: 6...16)
+                centeredValueSlider("圆角", desc: "侧栏图标背景色块的圆角半径。", value: $sidebarIconCornerRadius, range: 2...10)
             }
         }
         .formStyle(.grouped)
@@ -963,19 +1123,28 @@ struct BookmarkManagerView: View {
 
     private func centeredValueSlider(
         _ title: LocalizedStringKey,
+        desc: String? = nil,
         value: Binding<Double>,
         range: ClosedRange<Double>
     ) -> some View {
-        HStack(spacing: 14) {
-            Text(title)
-                .frame(width: 72, alignment: .leading)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 14) {
+                Text(title)
+                    .frame(width: 72, alignment: .leading)
 
-            Slider(value: value, in: range, step: 1)
+                Slider(value: value, in: range, step: 1)
 
-            Text("\(Int(value.wrappedValue))")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(width: 28, alignment: .trailing)
+                Text("\(Int(value.wrappedValue))")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, alignment: .trailing)
+            }
+
+            if let desc {
+                Text(desc)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

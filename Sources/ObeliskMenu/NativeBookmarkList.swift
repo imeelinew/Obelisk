@@ -25,6 +25,8 @@ struct NativeBookmarkList: NSViewRepresentable {
     var onDelete: ((Set<Bookmark.ID>) -> Void)?
     var hiddenStateActionTitle: String?
     var onSetHidden: ((Bookmark) -> Void)?
+    var archiveStateActionTitle: String? = nil
+    var onSetArchived: ((Bookmark) -> Void)? = nil
     fileprivate static let contentInset: CGFloat = 18
     fileprivate static let rowHeight: CGFloat = 50
     fileprivate static let headerHeight: CGFloat = 24
@@ -190,6 +192,10 @@ struct NativeBookmarkList: NSViewRepresentable {
                 menu.addItem(NSMenuItem.separator())
                 menu.addItem(menuItem(hiddenStateActionTitle, action: #selector(setHiddenFromMenu(_:)), bookmark: bookmark))
             }
+            if let archiveStateActionTitle = parent.archiveStateActionTitle, parent.onSetArchived != nil {
+                menu.addItem(NSMenuItem.separator())
+                menu.addItem(menuItem(archiveStateActionTitle, action: #selector(setArchivedFromMenu(_:)), bookmark: bookmark))
+            }
 
             return menu.items.isEmpty ? nil : menu
         }
@@ -327,6 +333,11 @@ struct NativeBookmarkList: NSViewRepresentable {
         @objc private func setHiddenFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
             parent.onSetHidden?(bookmark)
+        }
+
+        @objc private func setArchivedFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            parent.onSetArchived?(bookmark)
         }
 
         func syncSelectionToTable() {

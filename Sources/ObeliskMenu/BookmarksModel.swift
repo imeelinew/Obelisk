@@ -6,6 +6,10 @@ import ObeliskCore
 @MainActor
 @Observable
 final class BookmarksModel {
+    static let autoArchiveEnabledKey = "autoArchiveIdleBookmarks"
+    static let archiveAfterDaysKey = "archiveAfterDays"
+    static let defaultArchiveAfterDays = 30
+
     private(set) var bookmarks: [Bookmark] = []
     /// Top-N most frecent bookmarks (≥3 clicks, decayed).
     private(set) var frequent: [Bookmark] = []
@@ -33,6 +37,15 @@ final class BookmarksModel {
 
     var rootDirectory: URL {
         store.rootDirectory
+    }
+
+    private var autoArchiveEnabled: Bool {
+        UserDefaults.standard.bool(forKey: Self.autoArchiveEnabledKey)
+    }
+
+    private var archiveAfterDays: Int {
+        let value = UserDefaults.standard.object(forKey: Self.archiveAfterDaysKey) as? Int
+        return max(7, value ?? Self.defaultArchiveAfterDays)
     }
 
     init(
@@ -117,12 +130,15 @@ final class BookmarksModel {
 
     func reload() {
         do {
-            let all = try store.bookmarks()
-            bookmarks = all
+            var all = try store.bookmarks()
             // Prune usage entries for deleted bookmarks. Cheap; only writes
             // when there are actually orphans.
             usageStore.cleanup(validIds: Set(all.map(\.id)))
-            let visibleBookmarks = all.filter { !$0.isHidden }
+            if let archived = try archiveIdleBookmarksIfNeeded(in: all) {
+                all = archived
+            }
+            bookmarks = all
+            let visibleBookmarks = all.filter { !$0.isHidden && !isEffectivelyArchived($0) }
             recomputeGroups(from: visibleBookmarks)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
@@ -135,6 +151,21 @@ final class BookmarksModel {
             loadErrorMessage = message
             errorMessage = message
             onChange?()
+        }
+    }
+
+    @discardableResult
+    func applyAutoArchiveIfNeeded() -> Bool {
+        do {
+            let all = try store.bookmarks()
+            guard try archiveIdleBookmarksIfNeeded(in: all) != nil else {
+                return false
+            }
+            reload()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -175,6 +206,16 @@ final class BookmarksModel {
         return update(bookmark)
     }
 
+    func setArchived(_ isArchived: Bool, for id: UUID) -> String? {
+        do {
+            try store.setArchived(isArchived, ids: [id])
+            reload()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func setMenuGroupLimits(frequent: Int, recent: Int) {
         let nextFrequent = max(0, frequent)
         let nextRecent = max(0, recent)
@@ -183,7 +224,7 @@ final class BookmarksModel {
         }
         frequentGroupLimit = nextFrequent
         recentGroupLimit = nextRecent
-        recomputeGroups(from: bookmarks.filter { !$0.isHidden })
+        recomputeGroups(from: bookmarks.filter { !$0.isHidden && !isEffectivelyArchived($0) })
         onChange?()
     }
 
@@ -210,12 +251,12 @@ final class BookmarksModel {
             return "标题优化正在进行中"
         }
 
-        let candidates = bookmarks
+            let candidates = bookmarks
             .filter { bookmark in
                 guard !bookmark.titleOptimized else { return false }
                 switch scope {
                 case .visible:
-                    return !bookmark.isHidden
+                    return !bookmark.isHidden && !isEffectivelyArchived(bookmark)
                 case .hidden:
                     return bookmark.isHidden
                 }
@@ -254,10 +295,16 @@ final class BookmarksModel {
     /// polluting frecency.
     func openBookmark(_ bookmark: Bookmark) {
         guard let url = URL(string: bookmark.url) else { return }
+        if bookmark.archivedAt != nil {
+            try? store.setArchived(false, ids: [bookmark.id])
+        }
         usageStore.record(id: bookmark.id)
-        recomputeGroups(from: bookmarks.filter { !$0.isHidden })
+        reload()
         NSWorkspace.shared.open(url)
-        onChange?()
+    }
+
+    func openArchivedBookmark(_ bookmark: Bookmark) {
+        openBookmark(bookmark)
     }
 
     private func recomputeGroups(from all: [Bookmark]) {
@@ -274,5 +321,49 @@ final class BookmarksModel {
         frequent = topFrequent
         recent = topRecent
         others = all.filter { !surfacedIds.contains($0.id) }
+    }
+
+    private func archiveIdleBookmarksIfNeeded(in all: [Bookmark], now: Date = Date()) throws -> [Bookmark]? {
+        guard autoArchiveEnabled else {
+            return nil
+        }
+
+        let active = all.filter { !$0.isHidden && $0.archivedAt == nil }
+        let topFrequent = usageStore.topFrequent(among: active, limit: frequentGroupLimit, now: now)
+        let frequentIds = Set(topFrequent.map(\.id))
+        let recentCandidates = active.filter { !frequentIds.contains($0.id) }
+        let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)
+        let protectedIds = frequentIds.union(topRecent.map(\.id))
+        let cutoff = TimeInterval(archiveAfterDays) * 86_400
+
+        let idsToArchive = Set(active.compactMap { bookmark -> Bookmark.ID? in
+            guard !protectedIds.contains(bookmark.id) else {
+                return nil
+            }
+            let lastActiveAt = lastActiveDate(for: bookmark)
+            guard now.timeIntervalSince(lastActiveAt) >= cutoff else {
+                return nil
+            }
+            return bookmark.id
+        })
+
+        guard !idsToArchive.isEmpty else {
+            return nil
+        }
+
+        try store.setArchived(true, ids: idsToArchive, at: now)
+        return try store.bookmarks()
+    }
+
+    private func lastActiveDate(for bookmark: Bookmark) -> Date {
+        let createdAt = bookmark.createdAt == .distantPast ? .distantPast : bookmark.createdAt
+        guard let lastClickedAt = usageStore.record(for: bookmark.id)?.lastClickedAt else {
+            return createdAt
+        }
+        return max(createdAt, lastClickedAt)
+    }
+
+    private func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
+        autoArchiveEnabled && bookmark.archivedAt != nil
     }
 }

@@ -62,14 +62,18 @@ public final class UsageStore {
         return result
     }
 
-    public func record(id: UUID) {
+    public func record(id: UUID, at date: Date = Date()) {
         var dict = load()
         let prior = dict[id]
         dict[id] = UsageRecord(
             count: (prior?.count ?? 0) + 1,
-            lastClickedAt: Date()
+            lastClickedAt: date
         )
         save(dict)
+    }
+
+    public func record(for id: UUID) -> UsageRecord? {
+        load()[id]
     }
 
     /// Drop entries whose bookmark has been deleted.

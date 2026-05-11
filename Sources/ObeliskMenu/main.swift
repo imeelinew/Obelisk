@@ -157,6 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func rebuildMenu() {
+        bookmarksModel.applyAutoArchiveIfNeeded()
+
         let menu = NSMenu()
         menu.autoenablesItems = false
 
@@ -326,25 +328,37 @@ final class FaviconLoader {
     }
 
     private var legacyCacheDirectory: URL {
-        rootDirectory.appendingPathComponent("favicons", isDirectory: true)
+        cacheDirectory(encrypted: false)
     }
 
     private var cacheDirectory: URL {
-        LocalJSONEncryption.isEnabled
-            ? ObeliskPrivateStorage.faviconDirectory(in: rootDirectory)
-            : legacyCacheDirectory
+        cacheDirectory(encrypted: LocalJSONEncryption.isEnabled)
     }
 
     private var indexURL: URL {
-        LocalJSONEncryption.isEnabled
-            ? cacheDirectory.appendingPathComponent("\(ObeliskPrivateStorage.obscuredName(for: "favicons/index.json")).bin")
-            : cacheDirectory.appendingPathComponent("index.json")
+        indexURL(encrypted: LocalJSONEncryption.isEnabled)
     }
 
     private func iconURL(for key: String) -> URL {
-        LocalJSONEncryption.isEnabled
-            ? cacheDirectory.appendingPathComponent("\(ObeliskPrivateStorage.obscuredName(for: "favicons/\(key).png")).bin")
-            : cacheDirectory.appendingPathComponent("\(key).png")
+        iconURL(for: key, encrypted: LocalJSONEncryption.isEnabled)
+    }
+
+    private func cacheDirectory(encrypted: Bool) -> URL {
+        encrypted
+            ? ObeliskPrivateStorage.faviconDirectory(in: rootDirectory)
+            : rootDirectory.appendingPathComponent("favicons", isDirectory: true)
+    }
+
+    private func indexURL(encrypted: Bool) -> URL {
+        encrypted
+            ? cacheDirectory(encrypted: encrypted).appendingPathComponent("\(ObeliskPrivateStorage.obscuredName(for: "favicons/index.json")).bin")
+            : cacheDirectory(encrypted: encrypted).appendingPathComponent("index.json")
+    }
+
+    private func iconURL(for key: String, encrypted: Bool) -> URL {
+        encrypted
+            ? cacheDirectory(encrypted: encrypted).appendingPathComponent("\(ObeliskPrivateStorage.obscuredName(for: "favicons/\(key).png")).bin")
+            : cacheDirectory(encrypted: encrypted).appendingPathComponent("\(key).png")
     }
 
     func image(for urlString: String) -> NSImage? {
@@ -400,7 +414,7 @@ final class FaviconLoader {
     }
 
     func refreshAll(urlStrings: [String]) {
-        try? FileManager.default.removeItem(at: cacheDirectory)
+        clearStorage()
         inFlight.removeAll()
         index.removeAll()
         saveIndex()
@@ -423,6 +437,42 @@ final class FaviconLoader {
     func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
         reloadStorage()
+    }
+
+    func migrateStorage(toEncrypted isEncrypted: Bool) throws {
+        let sourceEncrypted = !isEncrypted
+        let destinationEncrypted = isEncrypted
+        let sourceDirectory = cacheDirectory(encrypted: sourceEncrypted)
+        let sourceIndex = loadIndex(encrypted: sourceEncrypted)
+        var destinationIndex = loadIndex(encrypted: destinationEncrypted)
+
+        for (key, record) in sourceIndex {
+            let sourceIconURL = iconURL(for: key, encrypted: sourceEncrypted)
+            let destinationIconURL = iconURL(for: key, encrypted: destinationEncrypted)
+
+            if record.success, FileManager.default.fileExists(atPath: sourceIconURL.path) {
+                let data = try readCacheData(from: sourceIconURL, encrypted: sourceEncrypted)
+                try FileManager.default.createDirectory(
+                    at: destinationIconURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try writeCacheData(data, to: destinationIconURL, encrypted: destinationEncrypted)
+            }
+
+            if let existing = destinationIndex[key], existing.fetchedAt >= record.fetchedAt {
+                continue
+            }
+            destinationIndex[key] = record
+        }
+
+        saveIndex(destinationIndex, encrypted: destinationEncrypted)
+        try? FileManager.default.removeItem(at: sourceDirectory)
+        reloadStorage()
+    }
+
+    func clearStorage() {
+        try? FileManager.default.removeItem(at: cacheDirectory(encrypted: false))
+        try? FileManager.default.removeItem(at: cacheDirectory(encrypted: true))
     }
 
     private func fetchIfNeeded(pageURL: URL, key: String, fileURL: URL) {
@@ -651,12 +701,17 @@ final class FaviconLoader {
     // MARK: - Index persistence
 
     private func loadIndex() {
-        guard let data = try? readCacheData(from: indexURL) else { return }
+        index = loadIndex(encrypted: LocalJSONEncryption.isEnabled)
+    }
+
+    private func loadIndex(encrypted: Bool) -> [String: FaviconRecord] {
+        guard let data = try? readCacheData(from: indexURL(encrypted: encrypted), encrypted: encrypted) else { return [:] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         if let decoded = try? decoder.decode([String: FaviconRecord].self, from: data) {
-            index = decoded
+            return decoded
         }
+        return [:]
     }
 
     private func recordResult(key: String, success: Bool) {
@@ -665,15 +720,19 @@ final class FaviconLoader {
     }
 
     private func saveIndex() {
+        saveIndex(index, encrypted: LocalJSONEncryption.isEnabled)
+    }
+
+    private func saveIndex(_ index: [String: FaviconRecord], encrypted: Bool) {
         do {
             try FileManager.default.createDirectory(
-                at: cacheDirectory,
+                at: cacheDirectory(encrypted: encrypted),
                 withIntermediateDirectories: true
             )
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(index)
-            try writeCacheData(data, to: indexURL)
+            try writeCacheData(data, to: indexURL(encrypted: encrypted), encrypted: encrypted)
         } catch {
             // Index is a cache; losing it just means we'll re-test more sites.
         }
@@ -685,14 +744,22 @@ final class FaviconLoader {
     }
 
     private func readCacheData(from url: URL) throws -> Data {
-        if LocalJSONEncryption.isEnabled {
+        try readCacheData(from: url, encrypted: LocalJSONEncryption.isEnabled)
+    }
+
+    private func readCacheData(from url: URL, encrypted: Bool) throws -> Data {
+        if encrypted {
             return try secureCodec.readData(from: url)
         }
         return try CoordinatedFileAccess.readData(from: url)
     }
 
     private func writeCacheData(_ data: Data, to url: URL) throws {
-        if LocalJSONEncryption.isEnabled {
+        try writeCacheData(data, to: url, encrypted: LocalJSONEncryption.isEnabled)
+    }
+
+    private func writeCacheData(_ data: Data, to url: URL, encrypted: Bool) throws {
+        if encrypted {
             try secureCodec.writeData(data, to: url)
         } else {
             try CoordinatedFileAccess.writeData(data, to: url)

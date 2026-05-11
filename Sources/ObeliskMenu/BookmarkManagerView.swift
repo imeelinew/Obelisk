@@ -227,7 +227,7 @@ struct BookmarkManagerView: View {
 
     private var archivedBookmarks: [Bookmark] {
         guard autoArchiveEnabled else { return [] }
-        return model.bookmarks.filter { !$0.isHidden && $0.archivedAt != nil }
+        return model.bookmarks.filter { !$0.isHidden && model.isEffectivelyArchived($0) }
     }
 
     private var bookmarkSections: [BookmarkListSection] {
@@ -256,11 +256,11 @@ struct BookmarkManagerView: View {
 
     private var archivedBookmarkSections: [BookmarkListSection] {
         let bookmarks = filtered(archivedBookmarks)
-        return bookmarks.isEmpty ? [] : [BookmarkListSection(title: nil, bookmarks: bookmarks)]
+        return bookmarks.isEmpty ? [] : [BookmarkListSection(title: "归档书签", bookmarks: bookmarks)]
     }
 
     private func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
-        autoArchiveEnabled && bookmark.archivedAt != nil
+        model.isEffectivelyArchived(bookmark)
     }
 
     private func filtered(_ bookmarks: [Bookmark]) -> [Bookmark] {
@@ -338,7 +338,7 @@ struct BookmarkManagerView: View {
     }
 
     private func syncArchiveSettings() {
-        archiveAfterDays = min(180, max(7, archiveAfterDays))
+        archiveAfterDays = BookmarksModel.clampedArchiveAfterDays(archiveAfterDays)
         model.reload()
     }
 
@@ -847,7 +847,7 @@ struct BookmarkManagerView: View {
                         }
                     }
 
-                    LabeledContent("闲置天数") {
+                    LabeledContent {
                         HStack(spacing: 10) {
                             Text("\(archiveAfterDays)")
                                 .monospacedDigit()
@@ -859,13 +859,20 @@ struct BookmarkManagerView: View {
                                 value: Binding(
                                     get: { archiveAfterDays },
                                     set: { newValue in
-                                        archiveAfterDays = min(180, max(7, newValue))
+                                        archiveAfterDays = BookmarksModel.clampedArchiveAfterDays(newValue)
                                         syncArchiveSettings()
                                     }
                                 ),
-                                in: 7...180
+                                in: BookmarksModel.minArchiveAfterDays...BookmarksModel.maxArchiveAfterDays
                             )
                             .labelsHidden()
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("闲置天数")
+                            Text("Obelisk 会自动将超过这个天数没有打开的书签归档")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -904,6 +911,7 @@ struct BookmarkManagerView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("归档")
     }
 

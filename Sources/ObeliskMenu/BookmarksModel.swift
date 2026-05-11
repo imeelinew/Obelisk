@@ -8,6 +8,8 @@ import ObeliskCore
 final class BookmarksModel {
     static let autoArchiveEnabledKey = "autoArchiveIdleBookmarks"
     static let archiveAfterDaysKey = "archiveAfterDays"
+    static let minArchiveAfterDays = 3
+    static let maxArchiveAfterDays = 30
     static let defaultArchiveAfterDays = 30
 
     private(set) var bookmarks: [Bookmark] = []
@@ -45,7 +47,11 @@ final class BookmarksModel {
 
     private var archiveAfterDays: Int {
         let value = UserDefaults.standard.object(forKey: Self.archiveAfterDaysKey) as? Int
-        return max(7, value ?? Self.defaultArchiveAfterDays)
+        return Self.clampedArchiveAfterDays(value ?? Self.defaultArchiveAfterDays)
+    }
+
+    static func clampedArchiveAfterDays(_ value: Int) -> Int {
+        min(maxArchiveAfterDays, max(minArchiveAfterDays, value))
     }
 
     init(
@@ -130,15 +136,12 @@ final class BookmarksModel {
 
     func reload() {
         do {
-            var all = try store.bookmarks()
+            let all = try store.bookmarks()
             // Prune usage entries for deleted bookmarks. Cheap; only writes
             // when there are actually orphans.
             usageStore.cleanup(validIds: Set(all.map(\.id)))
-            if let archived = try archiveIdleBookmarksIfNeeded(in: all) {
-                all = archived
-            }
             bookmarks = all
-            let visibleBookmarks = all.filter { !$0.isHidden && !isEffectivelyArchived($0) }
+            let visibleBookmarks = visibleBookmarks(from: all)
             recomputeGroups(from: visibleBookmarks)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
@@ -156,17 +159,19 @@ final class BookmarksModel {
 
     @discardableResult
     func applyAutoArchiveIfNeeded() -> Bool {
-        do {
-            let all = try store.bookmarks()
-            guard try archiveIdleBookmarksIfNeeded(in: all) != nil else {
-                return false
-            }
-            reload()
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
+        let priorFrequent = frequent.map(\.id)
+        let priorRecent = recent.map(\.id)
+        let priorOthers = others.map(\.id)
+
+        recomputeGroups(from: visibleBookmarks(from: bookmarks))
+
+        let changed = frequent.map(\.id) != priorFrequent
+            || recent.map(\.id) != priorRecent
+            || others.map(\.id) != priorOthers
+        if changed {
+            onChange?()
         }
+        return changed
     }
 
     /// Returns nil on success, or a localized error message on failure.
@@ -224,7 +229,7 @@ final class BookmarksModel {
         }
         frequentGroupLimit = nextFrequent
         recentGroupLimit = nextRecent
-        recomputeGroups(from: bookmarks.filter { !$0.isHidden && !isEffectivelyArchived($0) })
+        recomputeGroups(from: visibleBookmarks(from: bookmarks))
         onChange?()
     }
 
@@ -323,7 +328,21 @@ final class BookmarksModel {
         others = all.filter { !surfacedIds.contains($0.id) }
     }
 
-    private func archiveIdleBookmarksIfNeeded(in all: [Bookmark], now: Date = Date()) throws -> [Bookmark]? {
+    func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
+        isEffectivelyArchived(bookmark, in: bookmarks)
+    }
+
+    private struct AutoArchiveContext {
+        var protectedIds: Set<Bookmark.ID>
+        var cutoff: TimeInterval
+        var now: Date
+    }
+
+    private func visibleBookmarks(from all: [Bookmark], now: Date = Date()) -> [Bookmark] {
+        all.filter { !$0.isHidden && !isEffectivelyArchived($0, in: all, now: now) }
+    }
+
+    private func autoArchiveContext(in all: [Bookmark], now: Date = Date()) -> AutoArchiveContext? {
         guard autoArchiveEnabled else {
             return nil
         }
@@ -336,23 +355,7 @@ final class BookmarksModel {
         let protectedIds = frequentIds.union(topRecent.map(\.id))
         let cutoff = TimeInterval(archiveAfterDays) * 86_400
 
-        let idsToArchive = Set(active.compactMap { bookmark -> Bookmark.ID? in
-            guard !protectedIds.contains(bookmark.id) else {
-                return nil
-            }
-            let lastActiveAt = lastActiveDate(for: bookmark)
-            guard now.timeIntervalSince(lastActiveAt) >= cutoff else {
-                return nil
-            }
-            return bookmark.id
-        })
-
-        guard !idsToArchive.isEmpty else {
-            return nil
-        }
-
-        try store.setArchived(true, ids: idsToArchive, at: now)
-        return try store.bookmarks()
+        return AutoArchiveContext(protectedIds: protectedIds, cutoff: cutoff, now: now)
     }
 
     private func lastActiveDate(for bookmark: Bookmark) -> Date {
@@ -363,7 +366,22 @@ final class BookmarksModel {
         return max(createdAt, lastClickedAt)
     }
 
-    private func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
-        autoArchiveEnabled && bookmark.archivedAt != nil
+    private func isEffectivelyArchived(_ bookmark: Bookmark, in all: [Bookmark], now: Date = Date()) -> Bool {
+        guard autoArchiveEnabled else {
+            return false
+        }
+        guard !bookmark.isHidden else {
+            return false
+        }
+        if bookmark.archivedAt != nil {
+            return true
+        }
+        guard let context = autoArchiveContext(in: all, now: now),
+              !context.protectedIds.contains(bookmark.id)
+        else {
+            return false
+        }
+
+        return context.now.timeIntervalSince(lastActiveDate(for: bookmark)) >= context.cutoff
     }
 }

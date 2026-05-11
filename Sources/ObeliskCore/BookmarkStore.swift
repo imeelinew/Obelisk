@@ -194,8 +194,8 @@ public final class BookmarkStore {
 
         return try withFileLock {
             var database = try load()
-            let target = normalizedURL(trimmedURL)
-            if database.bookmarks.contains(where: { normalizedURL($0.url) == target }) {
+            let target = BookmarkStore.normalizedURL(trimmedURL)
+            if database.bookmarks.contains(where: { BookmarkStore.normalizedURL($0.url) == target }) {
                 throw BookmarkStoreError.duplicateURL(trimmedURL)
             }
 
@@ -220,6 +220,20 @@ public final class BookmarkStore {
             at: rootDirectory,
             withIntermediateDirectories: true
         )
+        if ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory) {
+            let lockURL = rootDirectory.appendingPathComponent(".lock")
+            var result: Result<T, Error>?
+            var coordinatorError: NSError?
+            NSFileCoordinator().coordinate(writingItemAt: lockURL, options: [], error: &coordinatorError) { coordinatedURL in
+                try? "".write(to: coordinatedURL, atomically: true, encoding: .utf8)
+                result = Result { try body() }
+            }
+            if let coordinatorError {
+                throw coordinatorError
+            }
+            return try result?.get() ?? body()
+        }
+
         let lockURL = rootDirectory.appendingPathComponent(".lock")
         let fd = open(lockURL.path, O_RDWR | O_CREAT, 0o644)
         guard fd >= 0 else {
@@ -335,8 +349,8 @@ public final class BookmarkStore {
             guard let idx = database.bookmarks.firstIndex(where: { $0.id == bookmark.id }) else {
                 return bookmark
             }
-            let target = normalizedURL(trimmedURL)
-            if database.bookmarks.contains(where: { $0.id != bookmark.id && normalizedURL($0.url) == target }) {
+            let target = BookmarkStore.normalizedURL(trimmedURL)
+            if database.bookmarks.contains(where: { $0.id != bookmark.id && BookmarkStore.normalizedURL($0.url) == target }) {
                 throw BookmarkStoreError.duplicateURL(trimmedURL)
             }
             var updated = bookmark
@@ -453,7 +467,7 @@ public final class BookmarkStore {
         return trimmed
     }
 
-    private func normalizedURL(_ rawURL: String) -> String {
+    public static func normalizedURL(_ rawURL: String) -> String {
         guard var components = URLComponents(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return rawURL
         }

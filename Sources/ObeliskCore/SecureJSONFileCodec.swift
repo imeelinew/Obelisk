@@ -872,3 +872,73 @@ public final class KeychainEncryptionKeyStore {
         ]
     }
 }
+
+public final class KeychainAPIKeyStore {
+    private let service = "local.elidev.Obelisk.llm-apikey"
+    private let account = "default"
+
+    public init() {}
+
+    public func readAPIKey() throws -> String? {
+        var query = baseQuery()
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound {
+            return nil
+        }
+        guard status == errSecSuccess, let data = item as? Data else {
+            throw SecureJSONFileCodecError.keychainReadFailed(status)
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    public func saveAPIKey(_ key: String) throws {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            try deleteAPIKey()
+            return
+        }
+
+        var query = baseQuery()
+        let update: [String: Any] = [
+            kSecValueData as String: Data(trimmed.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+
+        if SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess {
+            let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+            guard status == errSecSuccess else {
+                throw SecureJSONFileCodecError.keychainWriteFailed(status)
+            }
+        } else {
+            query.merge(update) { _, new in new }
+            let status = SecItemAdd(query as CFDictionary, nil)
+            guard status == errSecSuccess else {
+                throw SecureJSONFileCodecError.keychainWriteFailed(status)
+            }
+        }
+    }
+
+    public func deleteAPIKey() throws {
+        let query = baseQuery()
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw SecureJSONFileCodecError.keychainWriteFailed(status)
+        }
+    }
+
+    public func hasAPIKey() -> Bool {
+        (try? readAPIKey())?.isEmpty == false
+    }
+
+    private func baseQuery() -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+    }
+}

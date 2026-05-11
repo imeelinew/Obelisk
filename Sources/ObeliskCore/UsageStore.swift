@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public struct UsageRecord: Codable, Equatable {
     public var count: Int
@@ -9,6 +10,8 @@ public struct UsageRecord: Codable, Equatable {
         self.lastClickedAt = lastClickedAt
     }
 }
+
+private let usageLog = Logger(subsystem: "local.elidev.Obelisk", category: "UsageStore")
 
 /// Tracks per-bookmark click usage in a sidecar file (`usage.json`).
 ///
@@ -172,7 +175,7 @@ public final class UsageStore {
                 )
             }
         } catch {
-            // Usage data is best-effort; losing a write is not fatal.
+            usageLog.error("Failed to persist usage data: \(error.localizedDescription)")
         }
     }
 }

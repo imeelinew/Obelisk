@@ -5,6 +5,9 @@ import CryptoKit
 import Foundation
 import Observation
 import ObeliskCore
+import os
+
+private let faviconLog = Logger(subsystem: "local.elidev.Obelisk", category: "Favicon")
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -653,15 +656,31 @@ final class FaviconLoader {
     }
 
     private func downloadImageData(from url: URL) async -> Data? {
+        let maxImageBytes = 1_048_576
         guard let (data, response) = try? await session.data(from: url) else {
             return nil
         }
 
         guard
             let httpResponse = response as? HTTPURLResponse,
-            (200..<300).contains(httpResponse.statusCode),
-            NSImage(data: data) != nil
+            (200..<300).contains(httpResponse.statusCode)
         else {
+            return nil
+        }
+
+        if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length"),
+           let byteCount = Int(contentLength), byteCount > maxImageBytes {
+            return nil
+        }
+
+        if let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")?.lowercased() {
+            let allowed = ["image/png", "image/x-icon", "image/vnd.microsoft.icon", "image/gif", "image/svg+xml", "image/webp", "image/jpeg"]
+            guard allowed.contains(where: { contentType.hasPrefix($0) }) else {
+                return nil
+            }
+        }
+
+        guard data.count <= maxImageBytes, NSImage(data: data) != nil else {
             return nil
         }
 
@@ -839,7 +858,7 @@ final class FaviconLoader {
             let data = try encoder.encode(index)
             try writeCacheData(data, to: indexURL(in: location), encrypted: location.encrypted)
         } catch {
-            // Index is a cache; losing it just means we'll re-test more sites.
+            faviconLog.error("Failed to persist favicon index: \(error.localizedDescription)")
         }
     }
 

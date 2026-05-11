@@ -119,7 +119,13 @@ enum PrivateBrowserOpener {
     }
 
     private static func appleScriptEscaped(_ value: String) -> String {
-        value
+        let sanitized = value
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\u{2028}", with: " ")
+            .replacingOccurrences(of: "\u{2029}", with: " ")
+        return sanitized
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
     }

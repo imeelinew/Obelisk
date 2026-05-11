@@ -106,7 +106,7 @@ final class BookmarksModel {
     nonisolated private static func mergedDatabase(_ target: BookmarkDatabase, with source: BookmarkDatabase) -> BookmarkDatabase {
         var bookmarks = target.bookmarks
         var existingIds = Set(bookmarks.map(\.id))
-        var existingURLs = Set(bookmarks.map { normalizedURL($0.url) })
+        var existingURLs = Set(bookmarks.map { BookmarkStore.normalizedURL($0.url) })
 
         for bookmark in source.bookmarks {
             if let idx = bookmarks.firstIndex(where: { $0.id == bookmark.id }) {
@@ -116,7 +116,7 @@ final class BookmarksModel {
                 continue
             }
 
-            let urlKey = normalizedURL(bookmark.url)
+            let urlKey = BookmarkStore.normalizedURL(bookmark.url)
             guard !existingIds.contains(bookmark.id), !existingURLs.contains(urlKey) else {
                 continue
             }
@@ -142,18 +142,6 @@ final class BookmarksModel {
                 lastClickedAt: max(old.lastClickedAt, new.lastClickedAt)
             )
         }
-    }
-
-    nonisolated private static func normalizedURL(_ raw: String) -> String {
-        guard var components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            return raw.lowercased()
-        }
-        components.scheme = components.scheme?.lowercased()
-        components.host = components.host?.lowercased()
-        if components.path.hasSuffix("/") {
-            components.path.removeLast()
-        }
-        return components.string ?? raw.lowercased()
     }
 
     func reload() {

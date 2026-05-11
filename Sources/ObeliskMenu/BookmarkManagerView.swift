@@ -483,21 +483,19 @@ struct BookmarkManagerView: View {
     }
 
     private func applyLocalJSONEncryptionEnabled(_ isEnabled: Bool) {
-        let previousValue = encryptLocalJSONData
-        encryptLocalJSONData = isEnabled
-        LocalJSONEncryption.isEnabled = isEnabled
-
         do {
             try migrateLocalPrivateStorage(isEnabled: isEnabled)
-            onStorageRootChanged(model.rootDirectory)
-            model.reload()
-            loadLLMConfig()
-            showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
         } catch {
-            encryptLocalJSONData = previousValue
-            LocalJSONEncryption.isEnabled = previousValue
+            encryptLocalJSONData = !isEnabled
             llmConfigMessage = error.localizedDescription
+            return
         }
+        encryptLocalJSONData = isEnabled
+        LocalJSONEncryption.isEnabled = isEnabled
+        onStorageRootChanged(model.rootDirectory)
+        model.reload()
+        loadLLMConfig()
+        showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
     }
 
     private func migrateLocalPrivateStorage(isEnabled: Bool) throws {

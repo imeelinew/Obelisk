@@ -74,7 +74,9 @@ struct NativeBookmarkList: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.parent = self
         let nextItems = sections.flattenedItems
-        if context.coordinator.items != nextItems {
+        if context.coordinator.items != nextItems ||
+           context.coordinator.cachedFaviconVersion != faviconVersion {
+            context.coordinator.cachedFaviconVersion = faviconVersion
             context.coordinator.items = nextItems
             context.coordinator.reloadTable()
         } else {
@@ -92,6 +94,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         weak var tableView: HoverTableView?
         private var isSyncingSelection = false
         private var hoveredRow: Int = -1
+        fileprivate var cachedFaviconVersion: Int = -1
 
         init(_ parent: NativeBookmarkList) {
             self.parent = parent

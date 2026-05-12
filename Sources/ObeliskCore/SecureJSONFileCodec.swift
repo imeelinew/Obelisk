@@ -11,81 +11,6 @@ public enum LocalJSONEncryption {
     }
 }
 
-public enum ICloudDocumentSyncError: LocalizedError {
-    case unavailable
-
-    public var errorDescription: String? {
-        switch self {
-        case .unavailable:
-            return "iCloud Drive 不可用。请确认已登录 Apple 账户并开启 iCloud Drive。"
-        }
-    }
-}
-
-public enum ICloudDocumentSync {
-    public static let enabledKey = "syncWithICloudDrive"
-    public static let cachedRootPathKey = "iCloudDocumentSyncRootPath"
-    public static let containerIdentifier = "iCloud.local.elidev.Obelisk"
-
-    public static var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: enabledKey) }
-        set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
-    }
-
-    public static func cachedRootDirectory() -> URL? {
-        guard let path = UserDefaults.standard.string(forKey: cachedRootPathKey), !path.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: path, isDirectory: true)
-    }
-
-    public static func setCachedRootDirectory(_ url: URL) {
-        UserDefaults.standard.set(url.path, forKey: cachedRootPathKey)
-    }
-
-    public static func shouldCoordinateAccess(for rootDirectory: URL) -> Bool {
-        if isEnabled {
-            return true
-        }
-        return cachedRootDirectory()?.standardizedFileURL == rootDirectory.standardizedFileURL
-    }
-
-    public static func resolveRootDirectory() async throws -> URL {
-        try await Task.detached(priority: .userInitiated) {
-            let rootURL: URL
-            if let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) {
-                rootURL = containerURL
-                    .appendingPathComponent("Documents", isDirectory: true)
-                    .appendingPathComponent("Obelisk", isDirectory: true)
-            } else if let cloudDocumentsURL = cloudDocumentsFallbackURL() {
-                rootURL = cloudDocumentsURL.appendingPathComponent("Obelisk", isDirectory: true)
-            } else {
-                throw ICloudDocumentSyncError.unavailable
-            }
-
-            try FileManager.default.createDirectory(
-                at: rootURL,
-                withIntermediateDirectories: true
-            )
-            return rootURL
-        }.value
-    }
-
-    private static func cloudDocumentsFallbackURL() -> URL? {
-        let url = FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Mobile Documents", isDirectory: true)
-            .appendingPathComponent("com~apple~CloudDocs", isDirectory: true)
-
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return nil
-        }
-        return url
-    }
-}
-
 public enum ObeliskPrivateStorage {
     public static let dataDirectoryName = "Data"
     public static let encryptedDataDirectoryName = "EncryptedData"
@@ -289,7 +214,8 @@ public enum ObeliskStorageMigrator {
                 continue
             }
 
-            let plaintext = try readNewestAvailableData(
+            let plaintext = try readBestAvailableData(
+                logicalName: logicalName,
                 from: existingCandidates,
                 codec: codec,
                 coordinated: shouldCoordinate(rootDirectory)
@@ -573,7 +499,7 @@ public enum ObeliskStorageMigrator {
     }
 
     private static func shouldCoordinate(_ rootDirectory: URL) -> Bool {
-        ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+        false
     }
 
     private static func uniqueURLs(_ urls: [URL]) -> [URL] {
@@ -587,11 +513,21 @@ public enum ObeliskStorageMigrator {
         ) ?? .distantPast
     }
 
-    private static func readNewestAvailableData(
+    private static func readBestAvailableData(
+        logicalName: String,
         from candidates: [URL],
         codec: SecureJSONFileCodec,
         coordinated: Bool
     ) throws -> Data {
+        if logicalName == "bookmarks.json",
+           let nonEmptyBookmarks = try newestNonEmptyBookmarkData(
+               from: candidates,
+               codec: codec,
+               coordinated: coordinated
+           ) {
+            return nonEmptyBookmarks
+        }
+
         var lastError: Error?
         for candidate in candidates {
             do {
@@ -605,34 +541,42 @@ public enum ObeliskStorageMigrator {
         }
         throw CocoaError(.fileNoSuchFile)
     }
+
+    private static func newestNonEmptyBookmarkData(
+        from candidates: [URL],
+        codec: SecureJSONFileCodec,
+        coordinated: Bool
+    ) throws -> Data? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        for candidate in candidates {
+            do {
+                let data = try codec.readData(from: candidate, coordinated: coordinated)
+                let database = try decoder.decode(BookmarkDatabase.self, from: data)
+                if !database.bookmarks.isEmpty {
+                    return data
+                }
+            } catch {
+                continue
+            }
+        }
+
+        return nil
+    }
 }
 
 public enum CoordinatedFileAccess {
     public static func readData(from url: URL) throws -> Data {
-        try readData(from: url, coordinated: ICloudDocumentSync.isEnabled)
+        try readData(from: url, coordinated: false)
     }
 
     public static func readData(from url: URL, coordinated: Bool) throws -> Data {
-        guard coordinated else {
-            return try Data(contentsOf: url)
-        }
-
-        var result: Result<Data, Error>?
-        var coordinatorError: NSError?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinatorError) { coordinatedURL in
-            result = Result {
-                try Data(contentsOf: coordinatedURL)
-            }
-        }
-
-        if let coordinatorError {
-            throw coordinatorError
-        }
-        return try result?.get() ?? Data(contentsOf: url)
+        try Data(contentsOf: url)
     }
 
     public static func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = [.atomic]) throws {
-        try writeData(data, to: url, options: options, coordinated: ICloudDocumentSync.isEnabled)
+        try writeData(data, to: url, options: options, coordinated: false)
     }
 
     public static func writeData(
@@ -646,54 +590,14 @@ public enum CoordinatedFileAccess {
             withIntermediateDirectories: true
         )
 
-        guard coordinated else {
-            try data.write(to: url, options: options)
-            return
-        }
-
-        var writeError: Error?
-        var coordinatorError: NSError?
-        NSFileCoordinator().coordinate(writingItemAt: url, options: [], error: &coordinatorError) { coordinatedURL in
-            do {
-                try data.write(to: coordinatedURL, options: options)
-            } catch {
-                writeError = error
-            }
-        }
-
-        if let coordinatorError {
-            throw coordinatorError
-        }
-        if let writeError {
-            throw writeError
-        }
+        try data.write(to: url, options: options)
     }
 
-    public static func removeItem(at url: URL, coordinated: Bool = ICloudDocumentSync.isEnabled) throws {
+    public static func removeItem(at url: URL, coordinated: Bool = false) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return
         }
-        guard coordinated else {
-            try FileManager.default.removeItem(at: url)
-            return
-        }
-
-        var removeError: Error?
-        var coordinatorError: NSError?
-        NSFileCoordinator().coordinate(writingItemAt: url, options: .forDeleting, error: &coordinatorError) { coordinatedURL in
-            do {
-                try FileManager.default.removeItem(at: coordinatedURL)
-            } catch {
-                removeError = error
-            }
-        }
-
-        if let coordinatorError {
-            throw coordinatorError
-        }
-        if let removeError {
-            throw removeError
-        }
+        try FileManager.default.removeItem(at: url)
     }
 }
 
@@ -736,7 +640,7 @@ public final class SecureJSONFileCodec {
     }
 
     public func readData(from url: URL) throws -> Data {
-        try readData(from: url, coordinated: ICloudDocumentSync.isEnabled)
+        try readData(from: url, coordinated: false)
     }
 
     public func readData(from url: URL, coordinated: Bool) throws -> Data {

@@ -16,7 +16,6 @@ struct BookmarkManagerView: View {
     @State private var llmConfig = LLMConfig()
     @State private var llmConfigMessage: String?
     @State private var hiddenBookmarksUnlocked = false
-    @State private var isSwitchingICloudSync = false
     @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 22
     @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 11
     @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 6
@@ -28,7 +27,6 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarksModel.archiveAfterDaysKey) private var archiveAfterDays = BookmarksModel.defaultArchiveAfterDays
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
-    @AppStorage(ICloudDocumentSync.enabledKey) private var syncWithICloudDrive = false
     @AppStorage("openHiddenBookmarksIncognito") private var openHiddenBookmarksIncognito = false
     @AppStorage("silentAddEnabled") private var silentAddEnabled = false
     @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
@@ -84,7 +82,6 @@ struct BookmarkManagerView: View {
         case hiddenBookmarks
         case archive
         case appearance
-        case sync
         case ai
         case security
         case developer
@@ -102,7 +99,7 @@ struct BookmarkManagerView: View {
         var group: Group {
             switch self {
             case .bookmarks, .hiddenBookmarks, .archive: return .content
-            case .appearance, .sync, .ai:      return .preferences
+            case .appearance, .ai:             return .preferences
             case .security, .developer:        return .advanced
             }
         }
@@ -113,7 +110,6 @@ struct BookmarkManagerView: View {
             case .hiddenBookmarks: return "隐藏书签"
             case .archive: return "归档"
             case .appearance: return "外观"
-            case .sync: return "同步"
             case .ai: return "AI配置"
             case .security: return "安全"
             case .developer: return "开发者选项"
@@ -126,7 +122,6 @@ struct BookmarkManagerView: View {
             case .hiddenBookmarks: return "eye.slash.fill"
             case .archive: return "archivebox.fill"
             case .appearance: return "paintpalette.fill"
-            case .sync: return "icloud.fill"
             case .ai: return "sparkles"
             case .security: return "lock.fill"
             case .developer: return "wrench.fill"
@@ -162,12 +157,6 @@ struct BookmarkManagerView: View {
             case .appearance:
                 return LinearGradient(
                     colors: [Color(red: 0.46, green: 0.82, blue: 0.50), Color(red: 0.14, green: 0.62, blue: 0.30)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .sync:
-                return LinearGradient(
-                    colors: [Color(red: 0.46, green: 0.78, blue: 1.0), Color(red: 0.18, green: 0.50, blue: 0.92)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -424,47 +413,6 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private func setICloudDocumentSyncEnabled(_ isEnabled: Bool) {
-        guard !isSwitchingICloudSync else { return }
-        isSwitchingICloudSync = true
-
-        Task {
-            do {
-                let sourceRoot = model.rootDirectory
-                let targetRoot: URL
-
-                if isEnabled {
-                    targetRoot = try await ICloudDocumentSync.resolveRootDirectory()
-                    ICloudDocumentSync.setCachedRootDirectory(targetRoot)
-                } else {
-                    targetRoot = BookmarkStore.defaultLocalRootDirectory()
-                }
-
-                try await Task.detached(priority: .userInitiated) {
-                    let currentConfig = LLMConfigStore(rootDirectory: sourceRoot).load()
-                    let encrypted = LocalJSONEncryption.isEnabled
-                    try ObeliskStorageMigrator.normalizeStorage(in: sourceRoot, encrypted: encrypted)
-                    try ObeliskStorageMigrator.normalizeStorage(in: targetRoot, encrypted: encrypted)
-                    try BookmarksModel.migrateStorageData(from: sourceRoot, to: targetRoot)
-                    try ObeliskStorageMigrator.migrateFavicons(from: sourceRoot, to: targetRoot, encrypted: encrypted)
-                    try LLMConfigStore(rootDirectory: targetRoot).save(currentConfig)
-                }.value
-
-                ICloudDocumentSync.isEnabled = isEnabled
-                syncWithICloudDrive = isEnabled
-                model.adoptStorageRoot(targetRoot)
-                onStorageRootChanged(targetRoot)
-                loadLLMConfig()
-                showToast(isEnabled ? "iCloud 同步已开启" : "iCloud 同步已关闭")
-            } catch {
-                syncWithICloudDrive = ICloudDocumentSync.isEnabled
-                llmConfigMessage = error.localizedDescription
-            }
-
-            isSwitchingICloudSync = false
-        }
-    }
-
     private func setLocalJSONEncryptionEnabled(_ isEnabled: Bool) {
         if !isEnabled {
             Task {
@@ -485,29 +433,26 @@ struct BookmarkManagerView: View {
     }
 
     private func applyLocalJSONEncryptionEnabled(_ isEnabled: Bool) {
-        do {
-            try migrateLocalPrivateStorage(isEnabled: isEnabled)
-        } catch {
-            encryptLocalJSONData = !isEnabled
-            llmConfigMessage = error.localizedDescription
-            return
-        }
+        let previousValue = encryptLocalJSONData
         encryptLocalJSONData = isEnabled
         LocalJSONEncryption.isEnabled = isEnabled
-        onStorageRootChanged(model.rootDirectory)
-        model.reload()
-        loadLLMConfig()
-        showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
+
+        do {
+            try migrateLocalPrivateStorage(isEnabled: isEnabled)
+            onStorageRootChanged(model.rootDirectory)
+            model.reload()
+            loadLLMConfig()
+            showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
+        } catch {
+            encryptLocalJSONData = previousValue
+            LocalJSONEncryption.isEnabled = previousValue
+            llmConfigMessage = error.localizedDescription
+        }
     }
 
     private func migrateLocalPrivateStorage(isEnabled: Bool) throws {
         let root = model.rootDirectory
         try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: isEnabled)
-
-        if let iCloudRoot = ICloudDocumentSync.cachedRootDirectory(),
-           iCloudRoot.standardizedFileURL != root.standardizedFileURL {
-            try ObeliskStorageMigrator.normalizeStorage(in: iCloudRoot, encrypted: isEnabled)
-        }
 
         faviconLoader.reloadStorage()
     }
@@ -744,8 +689,6 @@ struct BookmarkManagerView: View {
                 archivePage
             case .appearance:
                 appearancePage
-            case .sync:
-                syncPage
             case .ai:
                 aiOptimizationPage
             case .security:
@@ -989,35 +932,6 @@ struct BookmarkManagerView: View {
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("外观")
-    }
-
-    private var syncPage: some View {
-        Form {
-            Section("iCloud") {
-                Toggle(
-                    isOn: Binding(
-                        get: { syncWithICloudDrive },
-                        set: { setICloudDocumentSyncEnabled($0) }
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("使用 iCloud 同步")
-                        Text("开启后 Obelisk 会通过 iCloud Drive 同步书签数据，并使用系统文件协调处理读写。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .disabled(isSwitchingICloudSync)
-
-                if isSwitchingICloudSync {
-                    ProgressView()
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
-        .settingsContentMargins()
-        .navigationTitle("同步")
     }
 
     private func menuLimitStepper(_ title: String, desc: String? = nil, value: Binding<Int>) -> some View {

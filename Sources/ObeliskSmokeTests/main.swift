@@ -12,15 +12,17 @@ struct SmokeTests {
         try testHiddenBookmarkPersistence()
         try testArchivePersistence()
         try testStateCleanupOnDelete()
+        try testEmptyBookmarkLoadDoesNotEraseExistingState()
         try testUsageStoreCacheInvalidation()
         try testBookmarkStoreCacheInvalidation()
         try testStorageNormalizeMigratesSingleStaleJSONFile()
         try testStorageNormalizeRemovesDuplicateJSONFile()
+        try testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists()
         try testStorageNormalizeMigratesLegacyRootJSONFile()
         try testPlaintextStorageUsesDataDirectory()
         try testStorageNormalizeRemovesEmptyLegacyDirectories()
-        try testStorageNormalizeDecryptsMixedICloudLikeFaviconState()
-        try testStorageNormalizeEncryptsMixedICloudLikeFaviconState()
+        try testStorageNormalizeDecryptsMixedFaviconState()
+        try testStorageNormalizeEncryptsMixedFaviconState()
         try testStorageNormalizeDecryptsMixedJSONAndFaviconState()
         try testStorageNormalizeEncryptsMixedJSONAndFaviconState()
         try testHiddenDuplicateProtection()
@@ -231,6 +233,38 @@ struct SmokeTests {
         try expect(state.createdAtById[bookmark.id] == nil, "expected delete to clean createdAt state")
     }
 
+    private static func testEmptyBookmarkLoadDoesNotEraseExistingState() throws {
+        let root = try temporaryDirectory()
+        let id = try expectUUID("00000000-0000-0000-0000-000000000202")
+        let bookmarkURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try FileManager.default.createDirectory(
+            at: bookmarkURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {
+          "version": 1,
+          "bookmarks": []
+        }
+        """.write(to: bookmarkURL, atomically: true, encoding: .utf8)
+
+        try BookmarkStateStore(rootDirectory: root).save(
+            BookmarkStateDatabase(
+                hiddenIds: [id],
+                manualArchivedIds: [],
+                createdAtById: [id: Date(timeIntervalSince1970: 100)],
+                titleOptimizedIds: [id]
+            )
+        )
+
+        let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
+        let state = BookmarkStateStore(rootDirectory: root).load()
+        try expect(loaded.isEmpty, "expected empty bookmark file to load as empty")
+        try expect(state.hiddenIds == [id], "expected empty bookmark load not to erase hidden state")
+        try expect(state.createdAtById[id] == Date(timeIntervalSince1970: 100), "expected empty bookmark load not to erase createdAt state")
+        try expect(state.titleOptimizedIds == [id], "expected empty bookmark load not to erase title state")
+    }
+
     private static func testUsageStoreCacheInvalidation() throws {
         let root = try temporaryDirectory()
         let store = UsageStore(rootDirectory: root)
@@ -381,6 +415,57 @@ struct SmokeTests {
         try expect(UsageStore(rootDirectory: root).record(for: id)?.count == 7, "expected newest duplicate usage to win")
     }
 
+    private static func testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        let privateURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try FileManager.default.createDirectory(
+            at: legacyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {
+          "version": 1,
+          "bookmarks": [
+            {
+              "id": "00000000-0000-0000-0000-000000000306",
+              "title": "Real Bookmark",
+              "url": "https://real-bookmark.example"
+            }
+          ]
+        }
+        """.write(to: legacyURL, atomically: true, encoding: .utf8)
+        try SecureJSONFileCodec().writeData(
+            Data("""
+            {
+              "version": 1,
+              "bookmarks": []
+            }
+            """.utf8),
+            to: privateURL,
+            encrypted: true
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 100)],
+            ofItemAtPath: legacyURL.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 200)],
+            ofItemAtPath: privateURL.path
+        )
+
+        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: true, logicalNames: ["bookmarks.json"])
+
+        LocalJSONEncryption.isEnabled = true
+        try expect(
+            try BookmarkStore(rootDirectory: root).bookmarks().map(\.url) == ["https://real-bookmark.example"],
+            "expected non-empty bookmarks to survive newer empty duplicate during normalization"
+        )
+    }
+
     private static func testStorageNormalizeMigratesLegacyRootJSONFile() throws {
         let previous = LocalJSONEncryption.isEnabled
         defer { LocalJSONEncryption.isEnabled = previous }
@@ -456,7 +541,7 @@ struct SmokeTests {
         try expect(FileManager.default.fileExists(atPath: encryptedData.path), "expected non-empty storage directory to remain")
     }
 
-    private static func testStorageNormalizeDecryptsMixedICloudLikeFaviconState() throws {
+    private static func testStorageNormalizeDecryptsMixedFaviconState() throws {
         let previous = LocalJSONEncryption.isEnabled
         defer { LocalJSONEncryption.isEnabled = previous }
 
@@ -483,7 +568,7 @@ struct SmokeTests {
         try expect(icon == "encrypted-icon", "expected decrypted favicon data")
     }
 
-    private static func testStorageNormalizeEncryptsMixedICloudLikeFaviconState() throws {
+    private static func testStorageNormalizeEncryptsMixedFaviconState() throws {
         let previous = LocalJSONEncryption.isEnabled
         defer { LocalJSONEncryption.isEnabled = previous }
 

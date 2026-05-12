@@ -62,7 +62,7 @@ public final class UsageStore {
         guard
             let data = try? secureCodec.readData(
                 from: url,
-                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+                coordinated: false
             ),
             let raw = try? decoder.decode([String: UsageRecord].self, from: data)
         else {
@@ -166,12 +166,12 @@ public final class UsageStore {
                 data,
                 to: fileURL,
                 encrypted: LocalJSONEncryption.isEnabled,
-                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+                coordinated: false
             )
             for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "usage.json") {
                 try? CoordinatedFileAccess.removeItem(
                     at: staleURL,
-                    coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+                    coordinated: false
                 )
             }
         } catch {

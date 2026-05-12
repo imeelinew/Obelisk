@@ -255,13 +255,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func normalizeActiveStorageRoot() {
         let rootDirectory = store.rootDirectory
         let encrypted = LocalJSONEncryption.isEnabled
-        let iCloudRoot = ICloudDocumentSync.cachedRootDirectory()
         Task.detached(priority: .utility) {
             try? ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
-            if let iCloudRoot,
-               iCloudRoot.standardizedFileURL != rootDirectory.standardizedFileURL {
-                try? ObeliskStorageMigrator.normalizeStorage(in: iCloudRoot, encrypted: encrypted)
-            }
             await MainActor.run { [weak self] in
                 self?.bookmarksModel.invalidateStorageCaches()
                 self?.faviconLoader.reloadStorage()
@@ -429,7 +424,6 @@ final class FaviconLoader {
     @ObservationIgnored private var rootDirectory: URL
     @ObservationIgnored private let secureCodec = SecureJSONFileCodec()
     @ObservationIgnored private var inFlight: Set<String> = []
-    @ObservationIgnored private var diskInFlight: Set<String> = []
     @ObservationIgnored private var index: [String: FaviconRecord] = [:]
     @ObservationIgnored private let imageCache = NSCache<NSString, NSImage>()
     @ObservationIgnored private let session: URLSession
@@ -498,16 +492,6 @@ final class FaviconLoader {
             return copy
         }
 
-        if ICloudDocumentSync.isEnabled {
-            loadCachedIconIfNeeded(key: key, fileURL: fileURL)
-            if record == nil || (record?.success == true && now.timeIntervalSince(record?.fetchedAt ?? .distantPast) > positiveTTL) {
-                fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
-            } else if let record, !record.success, now.timeIntervalSince(record.fetchedAt) >= negativeTTL {
-                fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
-            }
-            return nil
-        }
-
         if let image = imageFromCache(at: fileURL) {
             // Copy before mutating size; the underlying NSImage may be cached
             // and shared, and changing size on a shared instance can affect
@@ -543,7 +527,7 @@ final class FaviconLoader {
         let fileURL = iconURL(for: key)
         try? CoordinatedFileAccess.removeItem(
             at: fileURL,
-            coordinated: shouldCoordinateStorageAccess
+            coordinated: false
         )
         imageCache.removeObject(forKey: key as NSString)
         index.removeValue(forKey: key)
@@ -556,7 +540,6 @@ final class FaviconLoader {
     func refreshAll(urlStrings: [String]) {
         clearStorage()
         inFlight.removeAll()
-        diskInFlight.removeAll()
         index.removeAll()
         imageCache.removeAllObjects()
         saveIndex()
@@ -570,7 +553,6 @@ final class FaviconLoader {
 
     func reloadStorage() {
         inFlight.removeAll()
-        diskInFlight.removeAll()
         index.removeAll()
         imageCache.removeAllObjects()
         loadIndex()
@@ -600,7 +582,7 @@ final class FaviconLoader {
         for location in faviconStorageLocations() {
             try? CoordinatedFileAccess.removeItem(
                 at: location.directory,
-                coordinated: shouldCoordinateStorageAccess
+                coordinated: false
             )
         }
         ObeliskStorageMigrator.removeEmptyStorageDirectories(in: rootDirectory)
@@ -637,40 +619,6 @@ final class FaviconLoader {
     private func uniqueFaviconLocations(_ locations: [FaviconStorageLocation]) -> [FaviconStorageLocation] {
         var seen = Set<String>()
         return locations.filter { seen.insert($0.directory.standardizedFileURL.path).inserted }
-    }
-
-    private var shouldCoordinateStorageAccess: Bool {
-        ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
-    }
-
-    private func loadCachedIconIfNeeded(key: String, fileURL: URL) {
-        guard !diskInFlight.contains(key) else {
-            return
-        }
-        diskInFlight.insert(key)
-        let encrypted = LocalJSONEncryption.isEnabled
-        let coordinated = shouldCoordinateStorageAccess
-
-        Task.detached(priority: .utility) {
-            let data: Data?
-            if encrypted {
-                data = try? SecureJSONFileCodec().readData(from: fileURL, coordinated: coordinated)
-            } else {
-                data = try? CoordinatedFileAccess.readData(from: fileURL, coordinated: coordinated)
-            }
-
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                defer { self.diskInFlight.remove(key) }
-                guard let data, let image = NSImage(data: data) else {
-                    return
-                }
-                image.size = NSSize(width: 16, height: 16)
-                self.imageCache.setObject(image, forKey: key as NSString)
-                self.version &+= 1
-                self.onIconLoaded?()
-            }
-        }
     }
 
     private func fetchIfNeeded(pageURL: URL, key: String, fileURL: URL) {
@@ -973,9 +921,9 @@ final class FaviconLoader {
 
     private func readCacheData(from url: URL, encrypted: Bool) throws -> Data {
         if encrypted {
-            return try secureCodec.readData(from: url, coordinated: shouldCoordinateStorageAccess)
+            return try secureCodec.readData(from: url, coordinated: false)
         }
-        return try CoordinatedFileAccess.readData(from: url, coordinated: shouldCoordinateStorageAccess)
+        return try CoordinatedFileAccess.readData(from: url, coordinated: false)
     }
 
     private func writeCacheData(_ data: Data, to url: URL) throws {
@@ -988,13 +936,13 @@ final class FaviconLoader {
                 data,
                 to: url,
                 encrypted: true,
-                coordinated: shouldCoordinateStorageAccess
+                coordinated: false
             )
         } else {
             try CoordinatedFileAccess.writeData(
                 data,
                 to: url,
-                coordinated: shouldCoordinateStorageAccess
+                coordinated: false
             )
         }
     }

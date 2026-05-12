@@ -79,7 +79,7 @@ final class LLMConfigStore {
         )
         let data = try? SecureJSONFileCodec().readData(
             from: readableURL,
-            coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            coordinated: false
         )
         var config = LLMConfig()
         if let data,
@@ -114,12 +114,12 @@ final class LLMConfigStore {
             data,
             to: configURL,
             encrypted: LocalJSONEncryption.isEnabled,
-            coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            coordinated: false
         )
         for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "llm.json") {
             try? CoordinatedFileAccess.removeItem(
                 at: staleURL,
-                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+                coordinated: false
             )
         }
     }

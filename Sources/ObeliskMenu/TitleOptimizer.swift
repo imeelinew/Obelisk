@@ -68,19 +68,12 @@ final class LLMConfigStore {
         self.rootDirectory = rootDirectory
     }
 
-    func updateRootDirectory(_ rootDirectory: URL) {
-        self.rootDirectory = rootDirectory
-    }
-
     func load() -> LLMConfig {
         let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
             rootDirectory: rootDirectory,
             logicalName: "llm.json"
         )
-        let data = try? SecureJSONFileCodec().readData(
-            from: readableURL,
-            coordinated: false
-        )
+        let data = try? SecureJSONFileCodec().readData(from: readableURL)
         var config = LLMConfig()
         if let data,
            let decoded = try? JSONDecoder().decode(LLMConfig.self, from: data) {
@@ -113,14 +106,10 @@ final class LLMConfigStore {
         try SecureJSONFileCodec().writeData(
             data,
             to: configURL,
-            encrypted: LocalJSONEncryption.isEnabled,
-            coordinated: false
+            encrypted: LocalJSONEncryption.isEnabled
         )
         for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "llm.json") {
-            try? CoordinatedFileAccess.removeItem(
-                at: staleURL,
-                coordinated: false
-            )
+            try? LocalFileAccess.removeItem(at: staleURL)
         }
     }
 }
@@ -159,24 +148,17 @@ final class TitleOptimizer {
         let titles: [Item]
     }
 
-    private var rootDirectory: URL
     private let configStore: LLMConfigStore
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     init(rootDirectory: URL) {
-        self.rootDirectory = rootDirectory
         self.configStore = LLMConfigStore(rootDirectory: rootDirectory)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: configuration)
-    }
-
-    func updateRootDirectory(_ rootDirectory: URL) {
-        self.rootDirectory = rootDirectory
-        configStore.updateRootDirectory(rootDirectory)
     }
 
     func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String] {

@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installMainMenu()
         configureStatusItem()
         clearLegacySpotlightIndex()
+        clearLegacyICloudDefaults()
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
         }
@@ -234,6 +235,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "local.elidev.Obelisk.bookmarks",
             "local.elidev.UniBookmark.bookmarks"
         ]) { _ in }
+    }
+
+    private func clearLegacyICloudDefaults() {
+        UserDefaults.standard.removeObject(forKey: "syncWithICloudDrive")
+        UserDefaults.standard.removeObject(forKey: "iCloudDocumentSyncRootPath")
     }
 
     private func startBookmarkWatcher() {
@@ -525,10 +531,7 @@ final class FaviconLoader {
         }
 
         let fileURL = iconURL(for: key)
-        try? CoordinatedFileAccess.removeItem(
-            at: fileURL,
-            coordinated: false
-        )
+        try? LocalFileAccess.removeItem(at: fileURL)
         imageCache.removeObject(forKey: key as NSString)
         index.removeValue(forKey: key)
         saveIndex()
@@ -565,25 +568,9 @@ final class FaviconLoader {
         reloadStorage()
     }
 
-    func migrateStorage(toEncrypted isEncrypted: Bool) throws {
-        try ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: isEncrypted)
-        reloadStorage()
-    }
-
-    func normalizeStorageRoot(_ rootDirectory: URL, encrypted: Bool) throws {
-        try ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
-    }
-
-    func migrateStorageRoot(to targetRoot: URL, encrypted: Bool) throws {
-        try ObeliskStorageMigrator.migrateFavicons(from: rootDirectory, to: targetRoot, encrypted: encrypted)
-    }
-
     func clearStorage() {
         for location in faviconStorageLocations() {
-            try? CoordinatedFileAccess.removeItem(
-                at: location.directory,
-                coordinated: false
-            )
+            try? LocalFileAccess.removeItem(at: location.directory)
         }
         ObeliskStorageMigrator.removeEmptyStorageDirectories(in: rootDirectory)
         imageCache.removeAllObjects()
@@ -921,9 +908,9 @@ final class FaviconLoader {
 
     private func readCacheData(from url: URL, encrypted: Bool) throws -> Data {
         if encrypted {
-            return try secureCodec.readData(from: url, coordinated: false)
+            return try secureCodec.readData(from: url)
         }
-        return try CoordinatedFileAccess.readData(from: url, coordinated: false)
+        return try LocalFileAccess.readData(from: url)
     }
 
     private func writeCacheData(_ data: Data, to url: URL) throws {
@@ -935,15 +922,10 @@ final class FaviconLoader {
             try secureCodec.writeData(
                 data,
                 to: url,
-                encrypted: true,
-                coordinated: false
+                encrypted: true
             )
         } else {
-            try CoordinatedFileAccess.writeData(
-                data,
-                to: url,
-                coordinated: false
-            )
+            try LocalFileAccess.writeData(data, to: url)
         }
     }
 }

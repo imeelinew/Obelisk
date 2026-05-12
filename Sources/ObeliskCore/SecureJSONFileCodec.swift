@@ -217,8 +217,7 @@ public enum ObeliskStorageMigrator {
             let plaintext = try readBestAvailableData(
                 logicalName: logicalName,
                 from: existingCandidates,
-                codec: codec,
-                coordinated: shouldCoordinate(rootDirectory)
+                codec: codec
             )
             try fileManager.createDirectory(
                 at: targetURL.deletingLastPathComponent(),
@@ -227,15 +226,11 @@ public enum ObeliskStorageMigrator {
             try codec.writeData(
                 plaintext,
                 to: targetURL,
-                encrypted: encrypted,
-                coordinated: shouldCoordinate(rootDirectory)
+                encrypted: encrypted
             )
 
             for staleURL in candidateURLs where staleURL.standardizedFileURL != targetURL.standardizedFileURL {
-                try? CoordinatedFileAccess.removeItem(
-                    at: staleURL,
-                    coordinated: shouldCoordinate(rootDirectory)
-                )
+                try? LocalFileAccess.removeItem(at: staleURL)
             }
         }
     }
@@ -287,63 +282,11 @@ public enum ObeliskStorageMigrator {
 
         for location in sourceLocations
             where location.directory.standardizedFileURL != targetLocation.directory.standardizedFileURL {
-            try? CoordinatedFileAccess.removeItem(
-                at: location.directory,
-                coordinated: shouldCoordinate(rootDirectory)
-            )
+            try? LocalFileAccess.removeItem(at: location.directory)
         }
-    }
-
-    public static func migrateFavicons(from sourceRoot: URL, to targetRoot: URL, encrypted: Bool) throws {
-        try normalizeFavicons(in: sourceRoot, encrypted: encrypted)
-        try normalizeFavicons(in: targetRoot, encrypted: encrypted)
-
-        let sourceLocation = FaviconLocation(
-            directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: encrypted),
-            encrypted: encrypted
-        )
-        let targetLocation = FaviconLocation(
-            directory: ObeliskPrivateStorage.faviconDirectory(in: targetRoot, encrypted: encrypted),
-            encrypted: encrypted
-        )
-        let sourceIndex = loadFaviconIndex(in: sourceLocation, rootDirectory: sourceRoot)
-        var targetIndex = loadFaviconIndex(in: targetLocation, rootDirectory: targetRoot)
-
-        for (key, record) in sourceIndex {
-            let sourceURL = ObeliskPrivateStorage.faviconIconURL(
-                directory: sourceLocation.directory,
-                key: key,
-                encrypted: sourceLocation.encrypted
-            )
-            if record.success,
-               let data = try? readFaviconData(from: sourceURL, encrypted: sourceLocation.encrypted, rootDirectory: sourceRoot) {
-                let destinationURL = ObeliskPrivateStorage.faviconIconURL(
-                    directory: targetLocation.directory,
-                    key: key,
-                    encrypted: targetLocation.encrypted
-                )
-                try FileManager.default.createDirectory(
-                    at: destinationURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try writeFaviconData(data, to: destinationURL, encrypted: targetLocation.encrypted, rootDirectory: targetRoot)
-            }
-
-            if let existing = targetIndex[key], existing.fetchedAt >= record.fetchedAt {
-                continue
-            }
-            targetIndex[key] = record
-        }
-
-        if !targetIndex.isEmpty {
-            try saveFaviconIndex(targetIndex, in: targetLocation, rootDirectory: targetRoot)
-        }
-        removeEmptyStorageDirectories(in: sourceRoot)
-        removeEmptyStorageDirectories(in: targetRoot)
     }
 
     public static func removeEmptyStorageDirectories(in rootDirectory: URL) {
-        let coordinated = shouldCoordinate(rootDirectory)
         let directories = [
             ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: false),
             ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: true),
@@ -355,11 +298,11 @@ public enum ObeliskStorageMigrator {
         ]
 
         for directory in directories {
-            removeIfEmpty(directory, coordinated: coordinated)
+            removeIfEmpty(directory)
         }
     }
 
-    private static func removeIfEmpty(_ directory: URL, coordinated: Bool) {
+    private static func removeIfEmpty(_ directory: URL) {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
               isDirectory.boolValue,
@@ -371,7 +314,7 @@ public enum ObeliskStorageMigrator {
         else {
             return
         }
-        try? CoordinatedFileAccess.removeItem(at: directory, coordinated: coordinated)
+        try? LocalFileAccess.removeItem(at: directory)
     }
 
     private static func faviconLocations(in rootDirectory: URL) -> [FaviconLocation] {
@@ -473,12 +416,9 @@ public enum ObeliskStorageMigrator {
 
     private static func readFaviconData(from url: URL, encrypted: Bool, rootDirectory: URL) throws -> Data {
         if encrypted {
-            return try SecureJSONFileCodec().readData(
-                from: url,
-                coordinated: shouldCoordinate(rootDirectory)
-            )
+            return try SecureJSONFileCodec().readData(from: url)
         }
-        return try CoordinatedFileAccess.readData(from: url, coordinated: shouldCoordinate(rootDirectory))
+        return try LocalFileAccess.readData(from: url)
     }
 
     private static func writeFaviconData(_ data: Data, to url: URL, encrypted: Bool, rootDirectory: URL) throws {
@@ -486,20 +426,11 @@ public enum ObeliskStorageMigrator {
             try SecureJSONFileCodec().writeData(
                 data,
                 to: url,
-                encrypted: true,
-                coordinated: shouldCoordinate(rootDirectory)
+                encrypted: true
             )
         } else {
-            try CoordinatedFileAccess.writeData(
-                data,
-                to: url,
-                coordinated: shouldCoordinate(rootDirectory)
-            )
+            try LocalFileAccess.writeData(data, to: url)
         }
-    }
-
-    private static func shouldCoordinate(_ rootDirectory: URL) -> Bool {
-        false
     }
 
     private static func uniqueURLs(_ urls: [URL]) -> [URL] {
@@ -516,14 +447,12 @@ public enum ObeliskStorageMigrator {
     private static func readBestAvailableData(
         logicalName: String,
         from candidates: [URL],
-        codec: SecureJSONFileCodec,
-        coordinated: Bool
+        codec: SecureJSONFileCodec
     ) throws -> Data {
         if logicalName == "bookmarks.json",
            let nonEmptyBookmarks = try newestNonEmptyBookmarkData(
                from: candidates,
-               codec: codec,
-               coordinated: coordinated
+               codec: codec
            ) {
             return nonEmptyBookmarks
         }
@@ -531,7 +460,7 @@ public enum ObeliskStorageMigrator {
         var lastError: Error?
         for candidate in candidates {
             do {
-                return try codec.readData(from: candidate, coordinated: coordinated)
+                return try codec.readData(from: candidate)
             } catch {
                 lastError = error
             }
@@ -544,15 +473,14 @@ public enum ObeliskStorageMigrator {
 
     private static func newestNonEmptyBookmarkData(
         from candidates: [URL],
-        codec: SecureJSONFileCodec,
-        coordinated: Bool
+        codec: SecureJSONFileCodec
     ) throws -> Data? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         for candidate in candidates {
             do {
-                let data = try codec.readData(from: candidate, coordinated: coordinated)
+                let data = try codec.readData(from: candidate)
                 let database = try decoder.decode(BookmarkDatabase.self, from: data)
                 if !database.bookmarks.isEmpty {
                     return data
@@ -566,25 +494,12 @@ public enum ObeliskStorageMigrator {
     }
 }
 
-public enum CoordinatedFileAccess {
+public enum LocalFileAccess {
     public static func readData(from url: URL) throws -> Data {
-        try readData(from: url, coordinated: false)
-    }
-
-    public static func readData(from url: URL, coordinated: Bool) throws -> Data {
         try Data(contentsOf: url)
     }
 
     public static func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = [.atomic]) throws {
-        try writeData(data, to: url, options: options, coordinated: false)
-    }
-
-    public static func writeData(
-        _ data: Data,
-        to url: URL,
-        options: Data.WritingOptions = [.atomic],
-        coordinated: Bool
-    ) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -593,7 +508,7 @@ public enum CoordinatedFileAccess {
         try data.write(to: url, options: options)
     }
 
-    public static func removeItem(at url: URL, coordinated: Bool = false) throws {
+    public static func removeItem(at url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return
         }
@@ -640,17 +555,13 @@ public final class SecureJSONFileCodec {
     }
 
     public func readData(from url: URL) throws -> Data {
-        try readData(from: url, coordinated: false)
-    }
-
-    public func readData(from url: URL, coordinated: Bool) throws -> Data {
-        let data = try CoordinatedFileAccess.readData(from: url, coordinated: coordinated)
+        let data = try LocalFileAccess.readData(from: url)
         return try decryptIfNeeded(data)
     }
 
     public func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = [.atomic]) throws {
         let output = try LocalJSONEncryption.isEnabled ? encrypt(data) : data
-        try CoordinatedFileAccess.writeData(output, to: url, options: options)
+        try LocalFileAccess.writeData(output, to: url, options: options)
     }
 
     public func writeData(
@@ -660,18 +571,7 @@ public final class SecureJSONFileCodec {
         options: Data.WritingOptions = [.atomic]
     ) throws {
         let output = try encrypted ? encrypt(data) : data
-        try CoordinatedFileAccess.writeData(output, to: url, options: options)
-    }
-
-    public func writeData(
-        _ data: Data,
-        to url: URL,
-        encrypted: Bool,
-        coordinated: Bool,
-        options: Data.WritingOptions = [.atomic]
-    ) throws {
-        let output = try encrypted ? encrypt(data) : data
-        try CoordinatedFileAccess.writeData(output, to: url, options: options, coordinated: coordinated)
+        try LocalFileAccess.writeData(output, to: url, options: options)
     }
 
     public func isEncryptedFile(at url: URL) -> Bool {

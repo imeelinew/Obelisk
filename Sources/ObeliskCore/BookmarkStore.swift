@@ -147,10 +147,7 @@ public final class BookmarkStore {
             rootDirectory: rootDirectory,
             logicalName: "bookmarks.json"
         )
-        let data = try secureCodec.readData(
-            from: url,
-            coordinated: false
-        )
+        let data = try secureCodec.readData(from: url)
         var database = try decoder.decode(BookmarkDatabase.self, from: data)
         database.bookmarks = try applyStoredState(to: database.bookmarks)
         cachedDatabase = database
@@ -168,14 +165,10 @@ public final class BookmarkStore {
         try secureCodec.writeData(
             data,
             to: fileURL,
-            encrypted: LocalJSONEncryption.isEnabled,
-            coordinated: false
+            encrypted: LocalJSONEncryption.isEnabled
         )
         for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmarks.json") {
-            try? CoordinatedFileAccess.removeItem(
-                at: staleURL,
-                coordinated: false
-            )
+            try? LocalFileAccess.removeItem(at: staleURL)
         }
         cachedDatabase = database
     }

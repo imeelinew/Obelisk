@@ -60,10 +60,7 @@ public final class UsageStore {
             logicalName: "usage.json"
         )
         guard
-            let data = try? secureCodec.readData(
-                from: url,
-                coordinated: false
-            ),
+            let data = try? secureCodec.readData(from: url),
             let raw = try? decoder.decode([String: UsageRecord].self, from: data)
         else {
             cachedUsage = [:]
@@ -165,14 +162,10 @@ public final class UsageStore {
             try secureCodec.writeData(
                 data,
                 to: fileURL,
-                encrypted: LocalJSONEncryption.isEnabled,
-                coordinated: false
+                encrypted: LocalJSONEncryption.isEnabled
             )
             for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "usage.json") {
-                try? CoordinatedFileAccess.removeItem(
-                    at: staleURL,
-                    coordinated: false
-                )
+                try? LocalFileAccess.removeItem(at: staleURL)
             }
         } catch {
             usageLog.error("Failed to persist usage data: \(error.localizedDescription)")

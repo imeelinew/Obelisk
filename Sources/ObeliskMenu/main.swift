@@ -43,7 +43,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return loader
     }()
     private let notificationCenter = UNUserNotificationCenter.current()
-    private var notificationAuthorized = false
     private var pendingOptimizationTask: Task<Void, Never>?
     private var silentAddEnabled: Bool {
         UserDefaults.standard.bool(forKey: "silentAddEnabled")
@@ -152,9 +151,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func requestNotificationAuthorization() {
         notificationCenter.delegate = self
         let options: UNAuthorizationOptions = [.alert, .sound]
-        notificationCenter.requestAuthorization(options: options) { [weak self] granted, error in
+        notificationCenter.requestAuthorization(options: options) { granted, error in
             DispatchQueue.main.async {
-                self?.notificationAuthorized = granted
                 if let error {
                     addLog.error("通知权限请求失败: \(error.localizedDescription)")
                 } else if !granted {
@@ -171,15 +169,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        completionHandler([.banner, .list, .sound])
     }
 
     private func postBookmarkNotification(title: String, body: String) {
-        guard notificationAuthorized else { return }
+        notificationCenter.getNotificationSettings { [weak self] settings in
+            let authorizationStatus = settings.authorizationStatus
+            DispatchQueue.main.async {
+                self?.postBookmarkNotification(title: title, body: body, authorizationStatus: authorizationStatus)
+            }
+        }
+    }
+
+    private func postBookmarkNotification(
+        title: String,
+        body: String,
+        authorizationStatus: UNAuthorizationStatus
+    ) {
+        switch authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            scheduleBookmarkNotification(title: title, body: body)
+        case .notDetermined:
+            notificationCenter.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
+                DispatchQueue.main.async {
+                    if let error {
+                        addLog.error("通知权限请求失败: \(error.localizedDescription)")
+                    }
+
+                    if granted {
+                        self?.scheduleBookmarkNotification(title: title, body: body)
+                    } else {
+                        addLog.warning("用户未授权通知权限，无法显示通知: \(title)")
+                    }
+                }
+            }
+        case .denied:
+            addLog.warning("系统通知权限已关闭，无法显示通知: \(title)")
+        @unknown default:
+            addLog.warning("未知通知授权状态，无法显示通知: \(title)")
+        }
+    }
+
+    private func scheduleBookmarkNotification(title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        content.interruptionLevel = .active
+        content.threadIdentifier = "bookmark-add"
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,

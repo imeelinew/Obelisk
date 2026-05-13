@@ -29,6 +29,7 @@ struct BookmarkManagerView: View {
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
     @AppStorage("openHiddenBookmarksIncognito") private var openHiddenBookmarksIncognito = false
     @AppStorage("silentAddEnabled") private var silentAddEnabled = false
+    @AppStorage("notificationStyle") private var notificationStyle = "system"
     @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
@@ -917,6 +918,19 @@ struct BookmarkManagerView: View {
                 }
 
                 if silentAddEnabled {
+                    Picker(selection: $notificationStyle) {
+                        Text("系统通知").tag("system")
+                        Text("菜单栏弹出").tag("popover")
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("通知方式")
+                            Text("选择静默添加后的通知展示方式。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+
                     Toggle(isOn: $autoOptimizeNewBookmarks) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自动优化新书签标题")

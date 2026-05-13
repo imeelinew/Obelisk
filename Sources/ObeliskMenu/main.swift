@@ -6,6 +6,7 @@ import Foundation
 import Observation
 import ObeliskCore
 import os
+import SwiftUI
 import UserNotifications
 
 private let faviconLog = Logger(subsystem: "local.elidev.Obelisk", category: "Favicon")
@@ -47,9 +48,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var silentAddEnabled: Bool {
         UserDefaults.standard.bool(forKey: "silentAddEnabled")
     }
+    private var notificationStyle: String {
+        UserDefaults.standard.string(forKey: "notificationStyle") ?? "system"
+    }
     private var autoOptimizeNewBookmarks: Bool {
         UserDefaults.standard.bool(forKey: "autoOptimizeNewBookmarks")
     }
+    private var notificationPopover: NSPopover?
+    private var notificationDismissWorkItem: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -65,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registerGlobalHotkey()
         rebuildMenu()
         requestNotificationAuthorization()
+        setupNotificationPopover()
     }
 
     /// Wave 5: ⌥B from anywhere → fetch the frontmost browser's current
@@ -110,26 +117,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleSilentAdd(url: String?, title: String?, isHidden: Bool) {
         guard let url, !url.isEmpty else {
-            postBookmarkNotification(
+            notifyUser(
                 title: "无法添加书签",
-                body: "当前浏览器标签无有效网址"
+                body: "当前浏览器标签无有效网址",
+                kind: .error
             )
             return
         }
 
         let resolvedTitle = (title?.isEmpty == false) ? title! : url
         if let error = bookmarksModel.add(title: resolvedTitle, url: url, isHidden: isHidden) {
-            postBookmarkNotification(
+            notifyUser(
                 title: "添加失败",
-                body: error
+                body: error,
+                kind: .error
             )
             return
         }
 
         let bookmarkType = isHidden ? "隐藏书签" : "书签"
-        postBookmarkNotification(
+        notifyUser(
             title: "已添加\(bookmarkType)",
-            body: resolvedTitle
+            body: resolvedTitle,
+            kind: isHidden ? .hidden : .success
         )
 
         if autoOptimizeNewBookmarks {
@@ -146,6 +156,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
         }
+    }
+
+    // MARK: - Unified notification dispatch
+
+    /// Routes the notification to either a menu-bar popover or a system banner
+    /// depending on the user's ``notificationStyle`` preference.  All three
+    /// silent-add outcomes (no URL, add error, add success) go through this
+    /// single entry-point so the two modes stay completely isolated.
+    private func notifyUser(
+        title: String,
+        body: String,
+        kind: BookmarkAddedNotificationView.Kind
+    ) {
+        if notificationStyle == "popover" {
+            // Cancel any currently displayed popover first so rapid
+            // successive adds show the latest one.
+            notificationDismissWorkItem?.cancel()
+            notificationPopover?.close()
+            showMenuBarPopover(title: title, subtitle: body, kind: kind)
+        } else {
+            postBookmarkNotification(title: title, body: body)
+        }
+    }
+
+    // MARK: - Menu bar popover notification
+
+    private func setupNotificationPopover() {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        notificationPopover = popover
+    }
+
+    private func showMenuBarPopover(
+        title: String,
+        subtitle: String,
+        kind: BookmarkAddedNotificationView.Kind
+    ) {
+        guard let button = statusItem.button else { return }
+
+        let contentView = BookmarkAddedNotificationView(
+            title: title,
+            subtitle: subtitle,
+            kind: kind
+        )
+
+        let hosting = NSHostingController(rootView: contentView)
+        // Force layout so the popover knows its exact content size before we
+        // call show().  Without this the popover's arrow points at the button
+        // but the body is positioned far below it.
+        hosting.view.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
+        hosting.view.layoutSubtreeIfNeeded()
+        let fitted = hosting.view.fittingSize
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = hosting
+        popover.contentSize = NSSize(width: 280, height: fitted.height)
+        notificationPopover = popover
+
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Give the popover window a moment to appear so .makeKey() resolves
+        // against a real window.
+        DispatchQueue.main.async {
+            popover.contentViewController?.view.window?.makeKey()
+        }
+
+        // Auto-dismiss after 3 seconds
+        let work = DispatchWorkItem { [weak self] in
+            self?.notificationPopover?.close()
+        }
+        notificationDismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
     }
 
     private func requestNotificationAuthorization() {

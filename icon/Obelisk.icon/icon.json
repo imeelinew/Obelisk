@@ -12,10 +12,10 @@
           "name" : "pyramid.fill",
           "opacity" : 1,
           "position" : {
-            "scale" : 26,
+            "scale" : 24,
             "translation-in-points" : [
-              4.6970470679909795,
-              -16.25
+              4.3357357550685265,
+              -15
             ]
           }
         }

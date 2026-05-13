@@ -434,8 +434,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 appendSection(title: "最近添加", bookmarks: recent, to: menu)
             }
             if !others.isEmpty {
-                let needsHeader = !frequent.isEmpty || !recent.isEmpty
-                appendSection(title: needsHeader ? "全部" : "", bookmarks: others, to: menu)
+                appendBookmarkSubmenu(title: "全部", bookmarks: others, to: menu)
             }
         }
 
@@ -443,6 +442,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let manageItem = NSMenuItem(title: "设置", action: #selector(openManager), keyEquivalent: "")
         menu.addItem(manageItem)
         let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "")
+        quitItem.attributedTitle = NSAttributedString(
+            string: "退出",
+            attributes: [
+                .font: NSFont.menuFont(ofSize: 0),
+                .foregroundColor: NSColor.systemRed
+            ]
+        )
         menu.addItem(quitItem)
 
         statusItem.menu = menu
@@ -458,6 +464,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for bookmark in bookmarks {
             menu.addItem(menuItem(for: bookmark))
         }
+    }
+
+    private func appendBookmarkSubmenu(title: String, bookmarks: [Bookmark], to menu: NSMenu) {
+        if menu.items.last != nil {
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        let item = NSMenuItem(title: "\(title) (\(bookmarks.count))", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: title)
+        submenu.autoenablesItems = false
+        for bookmark in bookmarks {
+            submenu.addItem(menuItem(for: bookmark))
+        }
+        item.submenu = submenu
+        menu.addItem(item)
     }
 
     private func menuItem(for bookmark: Bookmark) -> NSMenuItem {

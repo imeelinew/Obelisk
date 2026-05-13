@@ -83,8 +83,9 @@ struct BookmarkManagerView: View {
         case hiddenBookmarks
         case archive
         case appearance
+        case shortcuts
         case ai
-        case security
+        case privacy
         case developer
 
         var id: String { rawValue }
@@ -100,32 +101,34 @@ struct BookmarkManagerView: View {
         var group: Group {
             switch self {
             case .bookmarks, .hiddenBookmarks, .archive: return .content
-            case .appearance, .ai:             return .preferences
-            case .security, .developer:        return .advanced
+            case .appearance, .shortcuts, .ai:          return .preferences
+            case .privacy, .developer:                  return .advanced
             }
         }
 
         var title: String {
             switch self {
-            case .bookmarks: return "书签"
+            case .bookmarks:       return "书签"
             case .hiddenBookmarks: return "隐藏书签"
-            case .archive: return "归档"
-            case .appearance: return "外观"
-            case .ai: return "AI配置"
-            case .security: return "安全"
-            case .developer: return "开发者选项"
+            case .archive:         return "归档"
+            case .appearance:      return "外观"
+            case .shortcuts:       return "快捷键"
+            case .ai:              return "AI配置"
+            case .privacy:         return "隐私"
+            case .developer:       return "开发者选项"
             }
         }
 
         var symbolName: String {
             switch self {
-            case .bookmarks: return "bookmark.fill"
+            case .bookmarks:       return "bookmark.fill"
             case .hiddenBookmarks: return "eye.slash.fill"
-            case .archive: return "archivebox.fill"
-            case .appearance: return "paintpalette.fill"
-            case .ai: return "sparkles"
-            case .security: return "lock.fill"
-            case .developer: return "wrench.fill"
+            case .archive:         return "archivebox.fill"
+            case .appearance:      return "paintpalette.fill"
+            case .shortcuts:       return "command"
+            case .ai:              return "sparkles"
+            case .privacy:         return "lock.fill"
+            case .developer:       return "wrench.fill"
             }
         }
 
@@ -161,7 +164,13 @@ struct BookmarkManagerView: View {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
-            case .security:
+            case .shortcuts:
+                return LinearGradient(
+                    colors: [Color(red: 0.98, green: 0.72, blue: 0.36), Color(red: 0.86, green: 0.48, blue: 0.10)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .privacy:
                 return LinearGradient(
                     colors: [Color(red: 0.72, green: 0.52, blue: 1.0), Color(red: 0.42, green: 0.24, blue: 0.86)],
                     startPoint: .topLeading,
@@ -690,10 +699,12 @@ struct BookmarkManagerView: View {
                 archivePage
             case .appearance:
                 appearancePage
+            case .shortcuts:
+                shortcutsPage
             case .ai:
                 aiOptimizationPage
-            case .security:
-                securityPage
+            case .privacy:
+                privacyPage
             case .developer:
                 developerOptionsPage
             }
@@ -906,12 +917,20 @@ struct BookmarkManagerView: View {
                     LabeledContent("当前透明度", value: "\(Int(windowSeeThrough * 100))%")
                 }
             }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
+        .settingsContentMargins()
+        .navigationTitle("外观")
+    }
 
+    private var shortcutsPage: some View {
+        Form {
             Section("快捷键") {
                 Toggle(isOn: $silentAddEnabled) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("静默添加书签")
-                        Text("按 ⌥B / ⌥H 后直接将当前浏览器标签加入书签，不弹出设置窗口，改为系统通知提醒。")
+                        Text("按 ⌥B / ⌥H 后直接将当前浏览器标签加入书签，不弹出设置窗口，改为通知提醒。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -945,7 +964,7 @@ struct BookmarkManagerView: View {
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
-        .navigationTitle("外观")
+        .navigationTitle("快捷键")
     }
 
     private func menuLimitStepper(_ title: String, desc: String? = nil, value: Binding<Int>) -> some View {
@@ -1013,7 +1032,7 @@ struct BookmarkManagerView: View {
         .navigationTitle("AI配置")
     }
 
-    private var securityPage: some View {
+    private var privacyPage: some View {
         Form {
             Section("安全") {
                 Toggle(
@@ -1046,7 +1065,7 @@ struct BookmarkManagerView: View {
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
-        .navigationTitle("安全")
+        .navigationTitle("隐私")
     }
 
     private var developerOptionsPage: some View {

@@ -338,6 +338,11 @@ struct BookmarkManagerView: View {
         selection.remove(bookmark.id)
     }
 
+    private func openBookmark(_ bookmark: Bookmark) {
+        model.openBookmark(bookmark)
+        selection.remove(bookmark.id)
+    }
+
     private func syncArchiveSettings() {
         archiveAfterDays = BookmarksModel.clampedArchiveAfterDays(archiveAfterDays)
         model.reload()
@@ -732,7 +737,7 @@ struct BookmarkManagerView: View {
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: nil,
+                    onOpen: { bookmark in openBookmark(bookmark) },
                     onCopyURL: { bookmark in copyURL(bookmark) },
                     onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
@@ -1301,7 +1306,7 @@ private struct BookmarkRow: View {
                         .interpolation(.high)
                         .frame(width: 16, height: 16)
                 } else {
-                    Image(nsImage: AppIcon.image(size: NSSize(width: 16, height: 16)))
+                    Image(nsImage: AppIcon.faviconPlaceholder(size: NSSize(width: 16, height: 16)))
                         .resizable()
                         .interpolation(.high)
                         .frame(width: 16, height: 16)

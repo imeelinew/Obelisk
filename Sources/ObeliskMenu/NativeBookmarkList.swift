@@ -187,10 +187,6 @@ struct NativeBookmarkList: NSViewRepresentable {
             if parent.onEdit != nil {
                 menu.addItem(menuItem("编辑", action: #selector(editFromMenu(_:)), bookmark: bookmark))
             }
-            if parent.onDelete != nil {
-                menu.addItem(NSMenuItem.separator())
-                menu.addItem(menuItem("删除", action: #selector(deleteFromMenu(_:)), bookmark: bookmark))
-            }
             if let hiddenStateActionTitle = parent.hiddenStateActionTitle, parent.onSetHidden != nil {
                 menu.addItem(NSMenuItem.separator())
                 menu.addItem(menuItem(hiddenStateActionTitle, action: #selector(setHiddenFromMenu(_:)), bookmark: bookmark))
@@ -198,6 +194,10 @@ struct NativeBookmarkList: NSViewRepresentable {
             if let archiveStateActionTitle = parent.archiveStateActionTitle, parent.onSetArchived != nil {
                 menu.addItem(NSMenuItem.separator())
                 menu.addItem(menuItem(archiveStateActionTitle, action: #selector(setArchivedFromMenu(_:)), bookmark: bookmark))
+            }
+            if parent.onDelete != nil {
+                menu.addItem(NSMenuItem.separator())
+                menu.addItem(destructiveMenuItem("删除", action: #selector(deleteFromMenu(_:)), bookmark: bookmark))
             }
 
             return menu.items.isEmpty ? nil : menu
@@ -361,6 +361,18 @@ struct NativeBookmarkList: NSViewRepresentable {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = bookmark
+            return item
+        }
+
+        private func destructiveMenuItem(_ title: String, action: Selector, bookmark: Bookmark) -> NSMenuItem {
+            let item = menuItem(title, action: action, bookmark: bookmark)
+            item.attributedTitle = NSAttributedString(
+                string: title,
+                attributes: [
+                    .font: NSFont.menuFont(ofSize: 0),
+                    .foregroundColor: NSColor.systemRed
+                ]
+            )
             return item
         }
 
@@ -626,7 +638,7 @@ private final class BookmarkTableCellView: NSTableCellView {
             faviconView.image = favicon
             faviconView.contentTintColor = nil
         } else {
-            faviconView.image = AppIcon.image(size: NSSize(width: 18, height: 18))
+            faviconView.image = AppIcon.faviconPlaceholder(size: NSSize(width: 18, height: 18))
             faviconView.contentTintColor = nil
         }
         titleField.stringValue = bookmark.title

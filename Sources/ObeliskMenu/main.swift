@@ -149,9 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     scope: isHidden ? .hidden : .visible
                 )
                 if let message {
-                    self?.postBookmarkNotification(
+                    self?.notifyUser(
                         title: "标题优化完成",
-                        body: message
+                        body: message,
+                        kind: .success
                     )
                 }
             }
@@ -489,7 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         item.representedObject = bookmark
         item.toolTip = "\(bookmark.title)\n\(bookmark.url)"
-        item.image = faviconLoader.image(for: bookmark.url) ?? AppIcon.image(size: NSSize(width: 16, height: 16))
+        item.image = faviconLoader.image(for: bookmark.url) ?? AppIcon.faviconPlaceholder(size: NSSize(width: 16, height: 16))
         return item
     }
 

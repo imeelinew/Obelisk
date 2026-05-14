@@ -2,6 +2,54 @@ import AppKit
 import SwiftUI
 import ObeliskCore
 
+enum BookmarkListSortMode: String, CaseIterable, Identifiable {
+    case name
+    case recentlyAdded
+
+    static let storageKey = "bookmarkListSortMode"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .name: return "按名称"
+        case .recentlyAdded: return "按最近添加"
+        }
+    }
+
+    static var stored: BookmarkListSortMode {
+        BookmarkListSortMode(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .name
+    }
+
+    func sorted(_ bookmarks: [Bookmark]) -> [Bookmark] {
+        bookmarks.sorted { lhs, rhs in
+            switch self {
+            case .name:
+                return Self.isOrderedByName(lhs, before: rhs)
+            case .recentlyAdded:
+                if lhs.createdAt != rhs.createdAt {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return Self.isOrderedByName(lhs, before: rhs)
+            }
+        }
+    }
+
+    private static func isOrderedByName(_ lhs: Bookmark, before rhs: Bookmark) -> Bool {
+        let titleComparison = lhs.title.localizedStandardCompare(rhs.title)
+        if titleComparison != .orderedSame {
+            return titleComparison == .orderedAscending
+        }
+
+        let urlComparison = lhs.url.localizedStandardCompare(rhs.url)
+        if urlComparison != .orderedSame {
+            return urlComparison == .orderedAscending
+        }
+
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
+}
+
 struct BookmarkManagerView: View {
     @Bindable var model: BookmarksModel
     let faviconLoader: FaviconLoader
@@ -31,6 +79,7 @@ struct BookmarkManagerView: View {
     @AppStorage("silentAddEnabled") private var silentAddEnabled = false
     @AppStorage("notificationStyle") private var notificationStyle = "system"
     @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
+    @AppStorage(BookmarkListSortMode.storageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
 
@@ -207,7 +256,7 @@ struct BookmarkManagerView: View {
     }
 
     private var filteredOthers: [Bookmark] {
-        filtered(model.others)
+        sorted(filtered(model.others))
     }
 
     private var filteredBookmarks: [Bookmark] {
@@ -223,7 +272,7 @@ struct BookmarkManagerView: View {
     }
 
     private var filteredHiddenBookmarks: [Bookmark] {
-        filtered(hiddenBookmarks)
+        sorted(filtered(hiddenBookmarks))
     }
 
     private var archivedBookmarks: [Bookmark] {
@@ -243,8 +292,11 @@ struct BookmarkManagerView: View {
         }
 
         if !filteredOthers.isEmpty {
-            let needsHeader = !filteredFrequent.isEmpty || !filteredRecent.isEmpty
-            sections.append(BookmarkListSection(title: needsHeader ? "全部" : nil, bookmarks: filteredOthers))
+            sections.append(BookmarkListSection(
+                title: "全部",
+                bookmarks: filteredOthers,
+                sortMode: bookmarkListSortMode
+            ))
         }
 
         return sections
@@ -274,6 +326,26 @@ struct BookmarkManagerView: View {
             $0.title.localizedCaseInsensitiveContains(query)
                 || $0.url.localizedCaseInsensitiveContains(query)
         }
+    }
+
+    private var bookmarkListSortMode: BookmarkListSortMode {
+        get {
+            BookmarkListSortMode(rawValue: bookmarkListSortModeRaw) ?? .name
+        }
+        nonmutating set {
+            bookmarkListSortModeRaw = newValue.rawValue
+        }
+    }
+
+    private var bookmarkListSortModeBinding: Binding<BookmarkListSortMode> {
+        Binding(
+            get: { bookmarkListSortMode },
+            set: { bookmarkListSortMode = $0 }
+        )
+    }
+
+    private func sorted(_ bookmarks: [Bookmark]) -> [Bookmark] {
+        bookmarkListSortMode.sorted(bookmarks)
     }
 
     private func consumePendingAddRequestIfNeeded() {
@@ -692,6 +764,18 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private var bookmarkSortMenu: some View {
+        Picker("排序", selection: bookmarkListSortModeBinding) {
+            ForEach(BookmarkListSortMode.allCases) { sortMode in
+                Text(sortMode.title).tag(sortMode)
+            }
+        }
+        .pickerStyle(.menu)
+        .controlSize(.small)
+        .labelsHidden()
+        .frame(width: 108, alignment: .leading)
+    }
+
     @ViewBuilder
     private var settingsDetail: some View {
         NavigationStack {
@@ -745,7 +829,8 @@ struct BookmarkManagerView: View {
                     hiddenStateActionTitle: "移到隐藏书签",
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
                     archiveStateActionTitle: autoArchiveEnabled ? "归档" : nil,
-                    onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil
+                    onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
+                    onSortModeChange: { sortMode in bookmarkListSortMode = sortMode }
                 )
             }
         }
@@ -763,20 +848,27 @@ struct BookmarkManagerView: View {
             } else if filteredHiddenBookmarks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             } else {
-                NativeBookmarkList(
-                    sections: hiddenBookmarkSections,
-                    selection: $selection,
-                    faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version,
-                    showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmark in openHiddenBookmark(bookmark) },
-                    onCopyURL: { bookmark in copyURL(bookmark) },
-                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
-                    onEdit: { bookmark in presentation = .edit(bookmark) },
-                    onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "恢复到书签",
-                    onSetHidden: { bookmark in setHidden(false, for: bookmark) }
-                )
+                VStack(alignment: .leading, spacing: 0) {
+                    bookmarkSortMenu
+                        .padding(.leading, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+
+                    NativeBookmarkList(
+                        sections: hiddenBookmarkSections,
+                        selection: $selection,
+                        faviconLoader: faviconLoader,
+                        faviconVersion: faviconLoader.version,
+                        showsURLHostOnly: showsURLHostOnly,
+                        onOpen: { bookmark in openHiddenBookmark(bookmark) },
+                        onCopyURL: { bookmark in copyURL(bookmark) },
+                        onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                        onEdit: { bookmark in presentation = .edit(bookmark) },
+                        onDelete: { ids in requestDelete(ids: ids) },
+                        hiddenStateActionTitle: "恢复到书签",
+                        onSetHidden: { bookmark in setHidden(false, for: bookmark) }
+                    )
+                }
             }
         }
         .navigationTitle("隐藏书签")

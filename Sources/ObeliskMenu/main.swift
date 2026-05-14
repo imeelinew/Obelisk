@@ -426,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // `model.others` is already deduped (excludes frequent/recent).
             // Showing the full list here was duplicating items in the
             // dropdown — match the manage window's "everything once" behavior.
-            let others = bookmarksModel.others
+            let others = BookmarkListSortMode.stored.sorted(bookmarksModel.others)
 
             if !frequent.isEmpty {
                 appendSection(title: "常用", bookmarks: frequent, to: menu)

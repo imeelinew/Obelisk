@@ -6,6 +6,7 @@ import ObeliskCore
 struct BookmarkListSection: Equatable, Identifiable {
     var title: String?
     var bookmarks: [Bookmark]
+    var sortMode: BookmarkListSortMode?
 
     var id: String {
         title ?? bookmarks.map(\.id.uuidString).joined(separator: ",")
@@ -27,6 +28,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     var onSetHidden: ((Bookmark) -> Void)?
     var archiveStateActionTitle: String? = nil
     var onSetArchived: ((Bookmark) -> Void)? = nil
+    var onSortModeChange: ((BookmarkListSortMode) -> Void)? = nil
     fileprivate static let contentInset: CGFloat = 18
     fileprivate static let rowHeight: CGFloat = 50
     fileprivate static let headerHeight: CGFloat = 24
@@ -248,7 +250,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row >= 0, row < items.count else { return Self.parentRowHeight }
             switch items[row] {
-            case .header(_, let topSpacing):
+            case .header(_, let topSpacing, _):
                 return NativeBookmarkList.headerHeight + topSpacing
             case .bookmark:
                 return NativeBookmarkList.rowHeight
@@ -263,12 +265,18 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard row >= 0, row < items.count else { return nil }
 
             switch items[row] {
-            case .header(let title, let topSpacing):
+            case .header(let title, let topSpacing, let sortMode):
                 let view = tableView.makeView(
                     withIdentifier: BookmarkHeaderCellView.identifier,
                     owner: self
                 ) as? BookmarkHeaderCellView ?? BookmarkHeaderCellView()
-                view.configure(title: title, topSpacing: topSpacing)
+                view.configure(
+                    title: title,
+                    topSpacing: topSpacing,
+                    sortMode: sortMode,
+                    target: self,
+                    action: #selector(changeSortModeFromHeader(_:))
+                )
                 return view
 
             case .bookmark(let bookmark):
@@ -343,6 +351,15 @@ struct NativeBookmarkList: NSViewRepresentable {
             parent.onSetArchived?(bookmark)
         }
 
+        @objc private func changeSortModeFromHeader(_ sender: NSPopUpButton) {
+            guard let rawValue = sender.selectedItem?.representedObject as? String,
+                  let sortMode = BookmarkListSortMode(rawValue: rawValue)
+            else {
+                return
+            }
+            parent.onSortModeChange?(sortMode)
+        }
+
         func syncSelectionToTable() {
             guard let tableView else { return }
             var rowIndexes = IndexSet()
@@ -392,7 +409,7 @@ struct NativeBookmarkList: NSViewRepresentable {
 }
 
 fileprivate enum NativeBookmarkListItem: Equatable {
-    case header(title: String, topSpacing: CGFloat)
+    case header(title: String, topSpacing: CGFloat, sortMode: BookmarkListSortMode?)
     case bookmark(Bookmark)
 
     var isHeader: Bool {
@@ -413,7 +430,7 @@ private extension Array where Element == BookmarkListSection {
 
         for section in self {
             if let title = section.title {
-                items.append(.header(title: title, topSpacing: hasVisibleHeader ? 12 : 0))
+                items.append(.header(title: title, topSpacing: hasVisibleHeader ? 12 : 0, sortMode: section.sortMode))
                 hasVisibleHeader = true
             }
             items.append(contentsOf: section.bookmarks.map(NativeBookmarkListItem.bookmark))
@@ -551,7 +568,9 @@ private final class HoverableRowView: NSTableRowView {
 private final class BookmarkHeaderCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("BookmarkHeaderCell")
     private let titleField = NSTextField(labelWithString: "")
+    private let sortButton = NSPopUpButton(frame: .zero, pullsDown: false)
     private var topConstraint: NSLayoutConstraint?
+    private var sortButtonTopConstraint: NSLayoutConstraint?
 
     init() {
         super.init(frame: .zero)
@@ -559,13 +578,29 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         titleField.translatesAutoresizingMaskIntoConstraints = false
         titleField.font = .systemFont(ofSize: 13, weight: .semibold)
         titleField.textColor = .labelColor
+        titleField.setContentHuggingPriority(.required, for: .horizontal)
         addSubview(titleField)
 
+        sortButton.translatesAutoresizingMaskIntoConstraints = false
+        sortButton.controlSize = .small
+        sortButton.font = .systemFont(ofSize: 12)
+        sortButton.setContentHuggingPriority(.required, for: .horizontal)
+        sortButton.addItem(withTitle: BookmarkListSortMode.name.title)
+        sortButton.addItem(withTitle: BookmarkListSortMode.recentlyAdded.title)
+        sortButton.item(at: 0)?.representedObject = BookmarkListSortMode.name.rawValue
+        sortButton.item(at: 1)?.representedObject = BookmarkListSortMode.recentlyAdded.rawValue
+        addSubview(sortButton)
+
         topConstraint = titleField.topAnchor.constraint(equalTo: topAnchor)
+        sortButtonTopConstraint = sortButton.topAnchor.constraint(equalTo: topAnchor)
         NSLayoutConstraint.activate([
             topConstraint!,
+            sortButtonTopConstraint!,
             titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
-            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor)
+            sortButton.leadingAnchor.constraint(equalTo: titleField.trailingAnchor, constant: 8),
+
+            sortButton.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset),
+            sortButton.centerYAnchor.constraint(equalTo: titleField.centerYAnchor)
         ])
     }
 
@@ -574,9 +609,22 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(title: String, topSpacing: CGFloat) {
+    func configure(
+        title: String,
+        topSpacing: CGFloat,
+        sortMode: BookmarkListSortMode?,
+        target: AnyObject?,
+        action: Selector
+    ) {
         titleField.stringValue = title
         topConstraint?.constant = topSpacing
+        sortButtonTopConstraint?.constant = topSpacing
+        sortButton.isHidden = sortMode == nil
+        sortButton.target = target
+        sortButton.action = action
+        if let sortMode {
+            sortButton.selectItem(withTitle: sortMode.title)
+        }
     }
 }
 

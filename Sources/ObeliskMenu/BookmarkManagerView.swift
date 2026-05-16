@@ -58,6 +58,7 @@ struct BookmarkManagerView: View {
     @State private var selection: Set<Bookmark.ID> = []
     @State private var presentation: Presentation?
     @State private var deleteConfirmation: DeleteConfirmation?
+    @State private var refreshAllFaviconConfirmation = false
     @State private var toast: Toast?
     @State private var searchText = ""
     @State private var settingsPage: SettingsPage = .bookmarks
@@ -82,6 +83,8 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarkListSortMode.storageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
+    @AppStorage("customTransparencyEnabled") private var customTransparencyEnabled = false
+    @State private var showCustomTransparencyAlert = false
 
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
@@ -406,11 +409,17 @@ struct BookmarkManagerView: View {
     }
 
     private func openArchivedBookmark(_ bookmark: Bookmark) {
+        if faviconLoader.image(for: bookmark.url) == nil {
+            refreshFavicon(for: bookmark)
+        }
         model.openArchivedBookmark(bookmark)
         selection.remove(bookmark.id)
     }
 
     private func openBookmark(_ bookmark: Bookmark) {
+        if faviconLoader.image(for: bookmark.url) == nil {
+            refreshFavicon(for: bookmark)
+        }
         model.openBookmark(bookmark)
         selection.remove(bookmark.id)
     }
@@ -431,6 +440,9 @@ struct BookmarkManagerView: View {
     }
 
     private func openHiddenBookmark(_ bookmark: Bookmark) {
+        if faviconLoader.image(for: bookmark.url) == nil {
+            refreshFavicon(for: bookmark)
+        }
         guard openHiddenBookmarksIncognito else {
             guard let url = URL(string: bookmark.url) else { return }
             NSWorkspace.shared.open(url)
@@ -459,6 +471,20 @@ struct BookmarkManagerView: View {
         Binding(
             get: { !showsURLHostOnly },
             set: { showsURLHostOnly = !$0 }
+        )
+    }
+
+    private var customTransparencyBinding: Binding<Bool> {
+        Binding(
+            get: { customTransparencyEnabled },
+            set: { newValue in
+                if newValue {
+                    showCustomTransparencyAlert = true
+                } else {
+                    customTransparencyEnabled = false
+                    windowSeeThrough = 0.0
+                }
+            }
         )
     }
 
@@ -544,13 +570,6 @@ struct BookmarkManagerView: View {
         faviconLoader.reloadStorage()
     }
 
-    private func handleHiddenBookmarksVisibilityChange(isShowing: Bool) {
-        guard !isShowing else { return }
-        guard settingsPage == SettingsPage.hiddenBookmarks else { return }
-        settingsPage = .bookmarks
-        hiddenBookmarksUnlocked = false
-    }
-
     private var modelErrorAlertBinding: Binding<Bool> {
         Binding(
             get: { model.errorMessage != nil },
@@ -572,6 +591,20 @@ struct BookmarkManagerView: View {
         )
     }
 
+    private var refreshAllFaviconAlertBinding: Binding<Bool> {
+        Binding(
+            get: { refreshAllFaviconConfirmation },
+            set: { if !$0 { refreshAllFaviconConfirmation = false } }
+        )
+    }
+
+    private var customTransparencyAlertBinding: Binding<Bool> {
+        Binding(
+            get: { showCustomTransparencyAlert },
+            set: { if !$0 { showCustomTransparencyAlert = false } }
+        )
+    }
+
     private func toggleHiddenBookmarksPageVisibility() {
         showHiddenBookmarksPage.toggle()
     }
@@ -590,6 +623,9 @@ struct BookmarkManagerView: View {
                         }
                     }
                     return
+                }
+                if settingsPage == .hiddenBookmarks, nextPage != .hiddenBookmarks {
+                    hiddenBookmarksUnlocked = false
                 }
                 settingsPage = nextPage
             }
@@ -657,12 +693,12 @@ struct BookmarkManagerView: View {
         .onChange(of: addRequest.seq) { _, _ in
             consumePendingAddRequestIfNeeded()
         }
-        .onChange(of: settingsPage) { _, _ in
-            selection.removeAll()
-        }
-        .onChange(of: showHiddenBookmarksPage) { _, isShowing in
-            handleHiddenBookmarksVisibilityChange(isShowing: isShowing)
-        }
+        .modifier(HiddenBookmarksLockingModifier(
+            settingsPage: $settingsPage,
+            hiddenBookmarksUnlocked: $hiddenBookmarksUnlocked,
+            showHiddenBookmarksPage: $showHiddenBookmarksPage,
+            selection: $selection
+        ))
         .onChange(of: menuFrequentGroupLimit) { _, _ in
             syncMenuGroupLimits()
         }
@@ -712,6 +748,14 @@ struct BookmarkManagerView: View {
         } message: { message in
             Text(message)
         }
+        .modifier(ExtraAlerts(
+            refreshAllFaviconAlertBinding: refreshAllFaviconAlertBinding,
+            refreshAllFaviconConfirmation: $refreshAllFaviconConfirmation,
+            refreshAllFavicons: refreshAllFavicons,
+            customTransparencyAlertBinding: customTransparencyAlertBinding,
+            showCustomTransparencyAlert: $showCustomTransparencyAlert,
+            customTransparencyEnabled: $customTransparencyEnabled
+        ))
     }
 
     @ViewBuilder
@@ -895,32 +939,34 @@ struct BookmarkManagerView: View {
                         }
                     }
 
-                    LabeledContent {
-                        HStack(spacing: 10) {
-                            Text("\(archiveAfterDays)")
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                                .frame(minWidth: 24, alignment: .trailing)
+                    if autoArchiveEnabled {
+                        LabeledContent {
+                            HStack(spacing: 10) {
+                                Text("\(archiveAfterDays)")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .frame(minWidth: 24, alignment: .trailing)
 
-                            Stepper(
-                                "闲置天数",
-                                value: Binding(
-                                    get: { archiveAfterDays },
-                                    set: { newValue in
-                                        archiveAfterDays = BookmarksModel.clampedArchiveAfterDays(newValue)
-                                        syncArchiveSettings()
-                                    }
-                                ),
-                                in: BookmarksModel.minArchiveAfterDays...BookmarksModel.maxArchiveAfterDays
-                            )
-                            .labelsHidden()
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("闲置天数")
-                            Text("Obelisk 会自动将超过这个天数没有打开的书签归档")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                Stepper(
+                                    "闲置天数",
+                                    value: Binding(
+                                        get: { archiveAfterDays },
+                                        set: { newValue in
+                                            archiveAfterDays = BookmarksModel.clampedArchiveAfterDays(newValue)
+                                            syncArchiveSettings()
+                                        }
+                                    ),
+                                    in: BookmarksModel.minArchiveAfterDays...BookmarksModel.maxArchiveAfterDays
+                                )
+                                .labelsHidden()
+                            }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("闲置天数")
+                                Text("Obelisk 会自动将超过这个天数没有打开的书签归档")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -978,14 +1024,20 @@ struct BookmarkManagerView: View {
 
             Section("菜单栏") {
                 LabeledContent {
-                    Button {
-                        refreshAllFavicons()
+                    Button(role: .destructive) {
+                        refreshAllFaviconConfirmation = true
                     } label: {
                         Text("刷新")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
                 } label: {
-                    Text("刷新全部 favicon")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("刷新全部 favicon")
+                        Text("重新下载所有书签的网站图标，此操作不可撤销。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 menuLimitStepper("常用数量", desc: "菜单栏「常用」分组最多显示的书签数量。", value: $menuFrequentGroupLimit)
@@ -1003,15 +1055,26 @@ struct BookmarkManagerView: View {
                 }
 
                 if windowTransparencyEnabled {
-                    Slider(value: $windowSeeThrough, in: 0...0.5, step: 0.05) {
-                        Text("透明度")
-                    } minimumValueLabel: {
-                        Text("0%")
-                    } maximumValueLabel: {
-                        Text("50%")
+                    Toggle(isOn: customTransparencyBinding) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("自定义透明度")
+                            Text("开启后可手动调整窗口透明度。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
-                    LabeledContent("当前透明度", value: "\(Int(windowSeeThrough * 100))%")
+                    if customTransparencyEnabled {
+                        Slider(value: $windowSeeThrough, in: 0...0.5, step: 0.05) {
+                            Text("透明度")
+                        } minimumValueLabel: {
+                            Text("0%")
+                        } maximumValueLabel: {
+                            Text("50%")
+                        }
+
+                        LabeledContent("当前透明度", value: "\(Int(windowSeeThrough * 100))%")
+                    }
                 }
             }
         }
@@ -1115,13 +1178,17 @@ struct BookmarkManagerView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-
-                Button {
-                    saveLLMConfig()
-                } label: {
-                    Text("保存配置")
-                }
             }
+
+            Button {
+                saveLLMConfig()
+            } label: {
+                Text("保存配置")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.horizontal)
         }
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
@@ -1632,5 +1699,89 @@ private struct BookmarkEditor: View {
             lastFetchedURL = urlSnapshot
             isFetchingTitle = false
         }
+    }
+}
+
+// MARK: - Hidden Bookmarks Locking
+
+private struct HiddenBookmarksLockingModifier: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+    @Binding var settingsPage: BookmarkManagerView.SettingsPage
+    @Binding var hiddenBookmarksUnlocked: Bool
+    @Binding var showHiddenBookmarksPage: Bool
+    @Binding var selection: Set<Bookmark.ID>
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: settingsPage) { oldPage, newPage in
+                if oldPage == .hiddenBookmarks, newPage != .hiddenBookmarks {
+                    hiddenBookmarksUnlocked = false
+                }
+                selection.removeAll()
+            }
+            .onChange(of: showHiddenBookmarksPage) { _, isShowing in
+                if !isShowing, settingsPage == .hiddenBookmarks {
+                    lockHiddenBookmarks()
+                }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase != .active, settingsPage == .hiddenBookmarks {
+                    lockHiddenBookmarks()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+                if settingsPage == .hiddenBookmarks {
+                    lockHiddenBookmarks()
+                }
+            }
+    }
+
+    private func lockHiddenBookmarks() {
+        settingsPage = .bookmarks
+        hiddenBookmarksUnlocked = false
+        selection.removeAll()
+    }
+}
+
+// MARK: - Extra Alerts (split out to keep the main body type-checkable)
+
+private struct ExtraAlerts: ViewModifier {
+    let refreshAllFaviconAlertBinding: Binding<Bool>
+    @Binding var refreshAllFaviconConfirmation: Bool
+    let refreshAllFavicons: () -> Void
+    let customTransparencyAlertBinding: Binding<Bool>
+    @Binding var showCustomTransparencyAlert: Bool
+    @Binding var customTransparencyEnabled: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .alert(
+                "刷新全部 favicon?",
+                isPresented: refreshAllFaviconAlertBinding
+            ) {
+                Button("取消", role: .cancel) {
+                    refreshAllFaviconConfirmation = false
+                }
+                Button("刷新", role: .destructive) {
+                    refreshAllFavicons()
+                    refreshAllFaviconConfirmation = false
+                }
+            } message: {
+                Text("将清除所有已缓存的网站图标并重新下载，此操作不可撤销。")
+            }
+            .alert(
+                "开启自定义透明度?",
+                isPresented: customTransparencyAlertBinding
+            ) {
+                Button("取消", role: .cancel) {
+                    showCustomTransparencyAlert = false
+                }
+                Button("确定") {
+                    customTransparencyEnabled = true
+                    showCustomTransparencyAlert = false
+                }
+            } message: {
+                Text("你确定吗？开启自定义透明度可能会大幅降低可读性。")
+            }
     }
 }

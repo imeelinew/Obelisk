@@ -7,15 +7,15 @@
       "layers" : [
         {
           "blend-mode" : "normal",
-          "glass" : false,
+          "glass" : true,
           "image-name" : "pyramid.fill.svg",
           "name" : "pyramid.fill",
           "opacity" : 1,
           "position" : {
-            "scale" : 22,
+            "scale" : 24,
             "translation-in-points" : [
-              3.974424442146301,
-              -13.75
+              4.3357357550685265,
+              -15
             ]
           }
         }

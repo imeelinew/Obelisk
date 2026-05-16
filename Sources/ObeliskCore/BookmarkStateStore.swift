@@ -96,10 +96,7 @@ public final class BookmarkStateStore {
             logicalName: "bookmark_state.json"
         )
         guard
-            let data = try? secureCodec.readData(
-                from: url,
-                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
-            ),
+            let data = try? secureCodec.readData(from: url),
             let state = try? decoder.decode(BookmarkStateDatabase.self, from: data)
         else {
             let empty = BookmarkStateDatabase()
@@ -120,14 +117,10 @@ public final class BookmarkStateStore {
         try secureCodec.writeData(
             data,
             to: fileURL,
-            encrypted: LocalJSONEncryption.isEnabled,
-            coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            encrypted: LocalJSONEncryption.isEnabled
         )
         for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmark_state.json") {
-            try? CoordinatedFileAccess.removeItem(
-                at: staleURL,
-                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
-            )
+            try? LocalFileAccess.removeItem(at: staleURL)
         }
         cachedState = state
     }

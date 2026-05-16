@@ -6,6 +6,7 @@ import Foundation
 import Observation
 import ObeliskCore
 import os
+import SwiftUI
 import UserNotifications
 
 private let faviconLog = Logger(subsystem: "local.elidev.Obelisk", category: "Favicon")
@@ -43,20 +44,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return loader
     }()
     private let notificationCenter = UNUserNotificationCenter.current()
-    private var notificationAuthorized = false
     private var pendingOptimizationTask: Task<Void, Never>?
     private var silentAddEnabled: Bool {
         UserDefaults.standard.bool(forKey: "silentAddEnabled")
     }
+    private var notificationStyle: String {
+        UserDefaults.standard.string(forKey: "notificationStyle") ?? "system"
+    }
     private var autoOptimizeNewBookmarks: Bool {
         UserDefaults.standard.bool(forKey: "autoOptimizeNewBookmarks")
     }
+    private var notificationPopover: NSPopover?
+    private var notificationDismissWorkItem: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         installMainMenu()
         configureStatusItem()
         clearLegacySpotlightIndex()
+        clearLegacyICloudDefaults()
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
         }
@@ -65,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registerGlobalHotkey()
         rebuildMenu()
         requestNotificationAuthorization()
+        setupNotificationPopover()
     }
 
     /// Wave 5: ⌥B from anywhere → fetch the frontmost browser's current
@@ -110,26 +117,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleSilentAdd(url: String?, title: String?, isHidden: Bool) {
         guard let url, !url.isEmpty else {
-            postBookmarkNotification(
+            notifyUser(
                 title: "无法添加书签",
-                body: "当前浏览器标签无有效网址"
+                body: "当前浏览器标签无有效网址",
+                kind: .error
             )
             return
         }
 
         let resolvedTitle = (title?.isEmpty == false) ? title! : url
         if let error = bookmarksModel.add(title: resolvedTitle, url: url, isHidden: isHidden) {
-            postBookmarkNotification(
+            notifyUser(
                 title: "添加失败",
-                body: error
+                body: error,
+                kind: .error
             )
             return
         }
 
         let bookmarkType = isHidden ? "隐藏书签" : "书签"
-        postBookmarkNotification(
+        notifyUser(
             title: "已添加\(bookmarkType)",
-            body: resolvedTitle
+            body: resolvedTitle,
+            kind: isHidden ? .hidden : .success
         )
 
         if autoOptimizeNewBookmarks {
@@ -139,21 +149,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     scope: isHidden ? .hidden : .visible
                 )
                 if let message {
-                    self?.postBookmarkNotification(
+                    self?.notifyUser(
                         title: "标题优化完成",
-                        body: message
+                        body: message,
+                        kind: .success
                     )
                 }
             }
         }
     }
 
+    // MARK: - Unified notification dispatch
+
+    /// Routes the notification to either a menu-bar popover or a system banner
+    /// depending on the user's ``notificationStyle`` preference.  All three
+    /// silent-add outcomes (no URL, add error, add success) go through this
+    /// single entry-point so the two modes stay completely isolated.
+    private func notifyUser(
+        title: String,
+        body: String,
+        kind: BookmarkAddedNotificationView.Kind
+    ) {
+        if notificationStyle == "popover" {
+            // Cancel any currently displayed popover first so rapid
+            // successive adds show the latest one.
+            notificationDismissWorkItem?.cancel()
+            notificationPopover?.close()
+            showMenuBarPopover(title: title, subtitle: body, kind: kind)
+        } else {
+            postBookmarkNotification(title: title, body: body)
+        }
+    }
+
+    // MARK: - Menu bar popover notification
+
+    private func setupNotificationPopover() {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        notificationPopover = popover
+    }
+
+    private func showMenuBarPopover(
+        title: String,
+        subtitle: String,
+        kind: BookmarkAddedNotificationView.Kind
+    ) {
+        guard let button = statusItem.button else { return }
+
+        let contentView = BookmarkAddedNotificationView(
+            title: title,
+            subtitle: subtitle,
+            kind: kind
+        )
+
+        let hosting = NSHostingController(rootView: contentView)
+        // Force layout so the popover knows its exact content size before we
+        // call show().  Without this the popover's arrow points at the button
+        // but the body is positioned far below it.
+        hosting.view.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
+        hosting.view.layoutSubtreeIfNeeded()
+        let fitted = hosting.view.fittingSize
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = hosting
+        popover.contentSize = NSSize(width: 280, height: fitted.height)
+        notificationPopover = popover
+
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Give the popover window a moment to appear so .makeKey() resolves
+        // against a real window.
+        DispatchQueue.main.async {
+            popover.contentViewController?.view.window?.makeKey()
+        }
+
+        // Auto-dismiss after 3 seconds
+        let work = DispatchWorkItem { [weak self] in
+            self?.notificationPopover?.close()
+        }
+        notificationDismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+    }
+
     private func requestNotificationAuthorization() {
         notificationCenter.delegate = self
         let options: UNAuthorizationOptions = [.alert, .sound]
-        notificationCenter.requestAuthorization(options: options) { [weak self] granted, error in
+        notificationCenter.requestAuthorization(options: options) { granted, error in
             DispatchQueue.main.async {
-                self?.notificationAuthorized = granted
                 if let error {
                     addLog.error("通知权限请求失败: \(error.localizedDescription)")
                 } else if !granted {
@@ -170,15 +254,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        completionHandler([.banner, .list, .sound])
     }
 
     private func postBookmarkNotification(title: String, body: String) {
-        guard notificationAuthorized else { return }
+        notificationCenter.getNotificationSettings { [weak self] settings in
+            let authorizationStatus = settings.authorizationStatus
+            DispatchQueue.main.async {
+                self?.postBookmarkNotification(title: title, body: body, authorizationStatus: authorizationStatus)
+            }
+        }
+    }
+
+    private func postBookmarkNotification(
+        title: String,
+        body: String,
+        authorizationStatus: UNAuthorizationStatus
+    ) {
+        switch authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            scheduleBookmarkNotification(title: title, body: body)
+        case .notDetermined:
+            notificationCenter.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
+                DispatchQueue.main.async {
+                    if let error {
+                        addLog.error("通知权限请求失败: \(error.localizedDescription)")
+                    }
+
+                    if granted {
+                        self?.scheduleBookmarkNotification(title: title, body: body)
+                    } else {
+                        addLog.warning("用户未授权通知权限，无法显示通知: \(title)")
+                    }
+                }
+            }
+        case .denied:
+            addLog.warning("系统通知权限已关闭，无法显示通知: \(title)")
+        @unknown default:
+            addLog.warning("未知通知授权状态，无法显示通知: \(title)")
+        }
+    }
+
+    private func scheduleBookmarkNotification(title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        content.interruptionLevel = .active
+        content.threadIdentifier = "bookmark-add"
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
@@ -236,6 +359,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ]) { _ in }
     }
 
+    private func clearLegacyICloudDefaults() {
+        UserDefaults.standard.removeObject(forKey: "syncWithICloudDrive")
+        UserDefaults.standard.removeObject(forKey: "iCloudDocumentSyncRootPath")
+    }
+
     private func startBookmarkWatcher() {
         bookmarkWatcher = BookmarkFileWatcher(fileURL: store.fileURL) { [weak self] in
             // model.reload fires onChange → menubar rebuild via the callback
@@ -255,13 +383,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func normalizeActiveStorageRoot() {
         let rootDirectory = store.rootDirectory
         let encrypted = LocalJSONEncryption.isEnabled
-        let iCloudRoot = ICloudDocumentSync.cachedRootDirectory()
         Task.detached(priority: .utility) {
             try? ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
-            if let iCloudRoot,
-               iCloudRoot.standardizedFileURL != rootDirectory.standardizedFileURL {
-                try? ObeliskStorageMigrator.normalizeStorage(in: iCloudRoot, encrypted: encrypted)
-            }
             await MainActor.run { [weak self] in
                 self?.bookmarksModel.invalidateStorageCaches()
                 self?.faviconLoader.reloadStorage()
@@ -303,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // `model.others` is already deduped (excludes frequent/recent).
             // Showing the full list here was duplicating items in the
             // dropdown — match the manage window's "everything once" behavior.
-            let others = bookmarksModel.others
+            let others = BookmarkListSortMode.stored.sorted(bookmarksModel.others)
 
             if !frequent.isEmpty {
                 appendSection(title: "常用", bookmarks: frequent, to: menu)
@@ -312,8 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 appendSection(title: "最近添加", bookmarks: recent, to: menu)
             }
             if !others.isEmpty {
-                let needsHeader = !frequent.isEmpty || !recent.isEmpty
-                appendSection(title: needsHeader ? "全部" : "", bookmarks: others, to: menu)
+                appendBookmarkSubmenu(title: "全部", bookmarks: others, to: menu)
             }
         }
 
@@ -321,6 +443,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let manageItem = NSMenuItem(title: "设置", action: #selector(openManager), keyEquivalent: "")
         menu.addItem(manageItem)
         let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "")
+        quitItem.attributedTitle = NSAttributedString(
+            string: "退出",
+            attributes: [
+                .font: NSFont.menuFont(ofSize: 0),
+                .foregroundColor: NSColor.systemRed
+            ]
+        )
         menu.addItem(quitItem)
 
         statusItem.menu = menu
@@ -338,6 +467,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func appendBookmarkSubmenu(title: String, bookmarks: [Bookmark], to menu: NSMenu) {
+        if menu.items.last != nil {
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        let item = NSMenuItem(title: "\(title) (\(bookmarks.count))", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: title)
+        submenu.autoenablesItems = false
+        for bookmark in bookmarks {
+            submenu.addItem(menuItem(for: bookmark))
+        }
+        item.submenu = submenu
+        menu.addItem(item)
+    }
+
     private func menuItem(for bookmark: Bookmark) -> NSMenuItem {
         let item = NSMenuItem(
             title: truncatedTitle(bookmark.title),
@@ -346,7 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         item.representedObject = bookmark
         item.toolTip = "\(bookmark.title)\n\(bookmark.url)"
-        item.image = faviconLoader.image(for: bookmark.url) ?? AppIcon.image(size: NSSize(width: 16, height: 16))
+        item.image = faviconLoader.image(for: bookmark.url) ?? AppIcon.faviconPlaceholder(size: NSSize(width: 16, height: 16))
         return item
     }
 
@@ -429,7 +573,6 @@ final class FaviconLoader {
     @ObservationIgnored private var rootDirectory: URL
     @ObservationIgnored private let secureCodec = SecureJSONFileCodec()
     @ObservationIgnored private var inFlight: Set<String> = []
-    @ObservationIgnored private var diskInFlight: Set<String> = []
     @ObservationIgnored private var index: [String: FaviconRecord] = [:]
     @ObservationIgnored private let imageCache = NSCache<NSString, NSImage>()
     @ObservationIgnored private let session: URLSession
@@ -498,16 +641,6 @@ final class FaviconLoader {
             return copy
         }
 
-        if ICloudDocumentSync.isEnabled {
-            loadCachedIconIfNeeded(key: key, fileURL: fileURL)
-            if record == nil || (record?.success == true && now.timeIntervalSince(record?.fetchedAt ?? .distantPast) > positiveTTL) {
-                fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
-            } else if let record, !record.success, now.timeIntervalSince(record.fetchedAt) >= negativeTTL {
-                fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
-            }
-            return nil
-        }
-
         if let image = imageFromCache(at: fileURL) {
             // Copy before mutating size; the underlying NSImage may be cached
             // and shared, and changing size on a shared instance can affect
@@ -541,10 +674,7 @@ final class FaviconLoader {
         }
 
         let fileURL = iconURL(for: key)
-        try? CoordinatedFileAccess.removeItem(
-            at: fileURL,
-            coordinated: shouldCoordinateStorageAccess
-        )
+        try? LocalFileAccess.removeItem(at: fileURL)
         imageCache.removeObject(forKey: key as NSString)
         index.removeValue(forKey: key)
         saveIndex()
@@ -556,7 +686,6 @@ final class FaviconLoader {
     func refreshAll(urlStrings: [String]) {
         clearStorage()
         inFlight.removeAll()
-        diskInFlight.removeAll()
         index.removeAll()
         imageCache.removeAllObjects()
         saveIndex()
@@ -570,7 +699,6 @@ final class FaviconLoader {
 
     func reloadStorage() {
         inFlight.removeAll()
-        diskInFlight.removeAll()
         index.removeAll()
         imageCache.removeAllObjects()
         loadIndex()
@@ -583,25 +711,9 @@ final class FaviconLoader {
         reloadStorage()
     }
 
-    func migrateStorage(toEncrypted isEncrypted: Bool) throws {
-        try ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: isEncrypted)
-        reloadStorage()
-    }
-
-    func normalizeStorageRoot(_ rootDirectory: URL, encrypted: Bool) throws {
-        try ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
-    }
-
-    func migrateStorageRoot(to targetRoot: URL, encrypted: Bool) throws {
-        try ObeliskStorageMigrator.migrateFavicons(from: rootDirectory, to: targetRoot, encrypted: encrypted)
-    }
-
     func clearStorage() {
         for location in faviconStorageLocations() {
-            try? CoordinatedFileAccess.removeItem(
-                at: location.directory,
-                coordinated: shouldCoordinateStorageAccess
-            )
+            try? LocalFileAccess.removeItem(at: location.directory)
         }
         ObeliskStorageMigrator.removeEmptyStorageDirectories(in: rootDirectory)
         imageCache.removeAllObjects()
@@ -637,40 +749,6 @@ final class FaviconLoader {
     private func uniqueFaviconLocations(_ locations: [FaviconStorageLocation]) -> [FaviconStorageLocation] {
         var seen = Set<String>()
         return locations.filter { seen.insert($0.directory.standardizedFileURL.path).inserted }
-    }
-
-    private var shouldCoordinateStorageAccess: Bool {
-        ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
-    }
-
-    private func loadCachedIconIfNeeded(key: String, fileURL: URL) {
-        guard !diskInFlight.contains(key) else {
-            return
-        }
-        diskInFlight.insert(key)
-        let encrypted = LocalJSONEncryption.isEnabled
-        let coordinated = shouldCoordinateStorageAccess
-
-        Task.detached(priority: .utility) {
-            let data: Data?
-            if encrypted {
-                data = try? SecureJSONFileCodec().readData(from: fileURL, coordinated: coordinated)
-            } else {
-                data = try? CoordinatedFileAccess.readData(from: fileURL, coordinated: coordinated)
-            }
-
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                defer { self.diskInFlight.remove(key) }
-                guard let data, let image = NSImage(data: data) else {
-                    return
-                }
-                image.size = NSSize(width: 16, height: 16)
-                self.imageCache.setObject(image, forKey: key as NSString)
-                self.version &+= 1
-                self.onIconLoaded?()
-            }
-        }
     }
 
     private func fetchIfNeeded(pageURL: URL, key: String, fileURL: URL) {
@@ -973,9 +1051,9 @@ final class FaviconLoader {
 
     private func readCacheData(from url: URL, encrypted: Bool) throws -> Data {
         if encrypted {
-            return try secureCodec.readData(from: url, coordinated: shouldCoordinateStorageAccess)
+            return try secureCodec.readData(from: url)
         }
-        return try CoordinatedFileAccess.readData(from: url, coordinated: shouldCoordinateStorageAccess)
+        return try LocalFileAccess.readData(from: url)
     }
 
     private func writeCacheData(_ data: Data, to url: URL) throws {
@@ -987,15 +1065,10 @@ final class FaviconLoader {
             try secureCodec.writeData(
                 data,
                 to: url,
-                encrypted: true,
-                coordinated: shouldCoordinateStorageAccess
+                encrypted: true
             )
         } else {
-            try CoordinatedFileAccess.writeData(
-                data,
-                to: url,
-                coordinated: shouldCoordinateStorageAccess
-            )
+            try LocalFileAccess.writeData(data, to: url)
         }
     }
 }

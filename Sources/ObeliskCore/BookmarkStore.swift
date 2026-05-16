@@ -112,10 +112,6 @@ public final class BookmarkStore {
             return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
         }
 
-        if ICloudDocumentSync.isEnabled, let cachedRoot = ICloudDocumentSync.cachedRootDirectory() {
-            return cachedRoot
-        }
-
         return defaultLocalRootDirectory()
     }
 
@@ -151,10 +147,7 @@ public final class BookmarkStore {
             rootDirectory: rootDirectory,
             logicalName: "bookmarks.json"
         )
-        let data = try secureCodec.readData(
-            from: url,
-            coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
-        )
+        let data = try secureCodec.readData(from: url)
         var database = try decoder.decode(BookmarkDatabase.self, from: data)
         database.bookmarks = try applyStoredState(to: database.bookmarks)
         cachedDatabase = database
@@ -172,14 +165,10 @@ public final class BookmarkStore {
         try secureCodec.writeData(
             data,
             to: fileURL,
-            encrypted: LocalJSONEncryption.isEnabled,
-            coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
+            encrypted: LocalJSONEncryption.isEnabled
         )
         for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmarks.json") {
-            try? CoordinatedFileAccess.removeItem(
-                at: staleURL,
-                coordinated: ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory)
-            )
+            try? LocalFileAccess.removeItem(at: staleURL)
         }
         cachedDatabase = database
     }
@@ -220,20 +209,6 @@ public final class BookmarkStore {
             at: rootDirectory,
             withIntermediateDirectories: true
         )
-        if ICloudDocumentSync.shouldCoordinateAccess(for: rootDirectory) {
-            let lockURL = rootDirectory.appendingPathComponent(".lock")
-            var result: Result<T, Error>?
-            var coordinatorError: NSError?
-            NSFileCoordinator().coordinate(writingItemAt: lockURL, options: [], error: &coordinatorError) { coordinatedURL in
-                try? "".write(to: coordinatedURL, atomically: true, encoding: .utf8)
-                result = Result { try body() }
-            }
-            if let coordinatorError {
-                throw coordinatorError
-            }
-            return try result?.get() ?? body()
-        }
-
         let lockURL = rootDirectory.appendingPathComponent(".lock")
         let fd = open(lockURL.path, O_RDWR | O_CREAT, 0o644)
         guard fd >= 0 else {
@@ -399,6 +374,14 @@ public final class BookmarkStore {
         let originalState = state
         var migrated = false
         let validIds = Set(bookmarks.map(\.id))
+
+        let hasStoredState = !state.hiddenIds.isEmpty
+            || !state.manualArchivedIds.isEmpty
+            || !state.titleOptimizedIds.isEmpty
+            || !state.createdAtById.isEmpty
+        if bookmarks.isEmpty, hasStoredState {
+            return bookmarks
+        }
 
         state.hiddenIds.formIntersection(validIds)
         state.manualArchivedIds.formIntersection(validIds)

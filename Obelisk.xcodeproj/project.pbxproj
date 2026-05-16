@@ -11,18 +11,19 @@
 		29430B474D2021236E39C5B6 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB09315943C6C56FCB7A793A /* main.swift */; };
 		2DA2C21C83FBACA830864B67 /* TitleOptimizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31233297A8D2386A1F929D7F /* TitleOptimizer.swift */; };
 		35A49D7E1E4BA0D5C05F2B19 /* AuthenticationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55D0F34E6E67028C35A70B5D /* AuthenticationGate.swift */; };
+		3C986430AB6A2A827D5AAD9E /* BookmarkStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D8969BFAA1A20CD5240295 /* BookmarkStateStore.swift */; };
 		3D8BE9863F31799DD0174C53 /* PageMetadataFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55F4E0731D7BAB6D39F8D61 /* PageMetadataFetcher.swift */; };
 		44FB0B5319D7A87100CC244E /* SecureJSONFileCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13BF6BEA31C69C194EDA4180 /* SecureJSONFileCodec.swift */; };
 		4C17639E6CE2D3108F402D20 /* PyramidSymbol.svg in Resources */ = {isa = PBXBuildFile; fileRef = 509681F27287617F51AB50DC /* PyramidSymbol.svg */; };
 		771606029FB280130260F1C8 /* NativeBookmarkList.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD5F0031058AF63B53049181 /* NativeBookmarkList.swift */; };
 		7F72D620794E7727556B6BFC /* UsageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A642D47CFF35F328C86BED2B /* UsageStore.swift */; };
+		7F9A38863A44384707957141 /* MenuBarNotificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD99CC8CA130C92110FF806E /* MenuBarNotificationView.swift */; };
 		830A2AA9D51B1E36D8551F7E /* AppIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = A32175D6A09B92D80CF46B87 /* AppIcon.png */; };
 		87E662B5561A17DDE273F461 /* PrivateBrowserOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7883CADDF47E95D1FA961B47 /* PrivateBrowserOpener.swift */; };
 		8F061F1444FA7333BC46397E /* AppIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8805964E6F01487D002B1FE3 /* AppIcon.swift */; };
 		962F0013D845889CDC6A26F2 /* ObeliskCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E9B2656A61B0F23E53BD6D70 /* ObeliskCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A74501105840674C661E0B13 /* ObeliskCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E9B2656A61B0F23E53BD6D70 /* ObeliskCore.framework */; };
 		AFCE89519C3E4744F51A11D5 /* BookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81B98BA1E065F67B8414BCD /* BookmarkStore.swift */; };
-		B15A96E8018C40B28C9B8F42 /* BookmarkStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72F1C6F597447F5811E62A9 /* BookmarkStateStore.swift */; };
 		B8DB4FE676810AFB3585F890 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CC8876E008266E41A7330CC /* main.swift */; };
 		C9A817D49E2C8983E4FBD7B3 /* BrowserCurrentTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346F0EEB8995B190628E3B68 /* BrowserCurrentTab.swift */; };
 		E15A370CFBEEA27E66CFF7B5 /* GlobalHotkey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A91EEA47F03FC60C485210 /* GlobalHotkey.swift */; };
@@ -67,6 +68,7 @@
 
 /* Begin PBXFileReference section */
 		13BF6BEA31C69C194EDA4180 /* SecureJSONFileCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureJSONFileCodec.swift; sourceTree = "<group>"; };
+		15D8969BFAA1A20CD5240295 /* BookmarkStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStateStore.swift; sourceTree = "<group>"; };
 		184B59D343DAE49912B8DD92 /* ObeliskSmokeTests */ = {isa = PBXFileReference; includeInIndex = 0; path = ObeliskSmokeTests; sourceTree = BUILT_PRODUCTS_DIR; };
 		2CC8876E008266E41A7330CC /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		31233297A8D2386A1F929D7F /* TitleOptimizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleOptimizer.swift; sourceTree = "<group>"; };
@@ -83,7 +85,6 @@
 		A642D47CFF35F328C86BED2B /* UsageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageStore.swift; sourceTree = "<group>"; };
 		AB09315943C6C56FCB7A793A /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		B81B98BA1E065F67B8414BCD /* BookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStore.swift; sourceTree = "<group>"; };
-		C72F1C6F597447F5811E62A9 /* BookmarkStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStateStore.swift; sourceTree = "<group>"; };
 		C8A91EEA47F03FC60C485210 /* GlobalHotkey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkey.swift; sourceTree = "<group>"; };
 		DD5F0031058AF63B53049181 /* NativeBookmarkList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBookmarkList.swift; sourceTree = "<group>"; };
 		E9B2656A61B0F23E53BD6D70 /* ObeliskCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = ObeliskCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -91,6 +92,7 @@
 		EFCCD6597CAB4CB8D8606556 /* BookmarkManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkManagerView.swift; sourceTree = "<group>"; };
 		EFFDB0B95F6B7A6291239186 /* BookmarkManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkManagerWindowController.swift; sourceTree = "<group>"; };
 		F55F4E0731D7BAB6D39F8D61 /* PageMetadataFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageMetadataFetcher.swift; sourceTree = "<group>"; };
+		FD99CC8CA130C92110FF806E /* MenuBarNotificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarNotificationView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -136,8 +138,8 @@
 		96D3B815FB771615CCBA6FA8 /* ObeliskCore */ = {
 			isa = PBXGroup;
 			children = (
+				15D8969BFAA1A20CD5240295 /* BookmarkStateStore.swift */,
 				B81B98BA1E065F67B8414BCD /* BookmarkStore.swift */,
-				C72F1C6F597447F5811E62A9 /* BookmarkStateStore.swift */,
 				13BF6BEA31C69C194EDA4180 /* SecureJSONFileCodec.swift */,
 				A642D47CFF35F328C86BED2B /* UsageStore.swift */,
 			);
@@ -184,6 +186,7 @@
 				346F0EEB8995B190628E3B68 /* BrowserCurrentTab.swift */,
 				C8A91EEA47F03FC60C485210 /* GlobalHotkey.swift */,
 				AB09315943C6C56FCB7A793A /* main.swift */,
+				FD99CC8CA130C92110FF806E /* MenuBarNotificationView.swift */,
 				DD5F0031058AF63B53049181 /* NativeBookmarkList.swift */,
 				F55F4E0731D7BAB6D39F8D61 /* PageMetadataFetcher.swift */,
 				7883CADDF47E95D1FA961B47 /* PrivateBrowserOpener.swift */,
@@ -317,6 +320,7 @@
 				E7F90CBBD4A1F4169AF7EDEC /* BookmarksModel.swift in Sources */,
 				C9A817D49E2C8983E4FBD7B3 /* BrowserCurrentTab.swift in Sources */,
 				E15A370CFBEEA27E66CFF7B5 /* GlobalHotkey.swift in Sources */,
+				7F9A38863A44384707957141 /* MenuBarNotificationView.swift in Sources */,
 				771606029FB280130260F1C8 /* NativeBookmarkList.swift in Sources */,
 				3D8BE9863F31799DD0174C53 /* PageMetadataFetcher.swift in Sources */,
 				87E662B5561A17DDE273F461 /* PrivateBrowserOpener.swift in Sources */,
@@ -330,8 +334,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3C986430AB6A2A827D5AAD9E /* BookmarkStateStore.swift in Sources */,
 				AFCE89519C3E4744F51A11D5 /* BookmarkStore.swift in Sources */,
-				B15A96E8018C40B28C9B8F42 /* BookmarkStateStore.swift in Sources */,
 				44FB0B5319D7A87100CC244E /* SecureJSONFileCodec.swift in Sources */,
 				7F72D620794E7727556B6BFC /* UsageStore.swift in Sources */,
 			);

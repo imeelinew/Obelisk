@@ -12,15 +12,19 @@ struct SmokeTests {
         try testHiddenBookmarkPersistence()
         try testArchivePersistence()
         try testStateCleanupOnDelete()
+        try testEmptyBookmarkLoadDoesNotEraseExistingState()
         try testUsageStoreCacheInvalidation()
         try testBookmarkStoreCacheInvalidation()
         try testStorageNormalizeMigratesSingleStaleJSONFile()
         try testStorageNormalizeRemovesDuplicateJSONFile()
+        try testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists()
+        try testStorageNormalizeAllowsIntentionalEmptyBookmarkDatabase()
         try testStorageNormalizeMigratesLegacyRootJSONFile()
+        try testStorageNormalizeMigratesLegacyPrivateDataBackup()
         try testPlaintextStorageUsesDataDirectory()
         try testStorageNormalizeRemovesEmptyLegacyDirectories()
-        try testStorageNormalizeDecryptsMixedICloudLikeFaviconState()
-        try testStorageNormalizeEncryptsMixedICloudLikeFaviconState()
+        try testStorageNormalizeDecryptsMixedFaviconState()
+        try testStorageNormalizeEncryptsMixedFaviconState()
         try testStorageNormalizeDecryptsMixedJSONAndFaviconState()
         try testStorageNormalizeEncryptsMixedJSONAndFaviconState()
         try testHiddenDuplicateProtection()
@@ -29,6 +33,7 @@ struct SmokeTests {
         try testUsageGroupingFilters()
         try testEncryptedBookmarkStoreRoundTrip()
         try testEncryptedBookmarkStateStoreRoundTrip()
+        try testEncryptionNormalizationPreservesBookmarksStateAndUsage()
         print("Obelisk smoke tests passed")
     }
 
@@ -231,6 +236,38 @@ struct SmokeTests {
         try expect(state.createdAtById[bookmark.id] == nil, "expected delete to clean createdAt state")
     }
 
+    private static func testEmptyBookmarkLoadDoesNotEraseExistingState() throws {
+        let root = try temporaryDirectory()
+        let id = try expectUUID("00000000-0000-0000-0000-000000000202")
+        let bookmarkURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try FileManager.default.createDirectory(
+            at: bookmarkURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {
+          "version": 1,
+          "bookmarks": []
+        }
+        """.write(to: bookmarkURL, atomically: true, encoding: .utf8)
+
+        try BookmarkStateStore(rootDirectory: root).save(
+            BookmarkStateDatabase(
+                hiddenIds: [id],
+                manualArchivedIds: [],
+                createdAtById: [id: Date(timeIntervalSince1970: 100)],
+                titleOptimizedIds: [id]
+            )
+        )
+
+        let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
+        let state = BookmarkStateStore(rootDirectory: root).load()
+        try expect(loaded.isEmpty, "expected empty bookmark file to load as empty")
+        try expect(state.hiddenIds == [id], "expected empty bookmark load not to erase hidden state")
+        try expect(state.createdAtById[id] == Date(timeIntervalSince1970: 100), "expected empty bookmark load not to erase createdAt state")
+        try expect(state.titleOptimizedIds == [id], "expected empty bookmark load not to erase title state")
+    }
+
     private static func testUsageStoreCacheInvalidation() throws {
         let root = try temporaryDirectory()
         let store = UsageStore(rootDirectory: root)
@@ -381,6 +418,84 @@ struct SmokeTests {
         try expect(UsageStore(rootDirectory: root).record(for: id)?.count == 7, "expected newest duplicate usage to win")
     }
 
+    private static func testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        let privateURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try FileManager.default.createDirectory(
+            at: legacyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {
+          "version": 1,
+          "bookmarks": [
+            {
+              "id": "00000000-0000-0000-0000-000000000306",
+              "title": "Real Bookmark",
+              "url": "https://real-bookmark.example"
+            }
+          ]
+        }
+        """.write(to: legacyURL, atomically: true, encoding: .utf8)
+        try SecureJSONFileCodec().writeData(
+            Data("""
+            {
+              "version": 1,
+              "bookmarks": []
+            }
+            """.utf8),
+            to: privateURL,
+            encrypted: true
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 100)],
+            ofItemAtPath: legacyURL.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 200)],
+            ofItemAtPath: privateURL.path
+        )
+
+        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: true, logicalNames: ["bookmarks.json"])
+
+        LocalJSONEncryption.isEnabled = true
+        try expect(
+            try BookmarkStore(rootDirectory: root).bookmarks().map(\.url) == ["https://real-bookmark.example"],
+            "expected non-empty bookmarks to survive newer empty duplicate during normalization"
+        )
+    }
+
+    private static func testStorageNormalizeAllowsIntentionalEmptyBookmarkDatabase() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try FileManager.default.createDirectory(
+            at: legacyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {
+          "version": 1,
+          "bookmarks": []
+        }
+        """.write(to: legacyURL, atomically: true, encoding: .utf8)
+
+        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: true, logicalNames: ["bookmarks.json"])
+
+        LocalJSONEncryption.isEnabled = true
+        try expect(try BookmarkStore(rootDirectory: root).bookmarks().isEmpty, "expected intentional empty database to stay valid")
+        try expect(
+            FileManager.default.fileExists(atPath: ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json").path),
+            "expected empty database to migrate to encrypted storage"
+        )
+    }
+
     private static func testStorageNormalizeMigratesLegacyRootJSONFile() throws {
         let previous = LocalJSONEncryption.isEnabled
         defer { LocalJSONEncryption.isEnabled = previous }
@@ -414,6 +529,45 @@ struct SmokeTests {
             try BookmarkStore(rootDirectory: root).bookmarks().map(\.url) == ["https://legacy-root.example"],
             "expected migrated Data bookmark to load"
         )
+    }
+
+    private static func testStorageNormalizeMigratesLegacyPrivateDataBackup() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        let bookmark = Bookmark(
+            id: try expectUUID("00000000-0000-0000-0000-000000000307"),
+            title: "Legacy Private",
+            url: "https://legacy-private.example",
+            createdAt: Date(timeIntervalSince1970: 300),
+            titleOptimized: true,
+            isHidden: true
+        )
+        let state = BookmarkStateDatabase(
+            hiddenIds: [bookmark.id],
+            manualArchivedIds: [],
+            createdAtById: [bookmark.id: bookmark.createdAt],
+            titleOptimizedIds: [bookmark.id]
+        )
+        let usage = [
+            bookmark.id.uuidString: UsageRecord(count: 5, lastClickedAt: Date(timeIntervalSince1970: 400))
+        ]
+
+        try writeLegacyPrivateJSON(BookmarkDatabase(bookmarks: [bookmark]), logicalName: "bookmarks.json", root: root)
+        try writeLegacyPrivateJSON(state, logicalName: "bookmark_state.json", root: root)
+        try writeLegacyPrivateJSON(usage, logicalName: "usage.json", root: root)
+
+        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: false, logicalNames: ["bookmarks.json", "bookmark_state.json", "usage.json"])
+
+        LocalJSONEncryption.isEnabled = false
+        let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
+        let loadedState = BookmarkStateStore(rootDirectory: root).load()
+        let loadedUsage = UsageStore(rootDirectory: root).load()
+        try expect(loaded.map(\.id) == [bookmark.id], "expected legacy PrivateData bookmark backup to migrate")
+        try expect(loaded.first?.isHidden == true, "expected migrated legacy PrivateData state to hydrate hidden bookmark")
+        try expect(loadedState.createdAtById[bookmark.id] == bookmark.createdAt, "expected migrated legacy PrivateData createdAt state")
+        try expect(loadedUsage[bookmark.id]?.count == 5, "expected migrated legacy PrivateData usage")
     }
 
     private static func testPlaintextStorageUsesDataDirectory() throws {
@@ -456,7 +610,7 @@ struct SmokeTests {
         try expect(FileManager.default.fileExists(atPath: encryptedData.path), "expected non-empty storage directory to remain")
     }
 
-    private static func testStorageNormalizeDecryptsMixedICloudLikeFaviconState() throws {
+    private static func testStorageNormalizeDecryptsMixedFaviconState() throws {
         let previous = LocalJSONEncryption.isEnabled
         defer { LocalJSONEncryption.isEnabled = previous }
 
@@ -483,7 +637,7 @@ struct SmokeTests {
         try expect(icon == "encrypted-icon", "expected decrypted favicon data")
     }
 
-    private static func testStorageNormalizeEncryptsMixedICloudLikeFaviconState() throws {
+    private static func testStorageNormalizeEncryptsMixedFaviconState() throws {
         let previous = LocalJSONEncryption.isEnabled
         defer { LocalJSONEncryption.isEnabled = previous }
 
@@ -799,6 +953,38 @@ struct SmokeTests {
         try expect(state.createdAtById[bookmark.id] != nil, "expected encrypted state to read createdAt")
     }
 
+    private static func testEncryptionNormalizationPreservesBookmarksStateAndUsage() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        LocalJSONEncryption.isEnabled = false
+        let store = BookmarkStore(rootDirectory: root)
+        let visible = try store.add(title: "Visible Toggle", url: "https://visible-toggle.example")
+        let hidden = try store.add(title: "Hidden Toggle", url: "https://hidden-toggle.example", isHidden: true)
+        _ = try store.applyTitleOptimizations([
+            visible.id: "Visible",
+            hidden.id: "Hidden"
+        ])
+        let usageStore = UsageStore(rootDirectory: root)
+        usageStore.record(id: visible.id)
+        usageStore.record(id: visible.id)
+
+        for encrypted in [true, false, true] {
+            try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: encrypted)
+            LocalJSONEncryption.isEnabled = encrypted
+            let bookmarks = try BookmarkStore(rootDirectory: root).bookmarks()
+            let state = BookmarkStateStore(rootDirectory: root).load()
+            let usage = UsageStore(rootDirectory: root).load()
+
+            try expect(bookmarks.count == 2, "expected encryption normalization to preserve bookmark count")
+            try expect(bookmarks.first { $0.id == hidden.id }?.isHidden == true, "expected encryption normalization to preserve hidden state")
+            try expect(state.createdAtById.count == 2, "expected encryption normalization to preserve createdAt state")
+            try expect(state.titleOptimizedIds == [visible.id, hidden.id], "expected encryption normalization to preserve title state")
+            try expect(usage[visible.id]?.count == 2, "expected encryption normalization to preserve usage count")
+        }
+    }
+
     private static func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObeliskTests")
@@ -818,6 +1004,18 @@ struct SmokeTests {
             throw SmokeTestError.failure("invalid test UUID: \(raw)")
         }
         return id
+    }
+
+    private static func writeLegacyPrivateJSON<T: Encodable>(_ value: T, logicalName: String, root: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(value)
+        try SecureJSONFileCodec().writeData(
+            data,
+            to: ObeliskPrivateStorage.legacyPrivateFileURL(rootDirectory: root, logicalName: logicalName),
+            encrypted: true
+        )
     }
 
     private static func expectBookmarkJSONContainsOnlyCoreFields(_ raw: String) throws {

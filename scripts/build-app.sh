@@ -13,6 +13,11 @@ BUILD="${BUILD:-$(date +%Y%m%d%H%M)}"
 
 cd "$ROOT_DIR"
 
+find_default_codesign_identity() {
+  security find-identity -v -p codesigning \
+    | awk -F '"' '/"Apple Development:/{ print $2; exit }'
+}
+
 # Try universal (arm64 + x86_64); requires full Xcode. Fall back to host arch
 # (good enough for personal use) when only Command Line Tools are installed.
 if swift build -c release --arch arm64 --arch x86_64 --product Obelisk 2>/dev/null; then
@@ -85,12 +90,16 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc sign so macOS Gatekeeper doesn't quarantine on first launch.
-CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
-if [[ "$CODESIGN_IDENTITY" == "-" ]]; then
-  codesign --force --deep --sign - "$APP_DIR"
-else
+# Prefer a stable Apple Development identity for local installs. This keeps the
+# app's designated requirement stable across rebuilds, so Keychain prompts do
+# not reset just because the binary hash changed.
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-$(find_default_codesign_identity)}"
+if [[ -n "$CODESIGN_IDENTITY" && "$CODESIGN_IDENTITY" != "-" ]]; then
+  echo "==> Signing with: $CODESIGN_IDENTITY"
   codesign --force --deep --sign "$CODESIGN_IDENTITY" "$APP_DIR"
+else
+  echo "==> Signing ad-hoc"
+  codesign --force --deep --sign - "$APP_DIR"
 fi
 
 # Verify

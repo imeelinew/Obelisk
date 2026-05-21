@@ -290,6 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "About Obelisk", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: "退出 Obelisk", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
 
@@ -405,9 +407,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(NSMenuItem.separator())
-        let manageItem = NSMenuItem(title: "设置", action: #selector(openManager), keyEquivalent: "")
+        let manageItem = NSMenuItem(title: "设置", action: #selector(openManager), keyEquivalent: ",")
+        manageItem.keyEquivalentModifierMask = [.command]
+        manageItem.target = self
         menu.addItem(manageItem)
-        let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "")
+        let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
+        quitItem.keyEquivalentModifierMask = [.command]
+        quitItem.target = self
         quitItem.attributedTitle = NSAttributedString(
             string: "退出",
             attributes: [

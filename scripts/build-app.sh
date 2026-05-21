@@ -8,7 +8,7 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
-VERSION="${VERSION:-1.2.0}"
+VERSION="${VERSION:-1.2.1}"
 BUILD="${BUILD:-$(date +%Y%m%d%H%M)}"
 
 cd "$ROOT_DIR"
@@ -84,8 +84,6 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <true/>
   <key>NSAppleEventsUsageDescription</key>
   <string>Obelisk uses AppleScript to read the URL and title of the active tab from your frontmost browser when you press the global add-bookmark shortcut (⌥B).</string>
-  <key>NSHumanReadableCopyright</key>
-  <string>Personal build. No warranty.</string>
 </dict>
 </plist>
 PLIST

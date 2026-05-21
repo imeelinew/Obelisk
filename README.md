@@ -5,23 +5,24 @@
 <h1 align="center">Obelisk</h1>
 
 <p align="center">
-  A native macOS bookmark shelf that lives in your menu bar.<br>
-  Fast access, local storage, private lists, and a quiet settings window.
+  一个住在 macOS 菜单栏里的原生书签架。<br>
+  快速打开、本地存储、隐藏书签，以及一个安静的设置窗口。
 </p>
 
 <p align="center">
-  <a href="https://github.com/imeelinew/Obelisk/releases">Download</a> ·
-  <a href="#install">Install</a> ·
-  <a href="#build-from-source">Build from source</a>
+  <a href="https://github.com/imeelinew/Obelisk/releases">下载</a> ·
+  <a href="#安装">安装</a> ·
+  <a href="#从源码构建">从源码构建</a>
 </p>
 
 <p align="center">
-  <a href="README.md">English</a>
-  <a href="README.zh.md">简体中文</a>
+  <a href="README.md">简体中文</a>
+  <a href="README.en.md">English</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/imeelinew/Obelisk/releases/latest"><img src="https://img.shields.io/github/v/release/imeelinew/Obelisk" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-black" alt="macOS 26+">
   <img src="https://img.shields.io/badge/Swift-6-orange" alt="Swift 6">
 </p>
@@ -29,93 +30,93 @@
 ---
 
 <p align="center">
-  <img alt="Obelisk bookmark manager window" src=".github/assets/app.png" width="800">
+  <img alt="Obelisk 书签管理窗口" src=".github/assets/app.png" width="800">
 </p>
 
-## About
+## 关于
 
-Obelisk is a menu bar bookmark manager for people who want bookmarks close at hand without turning the browser into the center of everything.
+Obelisk 是一个菜单栏书签管理器，适合那些希望书签随手可用、但又不想把一切都塞回浏览器的人。
 
-It keeps a small native menu in the macOS menu bar, opens bookmarks quickly, and gives you a full settings window when you need to organize, hide, archive, or clean up titles. Bookmarks are stored locally on disk, with optional local encryption for private data.
+它在 macOS 菜单栏里保留一个很轻的原生菜单，可以快速打开书签；需要整理的时候，再进入完整的设置窗口。书签默认保存在本地磁盘，也可以给隐私数据开启本地加密。
 
-## Why Obelisk
+## 为什么做 Obelisk
 
-Browser bookmarks are usually tied to one browser, buried in sidebars, or mixed with sync accounts you may not want to use. Obelisk keeps the list outside the browser and makes it feel like a small system tool.
+浏览器书签通常和某一个浏览器绑定，藏在侧栏或层层菜单里，也常常和同步账号混在一起。Obelisk 把书签从浏览器里拿出来，让它更像一个小型系统工具。
 
-- **Menu bar first**: open frequent, recent, and full bookmark lists without switching context.
-- **Native settings**: manage bookmarks in a macOS window with search, sections, and familiar toolbar controls.
-- **Private lists**: keep hidden bookmarks behind device-owner authentication.
-- **Local storage**: bookmark data lives under your local Documents folder.
-- **Optional cleanup**: use AI title optimization when you want cleaner bookmark names.
+- **菜单栏优先**：不用切换窗口，就能打开常用、最近添加和完整书签列表。
+- **原生设置窗口**：用 macOS 风格的窗口搜索、整理、隐藏、归档书签。
+- **隐藏书签**：通过设备所有者认证保护敏感书签。
+- **本地存储**：书签数据保存在本机 Documents 目录下。
+- **可选清理**：需要时可以用 AI 优化书签标题。
 
-## Menu Bar
+## 菜单栏
 
 <p align="center">
-  <img alt="Obelisk menu bar dropdown" src=".github/assets/menu.png" width="480">
+  <img alt="Obelisk 菜单栏下拉菜单" src=".github/assets/menu.png" width="480">
 </p>
 
-The menu groups bookmarks by usage and recency, with the full list kept one level away.
+菜单会按使用频率和添加时间组织书签，完整列表放在下一级。
 
-## Quick Add
+## 快速添加
 
 <p align="center">
-  <img alt="Obelisk bookmark added notification" src=".github/assets/notification.png" width="600">
+  <img alt="Obelisk 添加书签提示" src=".github/assets/notification.png" width="600">
 </p>
 
-Use the global add-bookmark shortcut to save the current browser tab. Obelisk reads the frontmost browser's URL and title, then shows a compact confirmation so you know the bookmark landed.
+用全局添加书签快捷键保存当前浏览器标签页。Obelisk 会读取最前方浏览器的 URL 和标题，并用一个轻量提示告诉你书签已经保存。
 
-## What's Inside
+## 功能
 
-- Menu bar bookmark launcher with favicons
-- Full bookmark management window
-- Hidden bookmarks with local authentication
-- Archive view for older or manually archived bookmarks
-- Search, edit, delete, copy URL, and refresh favicon actions
-- Configurable menu limits and window appearance
-- Optional silent add flow
-- Optional local JSON encryption for private storage
-- Optional AI title optimization
+- 带 favicon 的菜单栏书签启动器
+- 完整的书签管理窗口
+- 受本地认证保护的隐藏书签
+- 旧书签和手动归档书签的归档视图
+- 搜索、编辑、删除、复制 URL、刷新 favicon
+- 可配置的菜单数量和窗口外观
+- 可选静默添加流程
+- 可选本地 JSON 加密
+- 可选 AI 标题优化
 
-## Install
+## 安装
 
-Download the latest app from the [Releases page](https://github.com/imeelinew/Obelisk/releases), then move `Obelisk.app` to `/Applications`.
+从 [Releases 页面](https://github.com/imeelinew/Obelisk/releases)下载最新版，把 `Obelisk.app` 放到 `/Applications`。
 
-Obelisk is a menu bar app. After launching it, look for the Obelisk icon in the macOS menu bar.
+Obelisk 是菜单栏应用。启动后，在 macOS 菜单栏里找 Obelisk 图标即可。
 
-## Build from Source
+## 从源码构建
 
-Requirements:
+要求：
 
 - macOS 26+
-- Xcode with the macOS 26 SDK
+- 带 macOS 26 SDK 的 Xcode
 - Swift 6
-- XcodeGen, if you want to regenerate the Xcode project from `project.yml`
+- 如果要从 `project.yml` 重新生成 Xcode 工程，需要 XcodeGen
 
-Build a local app bundle:
+构建本地 app：
 
 ```bash
 scripts/build-app.sh
 ```
 
-The built app is written to:
+构建结果会输出到：
 
 ```text
 .build/dist/Obelisk.app
 ```
 
-For a quick local check:
+本地快速检查：
 
 ```bash
 swift build
 swift run ObeliskSmokeTests
 ```
 
-## Storage
+## 存储
 
-By default, Obelisk stores its local bookmark data under:
+默认情况下，Obelisk 会把本地书签数据保存在：
 
 ```text
 ~/Documents/Obelisk
 ```
 
-The app keeps bookmark data, usage data, bookmark state, and favicons separate so the menu can stay fast while the settings window handles heavier organization work.
+书签数据、使用记录、书签状态和 favicon 会分开保存。这样菜单可以保持轻快，设置窗口则负责更完整的整理工作。

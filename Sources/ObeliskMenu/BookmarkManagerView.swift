@@ -78,7 +78,6 @@ struct BookmarkManagerView: View {
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
     @AppStorage("openHiddenBookmarksIncognito") private var openHiddenBookmarksIncognito = false
     @AppStorage("silentAddEnabled") private var silentAddEnabled = false
-    @AppStorage("notificationStyle") private var notificationStyle = "system"
     @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
     @AppStorage(BookmarkListSortMode.storageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
@@ -1090,26 +1089,13 @@ struct BookmarkManagerView: View {
                 Toggle(isOn: $silentAddEnabled) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("静默添加书签")
-                        Text("按 ⌥B / ⌥H 后直接将当前浏览器标签加入书签，不弹出设置窗口，改为通知提醒。")
+                        Text("按 ⌥B / ⌥H 后直接将当前浏览器标签加入书签，不弹出设置窗口，改为菜单栏提醒。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 if silentAddEnabled {
-                    Picker(selection: $notificationStyle) {
-                        Text("系统通知").tag("system")
-                        Text("菜单栏弹出").tag("popover")
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("通知方式")
-                            Text("选择静默添加后的通知展示方式。")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-
                     Toggle(isOn: $autoOptimizeNewBookmarks) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自动优化新书签标题")
@@ -1178,17 +1164,17 @@ struct BookmarkManagerView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-            }
 
-            Button {
-                saveLLMConfig()
-            } label: {
-                Text("保存配置")
-                    .frame(maxWidth: .infinity)
+                HStack {
+                    Button {
+                        saveLLMConfig()
+                    } label: {
+                        Text("保存配置")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Spacer()
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(.horizontal)
         }
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)

@@ -3,10 +3,11 @@ import SwiftUI
 
 /// Menu bar popover notification shown after a silent bookmark add.
 ///
-/// Three visual styles, all sharing the same layout — distinction is purely
+/// Four visual styles, all sharing the same layout — distinction is purely
 /// through the left-hand icon and its restrained gradient colour:
 /// - **Success** (normal bookmark): green gradient checkmark
 /// - **Hidden** (hidden bookmark): muted gray eye-slash
+/// - **Undo** (reverted add): blue-purple undo arrow
 /// - **Error** (duplicate / no URL / etc.): red gradient x-mark
 @MainActor
 struct BookmarkAddedNotificationView: View {
@@ -17,6 +18,7 @@ struct BookmarkAddedNotificationView: View {
     enum Kind {
         case success
         case hidden
+        case undo
         case error
     }
 
@@ -24,6 +26,7 @@ struct BookmarkAddedNotificationView: View {
         switch kind {
         case .success: "checkmark.circle.fill"
         case .hidden:  "eye.slash.circle.fill"
+        case .undo:    "arrow.uturn.backward.circle.fill"
         case .error:   "xmark.circle.fill"
         }
     }
@@ -46,6 +49,15 @@ struct BookmarkAddedNotificationView: View {
                 colors: [
                     Color.primary.opacity(0.42),
                     Color.primary.opacity(0.28)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        case .undo:
+            LinearGradient(
+                colors: [
+                    Color(red: 0.38, green: 0.48, blue: 0.96),
+                    Color(red: 0.46, green: 0.30, blue: 0.78)
                 ],
                 startPoint: .top,
                 endPoint: .bottom

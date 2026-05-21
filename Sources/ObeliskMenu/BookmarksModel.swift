@@ -122,12 +122,21 @@ final class BookmarksModel {
     /// "取消"), making the alert show at the wrong time. The editor handles
     /// the returned message inline / via its own alert.
     func add(title: String, url: String, isHidden: Bool = false) -> String? {
-        do {
-            try store.add(title: title, url: url, isHidden: isHidden)
-            reload()
+        switch addBookmark(title: title, url: url, isHidden: isHidden) {
+        case .success:
             return nil
-        } catch {
+        case .failure(let error):
             return error.localizedDescription
+        }
+    }
+
+    func addBookmark(title: String, url: String, isHidden: Bool = false) -> Result<Bookmark, Error> {
+        do {
+            let bookmark = try store.add(title: title, url: url, isHidden: isHidden)
+            reload()
+            return .success(bookmark)
+        } catch {
+            return .failure(error)
         }
     }
 
@@ -175,16 +184,20 @@ final class BookmarksModel {
         onChange?()
     }
 
-    func delete(id: UUID) {
+    @discardableResult
+    func delete(id: UUID) -> String? {
         delete(ids: [id])
     }
 
-    func delete(ids: Set<UUID>) {
+    @discardableResult
+    func delete(ids: Set<UUID>) -> String? {
         do {
             try store.delete(ids: ids)
             reload()
+            return nil
         } catch {
             errorMessage = error.localizedDescription
+            return error.localizedDescription
         }
     }
 

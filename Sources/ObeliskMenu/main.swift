@@ -7,14 +7,13 @@ import Observation
 import ObeliskCore
 import os
 import SwiftUI
-import UserNotifications
 
 private let faviconLog = Logger(subsystem: "local.elidev.Obelisk", category: "Favicon")
-private let addLog = Logger(subsystem: "local.elidev.Obelisk", category: "AddBookmark")
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private let maxMenuTitlePixelWidth: CGFloat = 300
+    private let undoWindowSeconds: TimeInterval = 5
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = BookmarkStore()
     private let usageStore = UsageStore()
@@ -43,19 +42,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         return loader
     }()
-    private let notificationCenter = UNUserNotificationCenter.current()
     private var pendingOptimizationTask: Task<Void, Never>?
     private var silentAddEnabled: Bool {
         UserDefaults.standard.bool(forKey: "silentAddEnabled")
-    }
-    private var notificationStyle: String {
-        UserDefaults.standard.string(forKey: "notificationStyle") ?? "system"
     }
     private var autoOptimizeNewBookmarks: Bool {
         UserDefaults.standard.bool(forKey: "autoOptimizeNewBookmarks")
     }
     private var notificationPopover: NSPopover?
     private var notificationDismissWorkItem: DispatchWorkItem?
+    private var pendingUndo: PendingBookmarkUndo?
+    private var pendingUndoExpirationWorkItem: DispatchWorkItem?
+
+    private struct PendingBookmarkUndo {
+        let bookmark: Bookmark
+        let expiresAt: Date
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -70,7 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         normalizeActiveStorageRoot()
         registerGlobalHotkey()
         rebuildMenu()
-        requestNotificationAuthorization()
         setupNotificationPopover()
     }
 
@@ -101,6 +102,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.handleGlobalHotkey(isHidden: true)
         }
 
+        hotkeys.register(
+            keyCode: UInt32(kVK_ANSI_Z),
+            modifiers: UInt32(optionKey),
+            hotKeyID: 3
+        ) { [weak self] in
+            self?.undoLastSilentAdd()
+        }
+
         globalHotkeys = hotkeys
     }
 
@@ -126,16 +135,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let resolvedTitle = (title?.isEmpty == false) ? title! : url
-        if let error = bookmarksModel.add(title: resolvedTitle, url: url, isHidden: isHidden) {
+        let bookmark: Bookmark
+        switch bookmarksModel.addBookmark(title: resolvedTitle, url: url, isHidden: isHidden) {
+        case .success(let addedBookmark):
+            bookmark = addedBookmark
+        case .failure(let error):
             notifyUser(
                 title: "添加失败",
-                body: error,
+                body: error.localizedDescription,
                 kind: .error
             )
             return
         }
 
         let bookmarkType = isHidden ? "隐藏书签" : "书签"
+        armUndo(for: bookmark)
         notifyUser(
             title: "已添加\(bookmarkType)",
             body: resolvedTitle,
@@ -159,26 +173,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    // MARK: - Unified notification dispatch
+    private func armUndo(for bookmark: Bookmark) {
+        pendingUndoExpirationWorkItem?.cancel()
+        pendingUndo = PendingBookmarkUndo(
+            bookmark: bookmark,
+            expiresAt: Date().addingTimeInterval(undoWindowSeconds)
+        )
 
-    /// Routes the notification to either a menu-bar popover or a system banner
-    /// depending on the user's ``notificationStyle`` preference.  All three
-    /// silent-add outcomes (no URL, add error, add success) go through this
-    /// single entry-point so the two modes stay completely isolated.
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingUndo = nil
+            self?.pendingUndoExpirationWorkItem = nil
+        }
+        pendingUndoExpirationWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + undoWindowSeconds, execute: work)
+    }
+
+    private func undoLastSilentAdd() {
+        guard let pendingUndo, Date() <= pendingUndo.expiresAt else {
+            self.pendingUndo = nil
+            pendingUndoExpirationWorkItem?.cancel()
+            pendingUndoExpirationWorkItem = nil
+            return
+        }
+
+        self.pendingUndo = nil
+        pendingUndoExpirationWorkItem?.cancel()
+        pendingUndoExpirationWorkItem = nil
+        pendingOptimizationTask?.cancel()
+
+        if let error = bookmarksModel.delete(id: pendingUndo.bookmark.id) {
+            notifyUser(
+                title: "撤回失败",
+                body: error,
+                kind: .error
+            )
+        } else {
+            notifyUser(
+                title: "已撤回添加",
+                body: pendingUndo.bookmark.title,
+                kind: .undo
+            )
+        }
+    }
+
+    // MARK: - Menu bar notification dispatch
+
     private func notifyUser(
         title: String,
         body: String,
         kind: BookmarkAddedNotificationView.Kind
     ) {
-        if notificationStyle == "popover" {
-            // Cancel any currently displayed popover first so rapid
-            // successive adds show the latest one.
-            notificationDismissWorkItem?.cancel()
-            notificationPopover?.close()
-            showMenuBarPopover(title: title, subtitle: body, kind: kind)
-        } else {
-            postBookmarkNotification(title: title, body: body)
-        }
+        notificationDismissWorkItem?.cancel()
+        notificationPopover?.close()
+        showMenuBarPopover(title: title, subtitle: body, kind: kind)
     }
 
     // MARK: - Menu bar popover notification
@@ -225,94 +272,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             popover.contentViewController?.view.window?.makeKey()
         }
 
-        // Auto-dismiss after 3 seconds
+        // Keep success messages visible for the whole undo window.
         let work = DispatchWorkItem { [weak self] in
             self?.notificationPopover?.close()
         }
         notificationDismissWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
-    }
-
-    private func requestNotificationAuthorization() {
-        notificationCenter.delegate = self
-        let options: UNAuthorizationOptions = [.alert, .sound]
-        notificationCenter.requestAuthorization(options: options) { granted, error in
-            DispatchQueue.main.async {
-                if let error {
-                    addLog.error("通知权限请求失败: \(error.localizedDescription)")
-                } else if !granted {
-                    addLog.warning("用户未授权通知权限")
-                } else {
-                    addLog.info("通知权限已授权")
-                }
-            }
-        }
-    }
-
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        completionHandler([.banner, .list, .sound])
-    }
-
-    private func postBookmarkNotification(title: String, body: String) {
-        notificationCenter.getNotificationSettings { [weak self] settings in
-            let authorizationStatus = settings.authorizationStatus
-            DispatchQueue.main.async {
-                self?.postBookmarkNotification(title: title, body: body, authorizationStatus: authorizationStatus)
-            }
-        }
-    }
-
-    private func postBookmarkNotification(
-        title: String,
-        body: String,
-        authorizationStatus: UNAuthorizationStatus
-    ) {
-        switch authorizationStatus {
-        case .authorized, .provisional, .ephemeral:
-            scheduleBookmarkNotification(title: title, body: body)
-        case .notDetermined:
-            notificationCenter.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
-                DispatchQueue.main.async {
-                    if let error {
-                        addLog.error("通知权限请求失败: \(error.localizedDescription)")
-                    }
-
-                    if granted {
-                        self?.scheduleBookmarkNotification(title: title, body: body)
-                    } else {
-                        addLog.warning("用户未授权通知权限，无法显示通知: \(title)")
-                    }
-                }
-            }
-        case .denied:
-            addLog.warning("系统通知权限已关闭，无法显示通知: \(title)")
-        @unknown default:
-            addLog.warning("未知通知授权状态，无法显示通知: \(title)")
-        }
-    }
-
-    private func scheduleBookmarkNotification(title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        content.interruptionLevel = .active
-        content.threadIdentifier = "bookmark-add"
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-        notificationCenter.add(request) { error in
-            if let error {
-                addLog.error("发送通知失败: \(error.localizedDescription)")
-            }
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + undoWindowSeconds, execute: work)
     }
 
     /// LSUIElement apps get no main menu by default, which means ⌘C/⌘V/⌘X/⌘A

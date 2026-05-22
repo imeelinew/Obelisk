@@ -841,6 +841,7 @@ struct BookmarkManagerView: View {
                 developerOptionsPage
             }
         }
+        .navigationTitle(settingsPage.title)
     }
 
     private var bookmarkManagementPage: some View {

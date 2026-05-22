@@ -39,7 +39,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         )
 
         let win = NSWindow(contentViewController: hosting)
-        win.title = "设置"
+        win.title = BookmarkManagerView.SettingsPage.bookmarks.title
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         win.isReleasedWhenClosed = false
         let contentSize = NSSize(width: 720, height: 600)

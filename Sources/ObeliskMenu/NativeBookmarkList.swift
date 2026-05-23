@@ -46,7 +46,19 @@ struct NativeBookmarkList: NSViewRepresentable {
     var onRevertTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
     fileprivate static let contentInset: CGFloat = 18
     fileprivate static let rowHeight: CGFloat = 50
-    fileprivate static let headerHeight: CGFloat = 24
+    fileprivate static let headerTitleHeight: CGFloat = 18
+    fileprivate static let headerSortSpacing: CGFloat = 6
+    fileprivate static let headerSortControlHeight: CGFloat = 24
+    fileprivate static let headerContentPadding: CGFloat = 4
+    /// NSPopUpButton rounded bezel adds visual inset; nudge left to match title text.
+    fileprivate static let headerSortLeadingInsetAdjustment: CGFloat = -3
+
+    fileprivate static func headerRowHeight(topSpacing: CGFloat, hasSort: Bool) -> CGFloat {
+        let contentHeight = hasSort
+            ? headerTitleHeight + headerSortSpacing + headerSortControlHeight
+            : headerTitleHeight
+        return topSpacing + headerContentPadding + contentHeight + headerContentPadding
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -304,8 +316,8 @@ struct NativeBookmarkList: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row >= 0, row < items.count else { return Self.parentRowHeight }
             switch items[row] {
-            case .header(_, let topSpacing, _, _):
-                return NativeBookmarkList.headerHeight + topSpacing
+            case .header(_, let topSpacing, let sortMode, _):
+                return NativeBookmarkList.headerRowHeight(topSpacing: topSpacing, hasSort: sortMode != nil)
             case .bookmark:
                 return NativeBookmarkList.rowHeight
             }
@@ -704,7 +716,7 @@ private final class BookmarkHeaderCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("BookmarkHeaderCell")
     private let titleField = NSTextField(labelWithString: "")
     private let sortButton = NSPopUpButton(frame: .zero, pullsDown: false)
-    private var titleCenterYConstraint: NSLayoutConstraint?
+    private var titleTopConstraint: NSLayoutConstraint?
 
     init() {
         super.init(frame: .zero)
@@ -719,24 +731,34 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         sortButton.bezelStyle = .rounded
         sortButton.controlSize = .regular
         sortButton.font = .systemFont(ofSize: 12, weight: .medium)
+        sortButton.alignment = .left
         sortButton.setContentHuggingPriority(.required, for: .horizontal)
-        sortButton.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        sortButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        sortButton.heightAnchor.constraint(equalToConstant: NativeBookmarkList.headerSortControlHeight).isActive = true
+        if let cell = sortButton.cell as? NSPopUpButtonCell {
+            cell.alignment = .left
+        }
         sortButton.addItem(withTitle: BookmarkListSortMode.name.title)
         sortButton.addItem(withTitle: BookmarkListSortMode.recentlyAdded.title)
         sortButton.item(at: 0)?.representedObject = BookmarkListSortMode.name.rawValue
         sortButton.item(at: 1)?.representedObject = BookmarkListSortMode.recentlyAdded.rawValue
         addSubview(sortButton)
 
-        titleCenterYConstraint = titleField.centerYAnchor.constraint(
-            equalTo: topAnchor,
-            constant: NativeBookmarkList.headerHeight / 2
-        )
+        titleTopConstraint = titleField.topAnchor.constraint(equalTo: topAnchor)
+        let contentLeading = leadingAnchor
         NSLayoutConstraint.activate([
-            titleCenterYConstraint!,
-            titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
-            sortButton.leadingAnchor.constraint(equalTo: titleField.trailingAnchor, constant: 8),
-            sortButton.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset),
-            sortButton.centerYAnchor.constraint(equalTo: titleField.centerYAnchor)
+            titleTopConstraint!,
+            titleField.leadingAnchor.constraint(equalTo: contentLeading, constant: NativeBookmarkList.contentInset),
+            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset),
+            sortButton.topAnchor.constraint(
+                equalTo: titleField.bottomAnchor,
+                constant: NativeBookmarkList.headerSortSpacing
+            ),
+            sortButton.leadingAnchor.constraint(
+                equalTo: contentLeading,
+                constant: NativeBookmarkList.contentInset + NativeBookmarkList.headerSortLeadingInsetAdjustment
+            ),
+            sortButton.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset)
         ])
     }
 
@@ -753,7 +775,7 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         action: Selector
     ) {
         titleField.stringValue = title
-        titleCenterYConstraint?.constant = topSpacing + NativeBookmarkList.headerHeight / 2
+        titleTopConstraint?.constant = topSpacing + NativeBookmarkList.headerContentPadding
         sortButton.isHidden = sortMode == nil
         sortButton.target = target
         sortButton.action = action

@@ -136,6 +136,7 @@ struct BookmarkManagerView: View {
 
     enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
         case bookmarks
+        case collections
         case hiddenBookmarks
         case archive
         case appearance
@@ -156,7 +157,7 @@ struct BookmarkManagerView: View {
 
         var group: Group {
             switch self {
-            case .bookmarks, .hiddenBookmarks, .archive: return .content
+            case .bookmarks, .collections, .hiddenBookmarks, .archive: return .content
             case .appearance, .shortcuts, .ai:          return .preferences
             case .privacy, .developer:                  return .advanced
             }
@@ -165,6 +166,7 @@ struct BookmarkManagerView: View {
         var title: String {
             switch self {
             case .bookmarks:       return "书签"
+            case .collections:     return "分组"
             case .hiddenBookmarks: return "隐藏书签"
             case .archive:         return "归档"
             case .appearance:      return "外观"
@@ -178,6 +180,7 @@ struct BookmarkManagerView: View {
         var symbolName: String {
             switch self {
             case .bookmarks:       return "bookmark.fill"
+            case .collections:     return "folder.fill"
             case .hiddenBookmarks: return "eye.slash.fill"
             case .archive:         return "archivebox.fill"
             case .appearance:      return "paintpalette.fill"
@@ -199,6 +202,12 @@ struct BookmarkManagerView: View {
             case .ai:
                 return LinearGradient(
                     colors: [Color(red: 0.30, green: 0.68, blue: 1.0), Color(red: 0.08, green: 0.38, blue: 0.86)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .collections:
+                return LinearGradient(
+                    colors: [Color(red: 0.52, green: 0.72, blue: 0.98), Color(red: 0.22, green: 0.48, blue: 0.88)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -254,8 +263,16 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private var ungroupedVisibleBookmarks: [Bookmark] {
+        visibleBookmarks.filter { model.collectionId(for: $0.id) == nil }
+    }
+
     private var filteredBookmarks: [Bookmark] {
-        filtered(visibleBookmarks)
+        filtered(ungroupedVisibleBookmarks)
+    }
+
+    private var groupedVisibleBookmarks: [Bookmark] {
+        visibleBookmarks.filter { model.collectionId(for: $0.id) != nil }
     }
 
     private var visibleBookmarks: [Bookmark] {
@@ -276,17 +293,30 @@ struct BookmarkManagerView: View {
     }
 
     private var bookmarkSections: [BookmarkListSection] {
+        let bookmarks = sorted(filteredBookmarks)
+        guard !bookmarks.isEmpty else { return [] }
+        return [
+            BookmarkListSection(
+                title: "书签",
+                bookmarks: bookmarks,
+                sortMode: bookmarkListSortMode
+            )
+        ]
+    }
+
+    private var collectionBookmarkSections: [BookmarkListSection] {
         var sections: [BookmarkListSection] = []
         var isFirst = true
 
-        for section in model.visibleCollectionSections(from: visibleBookmarks) {
-            let bookmarks = sorted(filtered(section.bookmarks))
-            guard !bookmarks.isEmpty else { continue }
+        for collection in model.collections {
+            let bookmarks = groupedVisibleBookmarks.filter { model.collectionId(for: $0.id) == collection.id }
+            let filteredSorted = sorted(filtered(bookmarks))
             sections.append(
                 BookmarkListSection(
-                    title: section.title,
-                    bookmarks: bookmarks,
-                    sortMode: isFirst ? bookmarkListSortMode : nil
+                    title: collection.name,
+                    bookmarks: filteredSorted,
+                    sortMode: isFirst ? bookmarkListSortMode : nil,
+                    collectionId: collection.id
                 )
             )
             isFirst = false
@@ -465,17 +495,19 @@ struct BookmarkManagerView: View {
         model.setMenuGroupLimits(frequent: menuFrequentGroupLimit, recent: menuRecentGroupLimit)
     }
 
-    private func assignCollection(_ bookmark: Bookmark, collectionId: UUID?) {
-        if let error = model.setBookmarkCollection(bookmarkId: bookmark.id, collectionId: collectionId) {
+    private func assignCollection(bookmarkIds: Set<Bookmark.ID>, collectionId: UUID?) {
+        guard !bookmarkIds.isEmpty else { return }
+        if let error = model.setBookmarkCollection(bookmarkIds: bookmarkIds, collectionId: collectionId) {
             showToast(error, kind: .error)
+            return
+        }
+        if bookmarkIds.count > 1 {
+            showToast("已移动 \(bookmarkIds.count) 个书签")
         }
     }
 
     private func assignCollectionToSelection(collectionId: UUID?) {
-        guard !selection.isEmpty else { return }
-        if let error = model.setBookmarkCollection(bookmarkIds: selection, collectionId: collectionId) {
-            showToast(error, kind: .error)
-        }
+        assignCollection(bookmarkIds: selection, collectionId: collectionId)
     }
 
     private func createCollection() {
@@ -506,6 +538,17 @@ struct BookmarkManagerView: View {
             collectionToDelete = nil
             showToast("已删除分组")
         }
+    }
+
+    private func beginRenameCollection(id: UUID) {
+        guard let collection = model.collections.first(where: { $0.id == id }) else { return }
+        collectionToRename = collection
+        renameCollectionName = collection.name
+    }
+
+    private func beginDeleteCollection(id: UUID) {
+        guard let collection = model.collections.first(where: { $0.id == id }) else { return }
+        collectionToDelete = collection
     }
 
     private var showsFullURLBinding: Binding<Bool> {
@@ -891,6 +934,8 @@ struct BookmarkManagerView: View {
             switch settingsPage {
             case .bookmarks:
                 bookmarkManagementPage
+            case .collections:
+                collectionsManagementPage
             case .hiddenBookmarks:
                 hiddenBookmarkManagementPage
             case .archive:
@@ -922,8 +967,18 @@ struct BookmarkManagerView: View {
                 } description: {
                     Text("点击工具栏的 + 添加你的第一个书签。")
                 }
-            } else if filteredBookmarks.isEmpty {
-                ContentUnavailableView.search(text: searchText)
+            } else if bookmarkSections.isEmpty {
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                } else if !groupedVisibleBookmarks.isEmpty {
+                    ContentUnavailableView {
+                        Label("没有未分组的书签", systemImage: "bookmark")
+                    } description: {
+                        Text("已放入分组的书签在「分组」页查看。")
+                    }
+                } else {
+                    ContentUnavailableView.search(text: searchText)
+                }
             } else {
                 NativeBookmarkList(
                     sections: bookmarkSections,
@@ -942,11 +997,63 @@ struct BookmarkManagerView: View {
                     onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
                     onSortModeChange: { sortMode in bookmarkListSortMode = sortMode },
                     collectionAssignOptions: collectionAssignOptions,
-                    onAssignCollection: { bookmark, collectionId in assignCollection(bookmark, collectionId: collectionId) }
+                    onAssignCollection: { bookmarkIds, collectionId in
+                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                    }
                 )
             }
         }
         .navigationTitle("书签")
+    }
+
+    private var collectionsManagementPage: some View {
+        Group {
+            if model.collections.isEmpty {
+                ContentUnavailableView {
+                    Label("还没有分组", systemImage: "folder")
+                } description: {
+                    Text("点击工具栏 + 创建分组。")
+                }
+            } else if collectionBookmarkSections.allSatisfy({ $0.bookmarks.isEmpty })
+                && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else if collectionBookmarkSections.allSatisfy({ $0.bookmarks.isEmpty }) {
+                NativeBookmarkList(
+                    sections: collectionBookmarkSections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version,
+                    showsURLHostOnly: showsURLHostOnly,
+                    onRenameCollection: { id in beginRenameCollection(id: id) },
+                    onDeleteCollection: { id in beginDeleteCollection(id: id) }
+                )
+            } else {
+                NativeBookmarkList(
+                    sections: collectionBookmarkSections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version,
+                    showsURLHostOnly: showsURLHostOnly,
+                    onOpen: { bookmark in openBookmark(bookmark) },
+                    onCopyURL: { bookmark in copyURL(bookmark) },
+                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onEdit: { bookmark in presentation = .edit(bookmark) },
+                    onDelete: { ids in requestDelete(ids: ids) },
+                    hiddenStateActionTitle: "移到隐藏书签",
+                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
+                    archiveStateActionTitle: autoArchiveEnabled ? "归档" : nil,
+                    onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
+                    onSortModeChange: { sortMode in bookmarkListSortMode = sortMode },
+                    collectionAssignOptions: collectionAssignOptions,
+                    onAssignCollection: { bookmarkIds, collectionId in
+                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                    },
+                    onRenameCollection: { id in beginRenameCollection(id: id) },
+                    onDeleteCollection: { id in beginDeleteCollection(id: id) }
+                )
+            }
+        }
+        .navigationTitle("分组")
     }
 
     private var hiddenBookmarkManagementPage: some View {
@@ -1346,43 +1453,22 @@ struct BookmarkManagerView: View {
             ToolbarSpacer(.flexible)
 
             ToolbarItemGroup {
-                Menu {
-                    Button("新建分组") {
-                        newCollectionName = ""
-                        showNewCollectionDialog = true
-                    }
-
-                    if !model.collections.isEmpty {
-                        Divider()
-
-                        Menu("将选中项移到") {
-                            ForEach(model.collections) { collection in
-                                Button(collection.name) {
-                                    assignCollectionToSelection(collectionId: collection.id)
-                                }
-                            }
-                            Button("未分组") {
-                                assignCollectionToSelection(collectionId: nil)
-                            }
-                        }
-                        .disabled(selection.isEmpty)
-
-                        Divider()
-
+                if !model.collections.isEmpty {
+                    Menu {
                         ForEach(model.collections) { collection in
-                            Button("重命名「\(collection.name)」") {
-                                collectionToRename = collection
-                                renameCollectionName = collection.name
-                            }
-                            Button("删除「\(collection.name)」", role: .destructive) {
-                                collectionToDelete = collection
+                            Button(collection.name) {
+                                assignCollectionToSelection(collectionId: collection.id)
                             }
                         }
+                        Button("未分组") {
+                            assignCollectionToSelection(collectionId: nil)
+                        }
+                    } label: {
+                        Label("移到分组", systemImage: "folder")
                     }
-                } label: {
-                    Label("分组", systemImage: "folder")
+                    .disabled(selection.isEmpty)
+                    .help("将选中的书签移到分组")
                 }
-                .help("管理书签分组")
 
                 Button {
                     presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil, prefilledIsHidden: false)
@@ -1423,6 +1509,35 @@ struct BookmarkManagerView: View {
                 }
                 .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
                 .help("优化全部未处理的标题")
+            }
+        } else if settingsPage == .collections {
+            ToolbarSpacer(.flexible)
+
+            ToolbarItemGroup {
+                if !model.collections.isEmpty {
+                    Menu {
+                        ForEach(model.collections) { collection in
+                            Button(collection.name) {
+                                assignCollectionToSelection(collectionId: collection.id)
+                            }
+                        }
+                        Button("未分组") {
+                            assignCollectionToSelection(collectionId: nil)
+                        }
+                    } label: {
+                        Label("移到分组", systemImage: "folder")
+                    }
+                    .disabled(selection.isEmpty)
+                    .help("将选中的书签移到其他分组")
+                }
+
+                Button {
+                    newCollectionName = ""
+                    showNewCollectionDialog = true
+                } label: {
+                    Label("新建", systemImage: "plus")
+                }
+                .help("新建分组")
             }
         } else if settingsPage == .hiddenBookmarks {
             ToolbarSpacer(.flexible)

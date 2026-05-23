@@ -12,9 +12,14 @@ struct BookmarkListSection: Equatable, Identifiable {
     var title: String?
     var bookmarks: [Bookmark]
     var sortMode: BookmarkListSortMode?
+    /// Set on the collections page so section headers can offer rename/delete.
+    var collectionId: UUID?
 
     var id: String {
-        title ?? bookmarks.map(\.id.uuidString).joined(separator: ",")
+        if let collectionId {
+            return collectionId.uuidString
+        }
+        return title ?? bookmarks.map(\.id.uuidString).joined(separator: ",")
     }
 }
 
@@ -35,7 +40,9 @@ struct NativeBookmarkList: NSViewRepresentable {
     var onSetArchived: ((Bookmark) -> Void)? = nil
     var onSortModeChange: ((BookmarkListSortMode) -> Void)? = nil
     var collectionAssignOptions: [BookmarkCollectionAssignOption] = []
-    var onAssignCollection: ((Bookmark, UUID?) -> Void)? = nil
+    var onAssignCollection: ((Set<Bookmark.ID>, UUID?) -> Void)? = nil
+    var onRenameCollection: ((UUID) -> Void)? = nil
+    var onDeleteCollection: ((UUID) -> Void)? = nil
     fileprivate static let contentInset: CGFloat = 18
     fileprivate static let rowHeight: CGFloat = 50
     fileprivate static let headerHeight: CGFloat = 24
@@ -174,11 +181,30 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
             guard row >= 0, row < items.count else { return false }
+            if items[row].collectionId != nil, parent.onRenameCollection != nil || parent.onDeleteCollection != nil {
+                return true
+            }
             return items[row].bookmark != nil
         }
 
         func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu? {
-            guard row >= 0, row < items.count, let bookmark = items[row].bookmark else {
+            guard row >= 0, row < items.count else { return nil }
+
+            if let collectionId = items[row].collectionId {
+                let menu = NSMenu()
+                if parent.onRenameCollection != nil {
+                    menu.addItem(collectionMenuItem("重命名分组", action: #selector(renameCollectionFromMenu(_:)), collectionId: collectionId))
+                }
+                if parent.onDeleteCollection != nil {
+                    if !menu.items.isEmpty {
+                        menu.addItem(NSMenuItem.separator())
+                    }
+                    menu.addItem(destructiveCollectionMenuItem("删除分组", action: #selector(deleteCollectionFromMenu(_:)), collectionId: collectionId))
+                }
+                return menu.items.isEmpty ? nil : menu
+            }
+
+            guard let bookmark = items[row].bookmark else {
                 return nil
             }
 
@@ -196,12 +222,15 @@ struct NativeBookmarkList: NSViewRepresentable {
             if parent.onEdit != nil {
                 menu.addItem(menuItem("编辑", action: #selector(editFromMenu(_:)), bookmark: bookmark))
             }
-            if !parent.collectionAssignOptions.isEmpty, let onAssignCollection = parent.onAssignCollection {
+            if !parent.collectionAssignOptions.isEmpty, parent.onAssignCollection != nil {
                 menu.addItem(NSMenuItem.separator())
                 let submenu = NSMenu(title: "移到分组")
                 for option in parent.collectionAssignOptions {
                     let item = NSMenuItem(title: option.title, action: #selector(assignCollectionFromMenu(_:)), keyEquivalent: "")
-                    item.representedObject = CollectionAssignTarget(bookmark: bookmark, collectionId: option.collectionId, handler: onAssignCollection)
+                    item.representedObject = CollectionAssignTarget(
+                        contextBookmarkId: bookmark.id,
+                        collectionId: option.collectionId
+                    )
                     item.target = self
                     submenu.addItem(item)
                 }
@@ -270,7 +299,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row >= 0, row < items.count else { return Self.parentRowHeight }
             switch items[row] {
-            case .header(_, let topSpacing, _):
+            case .header(_, let topSpacing, _, _):
                 return NativeBookmarkList.headerHeight + topSpacing
             case .bookmark:
                 return NativeBookmarkList.rowHeight
@@ -285,7 +314,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard row >= 0, row < items.count else { return nil }
 
             switch items[row] {
-            case .header(let title, let topSpacing, let sortMode):
+            case .header(let title, let topSpacing, let sortMode, _):
                 let view = tableView.makeView(
                     withIdentifier: BookmarkHeaderCellView.identifier,
                     owner: self
@@ -361,9 +390,27 @@ struct NativeBookmarkList: NSViewRepresentable {
             parent.onDelete?(selectedIDs)
         }
 
+        @objc private func renameCollectionFromMenu(_ sender: NSMenuItem) {
+            guard let collectionId = sender.representedObject as? UUID else { return }
+            parent.onRenameCollection?(collectionId)
+        }
+
+        @objc private func deleteCollectionFromMenu(_ sender: NSMenuItem) {
+            guard let collectionId = sender.representedObject as? UUID else { return }
+            parent.onDeleteCollection?(collectionId)
+        }
+
         @objc private func assignCollectionFromMenu(_ sender: NSMenuItem) {
-            guard let target = sender.representedObject as? CollectionAssignTarget else { return }
-            target.handler(target.bookmark, target.collectionId)
+            guard
+                let target = sender.representedObject as? CollectionAssignTarget,
+                let onAssignCollection = parent.onAssignCollection
+            else {
+                return
+            }
+            let bookmarkIds = parent.selection.isEmpty
+                ? Set([target.contextBookmarkId])
+                : parent.selection
+            onAssignCollection(bookmarkIds, target.collectionId)
         }
 
         @objc private func setHiddenFromMenu(_ sender: NSMenuItem) {
@@ -407,15 +454,29 @@ struct NativeBookmarkList: NSViewRepresentable {
         }
 
         private final class CollectionAssignTarget: NSObject {
-            let bookmark: Bookmark
+            let contextBookmarkId: Bookmark.ID
             let collectionId: UUID?
-            let handler: (Bookmark, UUID?) -> Void
 
-            init(bookmark: Bookmark, collectionId: UUID?, handler: @escaping (Bookmark, UUID?) -> Void) {
-                self.bookmark = bookmark
+            init(contextBookmarkId: Bookmark.ID, collectionId: UUID?) {
+                self.contextBookmarkId = contextBookmarkId
                 self.collectionId = collectionId
-                self.handler = handler
             }
+        }
+
+        private func collectionMenuItem(_ title: String, action: Selector, collectionId: UUID) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = collectionId
+            return item
+        }
+
+        private func destructiveCollectionMenuItem(_ title: String, action: Selector, collectionId: UUID) -> NSMenuItem {
+            let item = collectionMenuItem(title, action: action, collectionId: collectionId)
+            item.attributedTitle = NSAttributedString(
+                string: title,
+                attributes: [.foregroundColor: NSColor.systemRed]
+            )
+            return item
         }
 
         private func destructiveMenuItem(_ title: String, action: Selector, bookmark: Bookmark) -> NSMenuItem {
@@ -446,7 +507,7 @@ struct NativeBookmarkList: NSViewRepresentable {
 }
 
 fileprivate enum NativeBookmarkListItem: Equatable {
-    case header(title: String, topSpacing: CGFloat, sortMode: BookmarkListSortMode?)
+    case header(title: String, topSpacing: CGFloat, sortMode: BookmarkListSortMode?, collectionId: UUID?)
     case bookmark(Bookmark)
 
     var isHeader: Bool {
@@ -458,6 +519,11 @@ fileprivate enum NativeBookmarkListItem: Equatable {
         if case .bookmark(let bookmark) = self { return bookmark }
         return nil
     }
+
+    var collectionId: UUID? {
+        if case .header(_, _, _, let collectionId) = self { return collectionId }
+        return nil
+    }
 }
 
 private extension Array where Element == BookmarkListSection {
@@ -467,7 +533,14 @@ private extension Array where Element == BookmarkListSection {
 
         for section in self {
             if let title = section.title {
-                items.append(.header(title: title, topSpacing: hasVisibleHeader ? 12 : 0, sortMode: section.sortMode))
+                items.append(
+                    .header(
+                        title: title,
+                        topSpacing: hasVisibleHeader ? 12 : 0,
+                        sortMode: section.sortMode,
+                        collectionId: section.collectionId
+                    )
+                )
                 hasVisibleHeader = true
             }
             items.append(contentsOf: section.bookmarks.map(NativeBookmarkListItem.bookmark))

@@ -9,6 +9,10 @@ final class BookmarksModel {
     static let autoArchiveEnabledKey = "autoArchiveIdleBookmarks"
     static let archiveAfterDaysKey = "archiveAfterDays"
     static let aiFeaturesEnabledKey = "aiFeaturesEnabled"
+    static let developerFeaturesEnabledKey = "developerFeaturesEnabled"
+    static let defaultDebugSidebarIconTileSize: Double = 22
+    static let defaultDebugSidebarIconSymbolSize: Double = 11
+    static let defaultDebugSidebarIconCornerRadius: Double = 6
     static let minArchiveAfterDays = 3
     static let maxArchiveAfterDays = 30
     static let defaultArchiveAfterDays = 30
@@ -472,6 +476,10 @@ final class BookmarksModel {
     }
 
     func fetchAllOriginalTitles() async -> String {
+        guard UserDefaults.standard.bool(forKey: Self.developerFeaturesEnabledKey) else {
+            return "开发者功能已关闭"
+        }
+
         guard !isOptimizingTitles else {
             return "标题优化正在进行中"
         }

@@ -112,6 +112,9 @@ struct BookmarkManagerView: View {
     @State private var collectionToDelete: BookmarkCollection?
     @State private var isFetchingOriginalTitles = false
     @State private var restoreAllOriginalTitlesConfirmation = false
+    @AppStorage(BookmarksModel.developerFeaturesEnabledKey) private var developerFeaturesEnabled = false
+    @State private var enableDeveloperFeaturesConfirmation = false
+    @State private var resetDeveloperOptionsConfirmation = false
 
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
@@ -649,12 +652,30 @@ struct BookmarkManagerView: View {
     }
 
     private func fetchAllOriginalTitles() {
+        guard developerFeaturesEnabled else {
+            showToast("开发者功能已关闭", kind: .error)
+            return
+        }
+
         Task {
             isFetchingOriginalTitles = true
             let message = await model.fetchAllOriginalTitles()
             isFetchingOriginalTitles = false
             showToast(message)
         }
+    }
+
+    private func enableDeveloperFeatures() {
+        developerFeaturesEnabled = true
+        enableDeveloperFeaturesConfirmation = false
+    }
+
+    private func resetDeveloperOptionsToDefaults() {
+        sidebarIconTileSize = BookmarksModel.defaultDebugSidebarIconTileSize
+        sidebarIconSymbolSize = BookmarksModel.defaultDebugSidebarIconSymbolSize
+        sidebarIconCornerRadius = BookmarksModel.defaultDebugSidebarIconCornerRadius
+        resetDeveloperOptionsConfirmation = false
+        showToast("已恢复开发者选项默认值")
     }
 
     private func showToast(_ message: String, kind: Toast.Kind = .success) {
@@ -770,6 +791,33 @@ struct BookmarkManagerView: View {
         Binding(
             get: { restoreAllOriginalTitlesConfirmation },
             set: { if !$0 { restoreAllOriginalTitlesConfirmation = false } }
+        )
+    }
+
+    private var developerFeaturesEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { developerFeaturesEnabled },
+            set: { newValue in
+                if newValue {
+                    enableDeveloperFeaturesConfirmation = true
+                } else {
+                    developerFeaturesEnabled = false
+                }
+            }
+        )
+    }
+
+    private var enableDeveloperFeaturesAlertBinding: Binding<Bool> {
+        Binding(
+            get: { enableDeveloperFeaturesConfirmation },
+            set: { if !$0 { enableDeveloperFeaturesConfirmation = false } }
+        )
+    }
+
+    private var resetDeveloperOptionsAlertBinding: Binding<Bool> {
+        Binding(
+            get: { resetDeveloperOptionsConfirmation },
+            set: { if !$0 { resetDeveloperOptionsConfirmation = false } }
         )
     }
 
@@ -942,7 +990,13 @@ struct BookmarkManagerView: View {
             deleteCollection: deleteCollection,
             restoreAllOriginalTitlesAlertBinding: restoreAllOriginalTitlesAlertBinding,
             restoreAllOriginalTitlesConfirmation: $restoreAllOriginalTitlesConfirmation,
-            fetchAllOriginalTitles: fetchAllOriginalTitles
+            fetchAllOriginalTitles: fetchAllOriginalTitles,
+            enableDeveloperFeaturesAlertBinding: enableDeveloperFeaturesAlertBinding,
+            enableDeveloperFeaturesConfirmation: $enableDeveloperFeaturesConfirmation,
+            enableDeveloperFeatures: enableDeveloperFeatures,
+            resetDeveloperOptionsAlertBinding: resetDeveloperOptionsAlertBinding,
+            resetDeveloperOptionsConfirmation: $resetDeveloperOptionsConfirmation,
+            resetDeveloperOptionsToDefaults: resetDeveloperOptionsToDefaults
         ))
     }
 
@@ -1503,36 +1557,48 @@ struct BookmarkManagerView: View {
 
     private var developerOptionsPage: some View {
         Form {
-            Section("Toast 调试") {
-                HStack(spacing: 10) {
-                    Button("成功 Toast") {
-                        showToast("操作成功")
-                    }
+            Section("开发者功能") {
+                Toggle("开启开发者功能", isOn: developerFeaturesEnabledBinding)
+            }
 
-                    Button("失败 Toast") {
-                        showToast("操作失败", kind: .error)
+            if developerFeaturesEnabled {
+                Section("Toast 调试") {
+                    HStack(spacing: 10) {
+                        Button("成功 Toast") {
+                            showToast("操作成功")
+                        }
+
+                        Button("失败 Toast") {
+                            showToast("操作失败", kind: .error)
+                        }
                     }
                 }
-            }
 
-            Section("侧栏图标调试") {
-                centeredValueSlider("背景尺寸", desc: "侧栏图标背景色块的尺寸。", value: $sidebarIconTileSize, range: 16...28)
-                centeredValueSlider("符号尺寸", desc: "侧栏图标中 SF Symbol 的字体大小。", value: $sidebarIconSymbolSize, range: 6...16)
-                centeredValueSlider("圆角", desc: "侧栏图标背景色块的圆角半径。", value: $sidebarIconCornerRadius, range: 2...10)
-            }
+                Section("侧栏图标调试") {
+                    centeredValueSlider("背景尺寸", desc: "侧栏图标背景色块的尺寸。", value: $sidebarIconTileSize, range: 16...28)
+                    centeredValueSlider("符号尺寸", desc: "侧栏图标中 SF Symbol 的字体大小。", value: $sidebarIconSymbolSize, range: 6...16)
+                    centeredValueSlider("圆角", desc: "侧栏图标背景色块的圆角半径。", value: $sidebarIconCornerRadius, range: 2...10)
+                }
 
-            Section("标题") {
-                LabeledContent {
-                    Button(role: .destructive) {
-                        restoreAllOriginalTitlesConfirmation = true
+                Section("标题") {
+                    LabeledContent {
+                        Button(role: .destructive) {
+                            restoreAllOriginalTitlesConfirmation = true
+                        } label: {
+                            Text(isFetchingOriginalTitles ? "恢复中…" : "恢复")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .disabled(isFetchingOriginalTitles || model.bookmarks.isEmpty || model.isOptimizingTitles)
                     } label: {
-                        Text(isFetchingOriginalTitles ? "恢复中…" : "恢复")
+                        Text("恢复全部原标题")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .disabled(isFetchingOriginalTitles || model.bookmarks.isEmpty || model.isOptimizingTitles)
-                } label: {
-                    Text("恢复全部原标题")
+                }
+
+                Section("高级") {
+                    Button("恢复默认设置") {
+                        resetDeveloperOptionsConfirmation = true
+                    }
                 }
             }
         }
@@ -2116,6 +2182,12 @@ private struct ExtraAlerts: ViewModifier {
     let restoreAllOriginalTitlesAlertBinding: Binding<Bool>
     @Binding var restoreAllOriginalTitlesConfirmation: Bool
     let fetchAllOriginalTitles: () -> Void
+    let enableDeveloperFeaturesAlertBinding: Binding<Bool>
+    @Binding var enableDeveloperFeaturesConfirmation: Bool
+    let enableDeveloperFeatures: () -> Void
+    let resetDeveloperOptionsAlertBinding: Binding<Bool>
+    @Binding var resetDeveloperOptionsConfirmation: Bool
+    let resetDeveloperOptionsToDefaults: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -2180,6 +2252,32 @@ private struct ExtraAlerts: ViewModifier {
                 }
             } message: {
                 Text("你确定吗？开启自定义透明度可能会大幅降低可读性。")
+            }
+            .alert(
+                "开启开发者功能?",
+                isPresented: enableDeveloperFeaturesAlertBinding
+            ) {
+                Button("取消", role: .cancel) {
+                    enableDeveloperFeaturesConfirmation = false
+                }
+                Button("开启") {
+                    enableDeveloperFeatures()
+                }
+            } message: {
+                Text("将显示 Toast 调试、侧栏图标参数和批量恢复标题等工具。这些功能可能影响界面或批量修改书签标题。")
+            }
+            .alert(
+                "恢复默认设置?",
+                isPresented: resetDeveloperOptionsAlertBinding
+            ) {
+                Button("取消", role: .cancel) {
+                    resetDeveloperOptionsConfirmation = false
+                }
+                Button("恢复", role: .destructive) {
+                    resetDeveloperOptionsToDefaults()
+                }
+            } message: {
+                Text("将把侧栏图标调试参数恢复为默认值，不会修改书签数据。")
             }
     }
 }

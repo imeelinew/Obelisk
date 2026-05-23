@@ -407,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(NSMenuItem.separator())
-        let manageItem = NSMenuItem(title: "打开 Obelisk", action: #selector(openManager), keyEquivalent: ",")
+        let manageItem = NSMenuItem(title: "打开 Obelisk", action: #selector(openManager), keyEquivalent: "o")
         manageItem.keyEquivalentModifierMask = [.command]
         manageItem.target = self
         menu.addItem(manageItem)

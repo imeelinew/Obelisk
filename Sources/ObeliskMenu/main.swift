@@ -49,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var autoOptimizeNewBookmarks: Bool {
         UserDefaults.standard.bool(forKey: "autoOptimizeNewBookmarks")
     }
+    private var aiFeaturesEnabled: Bool {
+        UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
+    }
     private var notificationPopover: NSPopover?
     private var notificationDismissWorkItem: DispatchWorkItem?
     private var pendingUndo: PendingBookmarkUndo?
@@ -156,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             kind: isHidden ? .hidden : .success
         )
 
-        if autoOptimizeNewBookmarks {
+        if autoOptimizeNewBookmarks, aiFeaturesEnabled {
             pendingOptimizationTask?.cancel()
             pendingOptimizationTask = Task { [weak self] in
                 let message = await self?.bookmarksModel.optimizeAllTitles(

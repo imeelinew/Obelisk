@@ -8,6 +8,7 @@ import ObeliskCore
 final class BookmarksModel {
     static let autoArchiveEnabledKey = "autoArchiveIdleBookmarks"
     static let archiveAfterDaysKey = "archiveAfterDays"
+    static let aiFeaturesEnabledKey = "aiFeaturesEnabled"
     static let minArchiveAfterDays = 3
     static let maxArchiveAfterDays = 30
     static let defaultArchiveAfterDays = 30
@@ -382,6 +383,10 @@ final class BookmarksModel {
     }
 
     func optimizeAllTitles(scope: TitleOptimizationScope = .visible) async -> String {
+        guard UserDefaults.standard.object(forKey: Self.aiFeaturesEnabledKey) as? Bool ?? true else {
+            return "AI 功能已关闭"
+        }
+
         guard !isOptimizingTitles else {
             return "标题优化正在进行中"
         }

@@ -704,8 +704,7 @@ private final class BookmarkHeaderCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("BookmarkHeaderCell")
     private let titleField = NSTextField(labelWithString: "")
     private let sortButton = NSPopUpButton(frame: .zero, pullsDown: false)
-    private var topConstraint: NSLayoutConstraint?
-    private var sortButtonTopConstraint: NSLayoutConstraint?
+    private var titleCenterYConstraint: NSLayoutConstraint?
 
     init() {
         super.init(frame: .zero)
@@ -717,23 +716,25 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         addSubview(titleField)
 
         sortButton.translatesAutoresizingMaskIntoConstraints = false
-        sortButton.controlSize = .small
-        sortButton.font = .systemFont(ofSize: 12)
+        sortButton.bezelStyle = .rounded
+        sortButton.controlSize = .regular
+        sortButton.font = .systemFont(ofSize: 12, weight: .medium)
         sortButton.setContentHuggingPriority(.required, for: .horizontal)
+        sortButton.heightAnchor.constraint(equalToConstant: 24).isActive = true
         sortButton.addItem(withTitle: BookmarkListSortMode.name.title)
         sortButton.addItem(withTitle: BookmarkListSortMode.recentlyAdded.title)
         sortButton.item(at: 0)?.representedObject = BookmarkListSortMode.name.rawValue
         sortButton.item(at: 1)?.representedObject = BookmarkListSortMode.recentlyAdded.rawValue
         addSubview(sortButton)
 
-        topConstraint = titleField.topAnchor.constraint(equalTo: topAnchor)
-        sortButtonTopConstraint = sortButton.topAnchor.constraint(equalTo: topAnchor)
+        titleCenterYConstraint = titleField.centerYAnchor.constraint(
+            equalTo: topAnchor,
+            constant: NativeBookmarkList.headerHeight / 2
+        )
         NSLayoutConstraint.activate([
-            topConstraint!,
-            sortButtonTopConstraint!,
+            titleCenterYConstraint!,
             titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
             sortButton.leadingAnchor.constraint(equalTo: titleField.trailingAnchor, constant: 8),
-
             sortButton.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset),
             sortButton.centerYAnchor.constraint(equalTo: titleField.centerYAnchor)
         ])
@@ -752,8 +753,7 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         action: Selector
     ) {
         titleField.stringValue = title
-        topConstraint?.constant = topSpacing
-        sortButtonTopConstraint?.constant = topSpacing
+        titleCenterYConstraint?.constant = topSpacing + NativeBookmarkList.headerHeight / 2
         sortButton.isHidden = sortMode == nil
         sortButton.target = target
         sortButton.action = action

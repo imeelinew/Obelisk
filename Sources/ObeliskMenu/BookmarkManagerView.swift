@@ -50,6 +50,25 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
     }
 }
 
+private struct CompactBorderedMenuPicker<Option: Hashable>: View {
+    let options: [Option]
+    @Binding var selection: Option
+    let title: (Option) -> String
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(options, id: \.self) { option in
+                Text(title(option)).tag(option)
+            }
+        }
+        .pickerStyle(.menu)
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+        .labelsHidden()
+        .frame(minWidth: 108, minHeight: 24)
+    }
+}
+
 struct BookmarkManagerView: View {
     @Bindable var model: BookmarksModel
     let faviconLoader: FaviconLoader
@@ -79,6 +98,8 @@ struct BookmarkManagerView: View {
     @AppStorage("openHiddenBookmarksIncognito") private var openHiddenBookmarksIncognito = false
     @AppStorage("silentAddEnabled") private var silentAddEnabled = false
     @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
+    @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
+    @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.compressed.rawValue
     @AppStorage(BookmarkListSortMode.storageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
@@ -173,7 +194,7 @@ struct BookmarkManagerView: View {
             case .archive:         return "归档"
             case .appearance:      return "外观"
             case .shortcuts:       return "快捷键"
-            case .ai:              return "AI配置"
+            case .ai:              return "AI"
             case .privacy:         return "隐私"
             case .developer:       return "开发者选项"
             }
@@ -299,7 +320,7 @@ struct BookmarkManagerView: View {
         guard !bookmarks.isEmpty else { return [] }
         return [
             BookmarkListSection(
-                title: "书签",
+                title: "未分组",
                 bookmarks: bookmarks,
                 sortMode: bookmarkListSortMode
             )
@@ -374,6 +395,22 @@ struct BookmarkManagerView: View {
         Binding(
             get: { bookmarkListSortMode },
             set: { bookmarkListSortMode = $0 }
+        )
+    }
+
+    private var titleOptimizationIntensity: TitleOptimizationIntensity {
+        get {
+            TitleOptimizationIntensity(rawValue: titleOptimizationIntensityRaw) ?? .compressed
+        }
+        nonmutating set {
+            titleOptimizationIntensityRaw = newValue.rawValue
+        }
+    }
+
+    private var titleOptimizationIntensityBinding: Binding<TitleOptimizationIntensity> {
+        Binding(
+            get: { titleOptimizationIntensity },
+            set: { titleOptimizationIntensity = $0 }
         )
     }
 
@@ -960,15 +997,19 @@ struct BookmarkManagerView: View {
     }
 
     private var bookmarkSortMenu: some View {
-        Picker("排序", selection: bookmarkListSortModeBinding) {
-            ForEach(BookmarkListSortMode.allCases) { sortMode in
-                Text(sortMode.title).tag(sortMode)
-            }
-        }
-        .pickerStyle(.menu)
-        .controlSize(.small)
-        .labelsHidden()
-        .frame(width: 108, alignment: .leading)
+        CompactBorderedMenuPicker(
+            options: Array(BookmarkListSortMode.allCases),
+            selection: bookmarkListSortModeBinding,
+            title: { $0.title }
+        )
+    }
+
+    private var titleIntensityPicker: some View {
+        CompactBorderedMenuPicker(
+            options: Array(TitleOptimizationIntensity.allCases),
+            selection: titleOptimizationIntensityBinding,
+            title: { $0.title }
+        )
     }
 
     @ViewBuilder
@@ -1318,7 +1359,7 @@ struct BookmarkManagerView: View {
                     }
                 }
 
-                if silentAddEnabled {
+                if silentAddEnabled, aiFeaturesEnabled {
                     Toggle(isOn: $autoOptimizeNewBookmarks) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自动优化新书签标题")
@@ -1360,49 +1401,68 @@ struct BookmarkManagerView: View {
 
     private var aiOptimizationPage: some View {
         Form {
-            Section("模型配置") {
-                VStack(alignment: .leading, spacing: 4) {
-                    SecureField(text: $llmConfig.apiKey, prompt: Text("sk-...")) {
-                        Label("API Key", systemImage: "key")
+            Section("AI 功能") {
+                Toggle("开启 AI 功能", isOn: $aiFeaturesEnabled)
+            }
+
+            if aiFeaturesEnabled {
+                Section("AI 标题优化") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        LabeledContent {
+                            titleIntensityPicker
+                        } label: {
+                            Text("优化程度")
+                        }
+                        Text("克制仅清理多余符号与通知计数；压缩会将标题改得更短。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    Text("你的 OpenAI 兼容 API Key。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    TextField(text: $llmConfig.model, prompt: Text("gpt-4.1-mini")) {
-                        Label("Model", systemImage: "cpu")
+                Section("模型配置") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SecureField(text: $llmConfig.apiKey, prompt: Text("sk-...")) {
+                            Label("API Key", systemImage: "key")
+                        }
+                        Text("你的 OpenAI 兼容 API Key。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    Text("用于优化书签标题的模型名称，如 gpt-4.1-mini。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    TextField(text: $llmConfig.baseURL, prompt: Text("https://api.openai.com/v1/chat/completions")) {
-                        Label("Base URL", systemImage: "link")
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(text: $llmConfig.model, prompt: Text("gpt-4.1-mini")) {
+                            Label("Model", systemImage: "cpu")
+                        }
+                        Text("用于优化书签标题的模型名称，如 gpt-4.1-mini。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    Text("OpenAI 兼容 API 的 endpoint 地址。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
 
-                HStack {
-                    Button {
-                        saveLLMConfig()
-                    } label: {
-                        Text("保存配置")
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(text: $llmConfig.baseURL, prompt: Text("https://api.openai.com/v1/chat/completions")) {
+                            Label("Base URL", systemImage: "link")
+                        }
+                        Text("OpenAI 兼容 API 的 endpoint 地址。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    Spacer()
+
+                    HStack {
+                        Button {
+                            saveLLMConfig()
+                        } label: {
+                            Text("保存配置")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Spacer()
+                    }
                 }
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
-        .navigationTitle("AI配置")
+        .navigationTitle("AI")
     }
 
     private var privacyPage: some View {
@@ -1558,19 +1618,21 @@ struct BookmarkManagerView: View {
                 .disabled(!canUseSingleSelectionActions)
             }
 
-            ToolbarSpacer(.fixed)
+            if aiFeaturesEnabled {
+                ToolbarSpacer(.fixed)
 
-            ToolbarItem {
-                Button {
-                    optimizeTitles(scope: .visible)
-                } label: {
-                    Label(
-                        model.isOptimizingTitles ? "优化中" : "优化标题",
-                        systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
-                    )
+                ToolbarItem {
+                    Button {
+                        optimizeTitles(scope: .visible)
+                    } label: {
+                        Label(
+                            model.isOptimizingTitles ? "优化中" : "优化标题",
+                            systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                        )
+                    }
+                    .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
+                    .help("优化「书签」页中未分组的未处理标题")
                 }
-                .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
-                .help("优化「书签」页中未分组的未处理标题")
             }
         } else if settingsPage == .collections {
             ToolbarSpacer(.flexible)
@@ -1602,19 +1664,21 @@ struct BookmarkManagerView: View {
                 .help("新建分组")
             }
 
-            ToolbarSpacer(.fixed)
+            if aiFeaturesEnabled {
+                ToolbarSpacer(.fixed)
 
-            ToolbarItem {
-                Button {
-                    optimizeTitles(scope: .grouped)
-                } label: {
-                    Label(
-                        model.isOptimizingTitles ? "优化中" : "优化标题",
-                        systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
-                    )
+                ToolbarItem {
+                    Button {
+                        optimizeTitles(scope: .grouped)
+                    } label: {
+                        Label(
+                            model.isOptimizingTitles ? "优化中" : "优化标题",
+                            systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                        )
+                    }
+                    .disabled(model.collections.isEmpty || model.isOptimizingTitles || groupedUnoptimizedTitleCount == 0)
+                    .help("优化「分组」页中已分组且未处理的标题")
                 }
-                .disabled(model.collections.isEmpty || model.isOptimizingTitles || groupedUnoptimizedTitleCount == 0)
-                .help("优化「分组」页中已分组且未处理的标题")
             }
         } else if settingsPage == .hiddenBookmarks {
             ToolbarSpacer(.flexible)
@@ -1646,19 +1710,21 @@ struct BookmarkManagerView: View {
                 .disabled(!canUseSingleSelectionActions)
             }
 
-            ToolbarSpacer(.fixed)
+            if aiFeaturesEnabled {
+                ToolbarSpacer(.fixed)
 
-            ToolbarItem {
-                Button {
-                    optimizeTitles(scope: .hidden)
-                } label: {
-                    Label(
-                        model.isOptimizingTitles ? "优化中" : "优化标题",
-                        systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
-                    )
+                ToolbarItem {
+                    Button {
+                        optimizeTitles(scope: .hidden)
+                    } label: {
+                        Label(
+                            model.isOptimizingTitles ? "优化中" : "优化标题",
+                            systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                        )
+                    }
+                    .disabled(hiddenBookmarks.isEmpty || model.isOptimizingTitles || hiddenUnoptimizedTitleCount == 0)
+                    .help("优化「隐藏书签」页中未处理的标题")
                 }
-                .disabled(hiddenBookmarks.isEmpty || model.isOptimizingTitles || hiddenUnoptimizedTitleCount == 0)
-                .help("优化「隐藏书签」页中未处理的标题")
             }
         }
     }

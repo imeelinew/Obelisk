@@ -846,6 +846,10 @@ struct SmokeTests {
         let loaded = try store.bookmarks()
         try expect(loaded.first { $0.id == first.id }?.title == "Proton Mail", "expected optimized title to persist")
         try expect(loaded.first { $0.id == first.id }?.titleOptimized == true, "expected optimized marker to persist")
+        try expect(
+            loaded.first { $0.id == first.id }?.originalTitle == "(14) Inbox | user@example.com | Proton Mail",
+            "expected original title to be preserved before optimization"
+        )
 
         let secondPass = try store.applyTitleOptimizations([
             first.id: "Mail",
@@ -854,6 +858,18 @@ struct SmokeTests {
         try expect(secondPass == 0, "expected optimized titles to be skipped on second pass")
         let reloaded = try store.bookmarks()
         try expect(reloaded.first { $0.id == first.id }?.title == "Proton Mail", "expected second pass to preserve optimized title")
+
+        let reverted = try store.revertTitleOptimizations(ids: [first.id])
+        try expect(reverted == 1, "expected revert to restore original title")
+        let afterRevert = try store.bookmarks()
+        try expect(afterRevert.first { $0.id == first.id }?.title == "(14) Inbox | user@example.com | Proton Mail", "expected display title to revert")
+        try expect(afterRevert.first { $0.id == first.id }?.titleOptimized == false, "expected optimized flag to clear after revert")
+
+        let forced = try store.applyOriginalTitles([first.id: "Inbox - Proton Mail"], forceApplyDisplay: true)
+        try expect(forced == 1, "expected force apply to update optimized bookmark display title")
+        let afterForce = try store.bookmarks()
+        try expect(afterForce.first { $0.id == first.id }?.title == "Inbox - Proton Mail", "expected forced title on display")
+        try expect(afterForce.first { $0.id == first.id }?.titleOptimized == false, "expected force apply to clear optimized flag")
     }
 
     private static func testUsageGroupingFilters() throws {

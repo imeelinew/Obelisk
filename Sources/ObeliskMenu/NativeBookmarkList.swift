@@ -43,6 +43,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     var onAssignCollection: ((Set<Bookmark.ID>, UUID?) -> Void)? = nil
     var onRenameCollection: ((UUID) -> Void)? = nil
     var onDeleteCollection: ((UUID) -> Void)? = nil
+    var onRevertTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
     fileprivate static let contentInset: CGFloat = 18
     fileprivate static let rowHeight: CGFloat = 50
     fileprivate static let headerHeight: CGFloat = 24
@@ -222,6 +223,10 @@ struct NativeBookmarkList: NSViewRepresentable {
             if parent.onEdit != nil {
                 menu.addItem(menuItem("编辑", action: #selector(editFromMenu(_:)), bookmark: bookmark))
             }
+            if parent.onRevertTitleOptimization != nil,
+               selectionHasRevertableTitleOptimization(contextBookmark: bookmark) {
+                menu.addItem(menuItem("恢复原标题", action: #selector(revertTitleFromMenu(_:)), bookmark: bookmark))
+            }
             if !parent.collectionAssignOptions.isEmpty, parent.onAssignCollection != nil {
                 menu.addItem(NSMenuItem.separator())
                 let submenu = NSMenu(title: "移到分组")
@@ -382,6 +387,26 @@ struct NativeBookmarkList: NSViewRepresentable {
         @objc private func editFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
             parent.onEdit?(bookmark)
+        }
+
+        @objc private func revertTitleFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            let bookmarkIds = parent.selection.isEmpty ? Set([bookmark.id]) : parent.selection
+            parent.onRevertTitleOptimization?(bookmarkIds)
+        }
+
+        private func selectionHasRevertableTitleOptimization(contextBookmark: Bookmark) -> Bool {
+            let targetIds = parent.selection.isEmpty ? Set([contextBookmark.id]) : parent.selection
+            return targetIds.contains { id in
+                guard let bookmark = bookmark(for: id) else { return false }
+                guard bookmark.titleOptimized else { return false }
+                let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return !original.isEmpty
+            }
+        }
+
+        private func bookmark(for id: Bookmark.ID) -> Bookmark? {
+            items.compactMap(\.bookmark).first { $0.id == id }
         }
 
         @objc private func deleteFromMenu(_ sender: NSMenuItem) {

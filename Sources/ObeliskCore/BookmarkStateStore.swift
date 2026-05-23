@@ -6,23 +6,26 @@ public struct BookmarkStateDatabase: Codable, Equatable {
     public var manualArchivedIds: Set<UUID>
     public var createdAtById: [UUID: Date]
     public var titleOptimizedIds: Set<UUID>
+    public var originalTitleById: [UUID: String]
 
     public init(
-        version: Int = 1,
+        version: Int = 2,
         hiddenIds: Set<UUID> = [],
         manualArchivedIds: Set<UUID> = [],
         createdAtById: [UUID: Date] = [:],
-        titleOptimizedIds: Set<UUID> = []
+        titleOptimizedIds: Set<UUID> = [],
+        originalTitleById: [UUID: String] = [:]
     ) {
         self.version = version
         self.hiddenIds = hiddenIds
         self.manualArchivedIds = manualArchivedIds
         self.createdAtById = createdAtById
         self.titleOptimizedIds = titleOptimizedIds
+        self.originalTitleById = originalTitleById
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, hiddenIds, manualArchivedIds, createdAtById, titleOptimizedIds
+        case version, hiddenIds, manualArchivedIds, createdAtById, titleOptimizedIds, originalTitleById
     }
 
     public init(from decoder: Decoder) throws {
@@ -39,6 +42,14 @@ public struct BookmarkStateDatabase: Codable, Equatable {
                 return (id, value)
             }
         )
+
+        let rawOriginalTitles = (try? c.decode([String: String].self, forKey: .originalTitleById)) ?? [:]
+        originalTitleById = Dictionary(
+            uniqueKeysWithValues: rawOriginalTitles.compactMap { key, value in
+                guard let id = UUID(uuidString: key) else { return nil }
+                return (id, value)
+            }
+        )
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -50,6 +61,10 @@ public struct BookmarkStateDatabase: Codable, Equatable {
         try c.encode(
             Dictionary(uniqueKeysWithValues: createdAtById.map { ($0.key.uuidString, $0.value) }),
             forKey: .createdAtById
+        )
+        try c.encode(
+            Dictionary(uniqueKeysWithValues: originalTitleById.map { ($0.key.uuidString, $0.value) }),
+            forKey: .originalTitleById
         )
     }
 }

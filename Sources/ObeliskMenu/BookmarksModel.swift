@@ -373,7 +373,11 @@ final class BookmarksModel {
     }
 
     enum TitleOptimizationScope {
+        /// Ungrouped, non-hidden, non-archived bookmarks (the bookmarks settings page).
         case visible
+        /// Bookmarks assigned to a collection (the collections settings page).
+        case grouped
+        /// Hidden bookmarks page.
         case hidden
     }
 
@@ -387,7 +391,13 @@ final class BookmarksModel {
                 guard !bookmark.titleOptimized else { return false }
                 switch scope {
                 case .visible:
-                    return !bookmark.isHidden && !isEffectivelyArchived(bookmark)
+                    return !bookmark.isHidden
+                        && !isEffectivelyArchived(bookmark)
+                        && membershipByBookmarkId[bookmark.id] == nil
+                case .grouped:
+                    return !bookmark.isHidden
+                        && !isEffectivelyArchived(bookmark)
+                        && membershipByBookmarkId[bookmark.id] != nil
                 case .hidden:
                     return bookmark.isHidden
                 }
@@ -415,6 +425,82 @@ final class BookmarksModel {
                 return "没有标题被更新"
             }
             return "已优化 \(count) 个标题"
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func revertTitleOptimizations(bookmarkIds: Set<UUID>) -> String? {
+        guard !bookmarkIds.isEmpty else { return nil }
+
+        let revertableIds = bookmarkIds.filter { id in
+            guard let bookmark = bookmarks.first(where: { $0.id == id }) else { return false }
+            guard bookmark.titleOptimized else { return false }
+            guard let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !original.isEmpty
+            else {
+                return false
+            }
+            return true
+        }
+
+        guard !revertableIds.isEmpty else {
+            return "所选书签无法恢复原标题（需已 AI 优化且保存了原标题）"
+        }
+
+        do {
+            let count = try store.revertTitleOptimizations(ids: revertableIds)
+            reload()
+            if count == 0 {
+                return "无法恢复原标题"
+            }
+            if count < bookmarkIds.count {
+                return "已恢复 \(count) 个标题，\(bookmarkIds.count - count) 个跳过"
+            }
+            if bookmarkIds.count > 1 {
+                return "已恢复 \(count) 个标题"
+            }
+            return "已恢复原标题"
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func fetchAllOriginalTitles() async -> String {
+        guard !isOptimizingTitles else {
+            return "标题优化正在进行中"
+        }
+
+        isOptimizingTitles = true
+        defer { isOptimizingTitles = false }
+
+        let fetcher = PageMetadataFetcher()
+        var titles: [UUID: String] = [:]
+        var failedCount = 0
+
+        for bookmark in bookmarks {
+            guard let url = URL(string: bookmark.url) else {
+                failedCount += 1
+                continue
+            }
+            if let title = await fetcher.title(for: url) {
+                titles[bookmark.id] = title
+            } else {
+                failedCount += 1
+            }
+        }
+
+        guard !titles.isEmpty else {
+            return failedCount > 0 ? "未能获取任何原标题" : "没有书签可处理"
+        }
+
+        do {
+            let count = try store.applyOriginalTitles(titles, forceApplyDisplay: true)
+            reload()
+            if failedCount > 0 {
+                return "已应用 \(count) 个标题，\(failedCount) 个失败"
+            }
+            return "已应用 \(count) 个标题"
         } catch {
             return error.localizedDescription
         }

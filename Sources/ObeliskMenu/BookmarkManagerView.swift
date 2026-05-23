@@ -89,6 +89,8 @@ struct BookmarkManagerView: View {
     @State private var collectionToRename: BookmarkCollection?
     @State private var renameCollectionName = ""
     @State private var collectionToDelete: BookmarkCollection?
+    @State private var isFetchingOriginalTitles = false
+    @State private var restoreAllOriginalTitlesConfirmation = false
 
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
@@ -572,17 +574,48 @@ struct BookmarkManagerView: View {
         )
     }
 
+    private func matchesOptimizationScope(_ bookmark: Bookmark, scope: BookmarksModel.TitleOptimizationScope) -> Bool {
+        guard !bookmark.titleOptimized, !isEffectivelyArchived(bookmark) else { return false }
+        switch scope {
+        case .visible:
+            return !bookmark.isHidden && model.collectionId(for: bookmark.id) == nil
+        case .grouped:
+            return !bookmark.isHidden && model.collectionId(for: bookmark.id) != nil
+        case .hidden:
+            return bookmark.isHidden
+        }
+    }
+
     private var unoptimizedTitleCount: Int {
-        model.bookmarks.filter { !$0.titleOptimized && !$0.isHidden && !isEffectivelyArchived($0) }.count
+        model.bookmarks.filter { matchesOptimizationScope($0, scope: .visible) }.count
+    }
+
+    private var groupedUnoptimizedTitleCount: Int {
+        model.bookmarks.filter { matchesOptimizationScope($0, scope: .grouped) }.count
     }
 
     private var hiddenUnoptimizedTitleCount: Int {
-        model.bookmarks.filter { !$0.titleOptimized && $0.isHidden && !isEffectivelyArchived($0) }.count
+        model.bookmarks.filter { matchesOptimizationScope($0, scope: .hidden) }.count
     }
 
     private func optimizeTitles(scope: BookmarksModel.TitleOptimizationScope = .visible) {
         Task {
             let message = await model.optimizeAllTitles(scope: scope)
+            showToast(message)
+        }
+    }
+
+    private func revertTitleOptimizations(bookmarkIds: Set<Bookmark.ID>) {
+        if let message = model.revertTitleOptimizations(bookmarkIds: bookmarkIds) {
+            showToast(message, kind: message.hasPrefix("已恢复") ? .success : .error)
+        }
+    }
+
+    private func fetchAllOriginalTitles() {
+        Task {
+            isFetchingOriginalTitles = true
+            let message = await model.fetchAllOriginalTitles()
+            isFetchingOriginalTitles = false
             showToast(message)
         }
     }
@@ -693,6 +726,13 @@ struct BookmarkManagerView: View {
         Binding(
             get: { refreshAllFaviconConfirmation },
             set: { if !$0 { refreshAllFaviconConfirmation = false } }
+        )
+    }
+
+    private var restoreAllOriginalTitlesAlertBinding: Binding<Bool> {
+        Binding(
+            get: { restoreAllOriginalTitlesConfirmation },
+            set: { if !$0 { restoreAllOriginalTitlesConfirmation = false } }
         )
     }
 
@@ -862,7 +902,10 @@ struct BookmarkManagerView: View {
             renameCollection: renameCollection,
             deleteCollectionAlertBinding: deleteCollectionAlertBinding,
             collectionToDelete: $collectionToDelete,
-            deleteCollection: deleteCollection
+            deleteCollection: deleteCollection,
+            restoreAllOriginalTitlesAlertBinding: restoreAllOriginalTitlesAlertBinding,
+            restoreAllOriginalTitlesConfirmation: $restoreAllOriginalTitlesConfirmation,
+            fetchAllOriginalTitles: fetchAllOriginalTitles
         ))
     }
 
@@ -999,7 +1042,8 @@ struct BookmarkManagerView: View {
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
                         assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                    }
+                    },
+                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                 )
             }
         }
@@ -1025,7 +1069,8 @@ struct BookmarkManagerView: View {
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
                     onRenameCollection: { id in beginRenameCollection(id: id) },
-                    onDeleteCollection: { id in beginDeleteCollection(id: id) }
+                    onDeleteCollection: { id in beginDeleteCollection(id: id) },
+                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                 )
             } else {
                 NativeBookmarkList(
@@ -1049,7 +1094,8 @@ struct BookmarkManagerView: View {
                         assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
                     },
                     onRenameCollection: { id in beginRenameCollection(id: id) },
-                    onDeleteCollection: { id in beginDeleteCollection(id: id) }
+                    onDeleteCollection: { id in beginDeleteCollection(id: id) },
+                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                 )
             }
         }
@@ -1085,7 +1131,8 @@ struct BookmarkManagerView: View {
                         onEdit: { bookmark in presentation = .edit(bookmark) },
                         onDelete: { ids in requestDelete(ids: ids) },
                         hiddenStateActionTitle: "恢复到书签",
-                        onSetHidden: { bookmark in setHidden(false, for: bookmark) }
+                        onSetHidden: { bookmark in setHidden(false, for: bookmark) },
+                        onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                     )
                 }
             }
@@ -1413,6 +1460,21 @@ struct BookmarkManagerView: View {
                 centeredValueSlider("符号尺寸", desc: "侧栏图标中 SF Symbol 的字体大小。", value: $sidebarIconSymbolSize, range: 6...16)
                 centeredValueSlider("圆角", desc: "侧栏图标背景色块的圆角半径。", value: $sidebarIconCornerRadius, range: 2...10)
             }
+
+            Section("标题") {
+                LabeledContent {
+                    Button(role: .destructive) {
+                        restoreAllOriginalTitlesConfirmation = true
+                    } label: {
+                        Text(isFetchingOriginalTitles ? "恢复中…" : "恢复")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(isFetchingOriginalTitles || model.bookmarks.isEmpty || model.isOptimizingTitles)
+                } label: {
+                    Text("恢复全部原标题")
+                }
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
@@ -1508,7 +1570,7 @@ struct BookmarkManagerView: View {
                     )
                 }
                 .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
-                .help("优化全部未处理的标题")
+                .help("优化「书签」页中未分组的未处理标题")
             }
         } else if settingsPage == .collections {
             ToolbarSpacer(.flexible)
@@ -1538,6 +1600,21 @@ struct BookmarkManagerView: View {
                     Label("新建", systemImage: "plus")
                 }
                 .help("新建分组")
+            }
+
+            ToolbarSpacer(.fixed)
+
+            ToolbarItem {
+                Button {
+                    optimizeTitles(scope: .grouped)
+                } label: {
+                    Label(
+                        model.isOptimizingTitles ? "优化中" : "优化标题",
+                        systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                    )
+                }
+                .disabled(model.collections.isEmpty || model.isOptimizingTitles || groupedUnoptimizedTitleCount == 0)
+                .help("优化「分组」页中已分组且未处理的标题")
             }
         } else if settingsPage == .hiddenBookmarks {
             ToolbarSpacer(.flexible)
@@ -1581,7 +1658,7 @@ struct BookmarkManagerView: View {
                     )
                 }
                 .disabled(hiddenBookmarks.isEmpty || model.isOptimizingTitles || hiddenUnoptimizedTitleCount == 0)
-                .help("优化全部未处理的隐藏书签标题")
+                .help("优化「隐藏书签」页中未处理的标题")
             }
         }
     }
@@ -1970,6 +2047,9 @@ private struct ExtraAlerts: ViewModifier {
     let deleteCollectionAlertBinding: Binding<Bool>
     @Binding var collectionToDelete: BookmarkCollection?
     let deleteCollection: () -> Void
+    let restoreAllOriginalTitlesAlertBinding: Binding<Bool>
+    @Binding var restoreAllOriginalTitlesConfirmation: Bool
+    let fetchAllOriginalTitles: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -1992,6 +2072,20 @@ private struct ExtraAlerts: ViewModifier {
                 Button("删除", role: .destructive, action: deleteCollection)
             } message: { collection in
                 Text("删除「\(collection.name)」后，其中的书签将移到未分组。")
+            }
+            .alert(
+                "恢复全部原标题?",
+                isPresented: restoreAllOriginalTitlesAlertBinding
+            ) {
+                Button("取消", role: .cancel) {
+                    restoreAllOriginalTitlesConfirmation = false
+                }
+                Button("恢复", role: .destructive) {
+                    restoreAllOriginalTitlesConfirmation = false
+                    fetchAllOriginalTitles()
+                }
+            } message: {
+                Text("将从各书签网址抓取网页标题并应用到全部书签，已 AI 优化的标题也会被覆盖。")
             }
             .alert(
                 "刷新全部 favicon?",

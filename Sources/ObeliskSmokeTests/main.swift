@@ -34,6 +34,7 @@ struct SmokeTests {
         try testEncryptedBookmarkStoreRoundTrip()
         try testEncryptedBookmarkStateStoreRoundTrip()
         try testEncryptionNormalizationPreservesBookmarksStateAndUsage()
+        try testBookmarkCollectionMembership()
         print("Obelisk smoke tests passed")
     }
 
@@ -983,6 +984,31 @@ struct SmokeTests {
             try expect(state.titleOptimizedIds == [visible.id, hidden.id], "expected encryption normalization to preserve title state")
             try expect(usage[visible.id]?.count == 2, "expected encryption normalization to preserve usage count")
         }
+    }
+
+    private static func testBookmarkCollectionMembership() throws {
+        let root = try temporaryDirectory()
+        let groupStore = BookmarkGroupStore(rootDirectory: root)
+        var workID: UUID?
+
+        try groupStore.update { database in
+            let work = BookmarkCollection(name: "工作", sortOrder: 0)
+            workID = work.id
+            database.collections = [work]
+        }
+
+        let bookmarkID = UUID()
+        try groupStore.update { database in
+            database.membershipByBookmarkId[bookmarkID] = workID
+        }
+
+        let loaded = groupStore.load()
+        try expect(loaded.collections.count == 1, "expected one collection")
+        try expect(loaded.collections.first?.name == "工作", "expected collection name to round-trip")
+        try expect(loaded.membershipByBookmarkId[bookmarkID] == workID, "expected membership to round-trip")
+
+        try groupStore.removeMembership(for: [bookmarkID])
+        try expect(groupStore.load().membershipByBookmarkId[bookmarkID] == nil, "expected membership removal")
     }
 
     private static func temporaryDirectory() throws -> URL {

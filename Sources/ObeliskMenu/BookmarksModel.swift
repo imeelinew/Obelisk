@@ -21,7 +21,12 @@ final class BookmarksModel {
     /// bookmark appears in exactly one of `frequent` / `recent` / `others`,
     /// so a single List with selection can show all three sections without
     /// duplicate IDs.
+    /// Bookmarks not shown in menu spotlight (frequent/recent). Used for the
+    /// menubar "其他" submenu — not the manage-window primary layout.
     private(set) var others: [Bookmark] = []
+    /// User-defined collections, sorted by `sortOrder` then name.
+    private(set) var collections: [BookmarkCollection] = []
+    private var membershipByBookmarkId: [UUID: UUID] = [:]
     var errorMessage: String?
     private(set) var loadErrorMessage: String?
 
@@ -32,6 +37,7 @@ final class BookmarksModel {
 
     private let store: BookmarkStore
     private let usageStore: UsageStore
+    private let groupStore: BookmarkGroupStore
     private let titleOptimizer: TitleOptimizer
     private var frequentGroupLimit: Int
     private var recentGroupLimit: Int
@@ -44,6 +50,15 @@ final class BookmarksModel {
     func invalidateStorageCaches() {
         store.invalidateCache()
         usageStore.invalidateCache()
+        groupStore.invalidateCache()
+    }
+
+    func updateStorageRootDirectory(_ rootDirectory: URL) {
+        groupStore.updateRootDirectory(rootDirectory)
+    }
+
+    func collectionId(for bookmarkId: UUID) -> UUID? {
+        membershipByBookmarkId[bookmarkId]
     }
 
     private var autoArchiveEnabled: Bool {
@@ -67,6 +82,7 @@ final class BookmarksModel {
     ) {
         self.store = store
         self.usageStore = usageStore
+        self.groupStore = BookmarkGroupStore(rootDirectory: store.rootDirectory)
         self.titleOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
         self.frequentGroupLimit = frequentGroupLimit
         self.recentGroupLimit = recentGroupLimit
@@ -81,8 +97,20 @@ final class BookmarksModel {
             usageStore.cleanup(validIds: Set(all.map(\.id)))
             let usage = usageStore.load()
             bookmarks = all
+            let groupData = groupStore.load()
+            collections = groupData.collections.sorted {
+                if $0.sortOrder != $1.sortOrder {
+                    return $0.sortOrder < $1.sortOrder
+                }
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+            membershipByBookmarkId = Self.prunedMembership(
+                groupData.membershipByBookmarkId,
+                collections: collections,
+                bookmarkIds: Set(all.map(\.id))
+            )
             let visibleBookmarks = visibleBookmarks(from: all, usage: usage)
-            recomputeGroups(from: visibleBookmarks, usage: usage)
+            recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
             if errorMessage == priorLoadError {
@@ -104,7 +132,7 @@ final class BookmarksModel {
         let priorOthers = others.map(\.id)
 
         let usage = usageStore.load()
-        recomputeGroups(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
+        recomputeMenuSpotlight(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
 
         let changed = frequent.map(\.id) != priorFrequent
             || recent.map(\.id) != priorRecent
@@ -180,7 +208,7 @@ final class BookmarksModel {
         frequentGroupLimit = nextFrequent
         recentGroupLimit = nextRecent
         let usage = usageStore.load()
-        recomputeGroups(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
+        recomputeMenuSpotlight(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
         onChange?()
     }
 
@@ -193,10 +221,153 @@ final class BookmarksModel {
     func delete(ids: Set<UUID>) -> String? {
         do {
             try store.delete(ids: ids)
+            try groupStore.removeMembership(for: ids)
             reload()
             return nil
         } catch {
             errorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    /// Visible bookmarks partitioned by user collection for the manage window.
+    /// Each bookmark appears in exactly one section.
+    func visibleCollectionSections(from visible: [Bookmark]) -> [(collectionId: UUID?, title: String, bookmarks: [Bookmark])] {
+        var buckets: [UUID?: [Bookmark]] = [:]
+        buckets[nil] = []
+
+        for collection in collections {
+            buckets[collection.id] = []
+        }
+
+        for bookmark in visible {
+            let collectionId = membershipByBookmarkId[bookmark.id]
+            if let collectionId, buckets[collectionId] != nil {
+                buckets[collectionId, default: []].append(bookmark)
+            } else {
+                buckets[nil, default: []].append(bookmark)
+            }
+        }
+
+        var sections: [(collectionId: UUID?, title: String, bookmarks: [Bookmark])] = []
+        for collection in collections {
+            let bookmarks = buckets[collection.id] ?? []
+            if !bookmarks.isEmpty {
+                sections.append((collection.id, collection.name, bookmarks))
+            }
+        }
+
+        if let ungrouped = buckets[nil], !ungrouped.isEmpty {
+            sections.append((nil, "未分组", ungrouped))
+        }
+
+        return sections
+    }
+
+    func createCollection(name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "分组名称不能为空"
+        }
+        if collections.contains(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return "已存在同名分组"
+        }
+
+        do {
+            try groupStore.update { database in
+                let nextOrder = (database.collections.map(\.sortOrder).max() ?? -1) + 1
+                database.collections.append(
+                    BookmarkCollection(name: trimmed, sortOrder: nextOrder)
+                )
+            }
+            reload()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func renameCollection(id: UUID, name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "分组名称不能为空"
+        }
+        if collections.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return "已存在同名分组"
+        }
+
+        guard collections.contains(where: { $0.id == id }) else {
+            return "找不到这个分组"
+        }
+
+        do {
+            try groupStore.update { database in
+                guard let index = database.collections.firstIndex(where: { $0.id == id }) else { return }
+                database.collections[index].name = trimmed
+            }
+            reload()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func deleteCollection(id: UUID) -> String? {
+        do {
+            try groupStore.update { database in
+                database.collections.removeAll { $0.id == id }
+                database.membershipByBookmarkId = database.membershipByBookmarkId.filter { $0.value != id }
+            }
+            reload()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func setBookmarkCollection(bookmarkId: UUID, collectionId: UUID?) -> String? {
+        if let collectionId, !collections.contains(where: { $0.id == collectionId }) {
+            return "找不到这个分组"
+        }
+        guard bookmarks.contains(where: { $0.id == bookmarkId }) else {
+            return "找不到这个书签"
+        }
+
+        do {
+            try groupStore.update { database in
+                if let collectionId {
+                    database.membershipByBookmarkId[bookmarkId] = collectionId
+                } else {
+                    database.membershipByBookmarkId.removeValue(forKey: bookmarkId)
+                }
+            }
+            reload()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func setBookmarkCollection(bookmarkIds: Set<UUID>, collectionId: UUID?) -> String? {
+        guard !bookmarkIds.isEmpty else { return nil }
+        if let collectionId, !collections.contains(where: { $0.id == collectionId }) {
+            return "找不到这个分组"
+        }
+
+        do {
+            try groupStore.update { database in
+                for bookmarkId in bookmarkIds {
+                    guard bookmarks.contains(where: { $0.id == bookmarkId }) else { continue }
+                    if let collectionId {
+                        database.membershipByBookmarkId[bookmarkId] = collectionId
+                    } else {
+                        database.membershipByBookmarkId.removeValue(forKey: bookmarkId)
+                    }
+                }
+            }
+            reload()
+            return nil
+        } catch {
             return error.localizedDescription
         }
     }
@@ -267,7 +438,23 @@ final class BookmarksModel {
         openBookmark(bookmark)
     }
 
-    private func recomputeGroups(from all: [Bookmark], usage: [UUID: UsageRecord]) {
+    private static func prunedMembership(
+        _ membership: [UUID: UUID],
+        collections: [BookmarkCollection],
+        bookmarkIds: Set<UUID>
+    ) -> [UUID: UUID] {
+        let validCollectionIds = Set(collections.map(\.id))
+        var pruned: [UUID: UUID] = [:]
+        for (bookmarkId, collectionId) in membership {
+            guard bookmarkIds.contains(bookmarkId), validCollectionIds.contains(collectionId) else {
+                continue
+            }
+            pruned[bookmarkId] = collectionId
+        }
+        return pruned
+    }
+
+    private func recomputeMenuSpotlight(from all: [Bookmark], usage: [UUID: UsageRecord]) {
         let topFrequent = usageStore.topFrequent(among: all, usage: usage, limit: frequentGroupLimit)
         let frequentIds = Set(topFrequent.map(\.id))
 
@@ -309,7 +496,12 @@ final class BookmarksModel {
         let frequentIds = Set(topFrequent.map(\.id))
         let recentCandidates = active.filter { !frequentIds.contains($0.id) }
         let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)
-        let protectedIds = frequentIds.union(topRecent.map(\.id))
+        let groupedIds = Set(
+            active.compactMap { bookmark -> UUID? in
+                membershipByBookmarkId[bookmark.id]
+            }
+        )
+        let protectedIds = frequentIds.union(topRecent.map(\.id)).union(groupedIds)
         let cutoff = TimeInterval(archiveAfterDays) * 86_400
 
         return AutoArchiveContext(protectedIds: protectedIds, cutoff: cutoff, now: now)

@@ -3,6 +3,11 @@ import Carbon.HIToolbox
 import SwiftUI
 import ObeliskCore
 
+struct BookmarkCollectionAssignOption: Equatable {
+    var title: String
+    var collectionId: UUID?
+}
+
 struct BookmarkListSection: Equatable, Identifiable {
     var title: String?
     var bookmarks: [Bookmark]
@@ -29,6 +34,8 @@ struct NativeBookmarkList: NSViewRepresentable {
     var archiveStateActionTitle: String? = nil
     var onSetArchived: ((Bookmark) -> Void)? = nil
     var onSortModeChange: ((BookmarkListSortMode) -> Void)? = nil
+    var collectionAssignOptions: [BookmarkCollectionAssignOption] = []
+    var onAssignCollection: ((Bookmark, UUID?) -> Void)? = nil
     fileprivate static let contentInset: CGFloat = 18
     fileprivate static let rowHeight: CGFloat = 50
     fileprivate static let headerHeight: CGFloat = 24
@@ -189,6 +196,19 @@ struct NativeBookmarkList: NSViewRepresentable {
             if parent.onEdit != nil {
                 menu.addItem(menuItem("编辑", action: #selector(editFromMenu(_:)), bookmark: bookmark))
             }
+            if !parent.collectionAssignOptions.isEmpty, let onAssignCollection = parent.onAssignCollection {
+                menu.addItem(NSMenuItem.separator())
+                let submenu = NSMenu(title: "移到分组")
+                for option in parent.collectionAssignOptions {
+                    let item = NSMenuItem(title: option.title, action: #selector(assignCollectionFromMenu(_:)), keyEquivalent: "")
+                    item.representedObject = CollectionAssignTarget(bookmark: bookmark, collectionId: option.collectionId, handler: onAssignCollection)
+                    item.target = self
+                    submenu.addItem(item)
+                }
+                let moveItem = NSMenuItem(title: "移到分组", action: nil, keyEquivalent: "")
+                moveItem.submenu = submenu
+                menu.addItem(moveItem)
+            }
             if let hiddenStateActionTitle = parent.hiddenStateActionTitle, parent.onSetHidden != nil {
                 menu.addItem(NSMenuItem.separator())
                 menu.addItem(menuItem(hiddenStateActionTitle, action: #selector(setHiddenFromMenu(_:)), bookmark: bookmark))
@@ -341,6 +361,11 @@ struct NativeBookmarkList: NSViewRepresentable {
             parent.onDelete?(selectedIDs)
         }
 
+        @objc private func assignCollectionFromMenu(_ sender: NSMenuItem) {
+            guard let target = sender.representedObject as? CollectionAssignTarget else { return }
+            target.handler(target.bookmark, target.collectionId)
+        }
+
         @objc private func setHiddenFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
             parent.onSetHidden?(bookmark)
@@ -379,6 +404,18 @@ struct NativeBookmarkList: NSViewRepresentable {
             item.target = self
             item.representedObject = bookmark
             return item
+        }
+
+        private final class CollectionAssignTarget: NSObject {
+            let bookmark: Bookmark
+            let collectionId: UUID?
+            let handler: (Bookmark, UUID?) -> Void
+
+            init(bookmark: Bookmark, collectionId: UUID?, handler: @escaping (Bookmark, UUID?) -> Void) {
+                self.bookmark = bookmark
+                self.collectionId = collectionId
+                self.handler = handler
+            }
         }
 
         private func destructiveMenuItem(_ title: String, action: Selector, bookmark: Bookmark) -> NSMenuItem {

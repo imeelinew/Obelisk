@@ -84,6 +84,11 @@ struct BookmarkManagerView: View {
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
     @AppStorage("customTransparencyEnabled") private var customTransparencyEnabled = false
     @State private var showCustomTransparencyAlert = false
+    @State private var showNewCollectionDialog = false
+    @State private var newCollectionName = ""
+    @State private var collectionToRename: BookmarkCollection?
+    @State private var renameCollectionName = ""
+    @State private var collectionToDelete: BookmarkCollection?
 
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
@@ -249,18 +254,6 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private var filteredFrequent: [Bookmark] {
-        filtered(model.frequent)
-    }
-
-    private var filteredRecent: [Bookmark] {
-        filtered(model.recent)
-    }
-
-    private var filteredOthers: [Bookmark] {
-        sorted(filtered(model.others))
-    }
-
     private var filteredBookmarks: [Bookmark] {
         filtered(visibleBookmarks)
     }
@@ -284,24 +277,30 @@ struct BookmarkManagerView: View {
 
     private var bookmarkSections: [BookmarkListSection] {
         var sections: [BookmarkListSection] = []
+        var isFirst = true
 
-        if !filteredFrequent.isEmpty {
-            sections.append(BookmarkListSection(title: "常用", bookmarks: filteredFrequent))
-        }
-
-        if !filteredRecent.isEmpty {
-            sections.append(BookmarkListSection(title: "最近添加", bookmarks: filteredRecent))
-        }
-
-        if !filteredOthers.isEmpty {
-            sections.append(BookmarkListSection(
-                title: "全部",
-                bookmarks: filteredOthers,
-                sortMode: bookmarkListSortMode
-            ))
+        for section in model.visibleCollectionSections(from: visibleBookmarks) {
+            let bookmarks = sorted(filtered(section.bookmarks))
+            guard !bookmarks.isEmpty else { continue }
+            sections.append(
+                BookmarkListSection(
+                    title: section.title,
+                    bookmarks: bookmarks,
+                    sortMode: isFirst ? bookmarkListSortMode : nil
+                )
+            )
+            isFirst = false
         }
 
         return sections
+    }
+
+    private var collectionAssignOptions: [BookmarkCollectionAssignOption] {
+        var options = model.collections.map {
+            BookmarkCollectionAssignOption(title: $0.name, collectionId: $0.id)
+        }
+        options.append(BookmarkCollectionAssignOption(title: "未分组", collectionId: nil))
+        return options
     }
 
     private var hiddenBookmarkSections: [BookmarkListSection] {
@@ -466,6 +465,49 @@ struct BookmarkManagerView: View {
         model.setMenuGroupLimits(frequent: menuFrequentGroupLimit, recent: menuRecentGroupLimit)
     }
 
+    private func assignCollection(_ bookmark: Bookmark, collectionId: UUID?) {
+        if let error = model.setBookmarkCollection(bookmarkId: bookmark.id, collectionId: collectionId) {
+            showToast(error, kind: .error)
+        }
+    }
+
+    private func assignCollectionToSelection(collectionId: UUID?) {
+        guard !selection.isEmpty else { return }
+        if let error = model.setBookmarkCollection(bookmarkIds: selection, collectionId: collectionId) {
+            showToast(error, kind: .error)
+        }
+    }
+
+    private func createCollection() {
+        if let error = model.createCollection(name: newCollectionName) {
+            showToast(error, kind: .error)
+        } else {
+            newCollectionName = ""
+            showToast("已创建分组")
+        }
+    }
+
+    private func renameCollection() {
+        guard let collection = collectionToRename else { return }
+        if let error = model.renameCollection(id: collection.id, name: renameCollectionName) {
+            showToast(error, kind: .error)
+        } else {
+            collectionToRename = nil
+            renameCollectionName = ""
+            showToast("已重命名分组")
+        }
+    }
+
+    private func deleteCollection() {
+        guard let collection = collectionToDelete else { return }
+        if let error = model.deleteCollection(id: collection.id) {
+            showToast(error, kind: .error)
+        } else {
+            collectionToDelete = nil
+            showToast("已删除分组")
+        }
+    }
+
     private var showsFullURLBinding: Binding<Bool> {
         Binding(
             get: { !showsURLHostOnly },
@@ -587,6 +629,20 @@ struct BookmarkManagerView: View {
         Binding(
             get: { llmConfigMessage != nil },
             set: { if !$0 { llmConfigMessage = nil } }
+        )
+    }
+
+    private var renameCollectionAlertBinding: Binding<Bool> {
+        Binding(
+            get: { collectionToRename != nil },
+            set: { if !$0 { collectionToRename = nil } }
+        )
+    }
+
+    private var deleteCollectionAlertBinding: Binding<Bool> {
+        Binding(
+            get: { collectionToDelete != nil },
+            set: { if !$0 { collectionToDelete = nil } }
         )
     }
 
@@ -753,7 +809,17 @@ struct BookmarkManagerView: View {
             refreshAllFavicons: refreshAllFavicons,
             customTransparencyAlertBinding: customTransparencyAlertBinding,
             showCustomTransparencyAlert: $showCustomTransparencyAlert,
-            customTransparencyEnabled: $customTransparencyEnabled
+            customTransparencyEnabled: $customTransparencyEnabled,
+            showNewCollectionDialog: $showNewCollectionDialog,
+            newCollectionName: $newCollectionName,
+            createCollection: createCollection,
+            renameCollectionAlertBinding: renameCollectionAlertBinding,
+            renameCollectionName: $renameCollectionName,
+            collectionToRename: $collectionToRename,
+            renameCollection: renameCollection,
+            deleteCollectionAlertBinding: deleteCollectionAlertBinding,
+            collectionToDelete: $collectionToDelete,
+            deleteCollection: deleteCollection
         ))
     }
 
@@ -874,7 +940,9 @@ struct BookmarkManagerView: View {
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
                     archiveStateActionTitle: autoArchiveEnabled ? "归档" : nil,
                     onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
-                    onSortModeChange: { sortMode in bookmarkListSortMode = sortMode }
+                    onSortModeChange: { sortMode in bookmarkListSortMode = sortMode },
+                    collectionAssignOptions: collectionAssignOptions,
+                    onAssignCollection: { bookmark, collectionId in assignCollection(bookmark, collectionId: collectionId) }
                 )
             }
         }
@@ -1040,8 +1108,8 @@ struct BookmarkManagerView: View {
                     }
                 }
 
-                menuLimitStepper("常用数量", desc: "菜单栏「常用」分组最多显示的书签数量。", value: $menuFrequentGroupLimit)
-                menuLimitStepper("最近添加数量", desc: "菜单栏「最近添加」分组最多显示的书签数量。", value: $menuRecentGroupLimit)
+                menuLimitStepper("常用数量", desc: "菜单栏智能置顶「常用」最多显示的书签数量。", value: $menuFrequentGroupLimit)
+                menuLimitStepper("最近添加数量", desc: "菜单栏智能置顶「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
             }
 
             Section("窗口") {
@@ -1278,6 +1346,44 @@ struct BookmarkManagerView: View {
             ToolbarSpacer(.flexible)
 
             ToolbarItemGroup {
+                Menu {
+                    Button("新建分组") {
+                        newCollectionName = ""
+                        showNewCollectionDialog = true
+                    }
+
+                    if !model.collections.isEmpty {
+                        Divider()
+
+                        Menu("将选中项移到") {
+                            ForEach(model.collections) { collection in
+                                Button(collection.name) {
+                                    assignCollectionToSelection(collectionId: collection.id)
+                                }
+                            }
+                            Button("未分组") {
+                                assignCollectionToSelection(collectionId: nil)
+                            }
+                        }
+                        .disabled(selection.isEmpty)
+
+                        Divider()
+
+                        ForEach(model.collections) { collection in
+                            Button("重命名「\(collection.name)」") {
+                                collectionToRename = collection
+                                renameCollectionName = collection.name
+                            }
+                            Button("删除「\(collection.name)」", role: .destructive) {
+                                collectionToDelete = collection
+                            }
+                        }
+                    }
+                } label: {
+                    Label("分组", systemImage: "folder")
+                }
+                .help("管理书签分组")
+
                 Button {
                     presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil, prefilledIsHidden: false)
                 } label: {
@@ -1739,9 +1845,39 @@ private struct ExtraAlerts: ViewModifier {
     let customTransparencyAlertBinding: Binding<Bool>
     @Binding var showCustomTransparencyAlert: Bool
     @Binding var customTransparencyEnabled: Bool
+    @Binding var showNewCollectionDialog: Bool
+    @Binding var newCollectionName: String
+    let createCollection: () -> Void
+    let renameCollectionAlertBinding: Binding<Bool>
+    @Binding var renameCollectionName: String
+    @Binding var collectionToRename: BookmarkCollection?
+    let renameCollection: () -> Void
+    let deleteCollectionAlertBinding: Binding<Bool>
+    @Binding var collectionToDelete: BookmarkCollection?
+    let deleteCollection: () -> Void
 
     func body(content: Content) -> some View {
         content
+            .alert("新建分组", isPresented: $showNewCollectionDialog) {
+                TextField("分组名称", text: $newCollectionName)
+                Button("取消", role: .cancel) {}
+                Button("创建", action: createCollection)
+            }
+            .alert("重命名分组", isPresented: renameCollectionAlertBinding) {
+                TextField("分组名称", text: $renameCollectionName)
+                Button("取消", role: .cancel) { collectionToRename = nil }
+                Button("保存", action: renameCollection)
+            }
+            .alert(
+                "删除分组?",
+                isPresented: deleteCollectionAlertBinding,
+                presenting: collectionToDelete
+            ) { _ in
+                Button("取消", role: .cancel) { collectionToDelete = nil }
+                Button("删除", role: .destructive, action: deleteCollection)
+            } message: { collection in
+                Text("删除「\(collection.name)」后，其中的书签将移到未分组。")
+            }
             .alert(
                 "刷新全部 favicon?",
                 isPresented: refreshAllFaviconAlertBinding

@@ -341,6 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleStorageRootChanged(_ rootDirectory: URL) {
+        bookmarksModel.updateStorageRootDirectory(rootDirectory)
         faviconLoader.updateRootDirectory(rootDirectory)
         bookmarkWatcher = nil
         startBookmarkWatcher()
@@ -402,7 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 appendSection(title: "最近添加", bookmarks: recent, to: menu)
             }
             if !others.isEmpty {
-                appendBookmarkSubmenu(title: "全部", bookmarks: others, to: menu)
+                appendBookmarkSubmenu(title: "其他", bookmarks: others, to: menu)
             }
         }
 

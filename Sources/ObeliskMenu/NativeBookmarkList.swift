@@ -26,6 +26,7 @@ struct BookmarkListSection: Equatable, Identifiable {
 struct NativeBookmarkList: NSViewRepresentable {
     var sections: [BookmarkListSection]
     @Binding var selection: Set<Bookmark.ID>
+    var selectedCollectionId: Binding<UUID?>?
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
     var showsURLHostOnly: Bool = false
@@ -154,9 +155,10 @@ struct NativeBookmarkList: NSViewRepresentable {
         // MARK: HoverTableViewDelegate
 
         func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int) {
-            // Skip headers and out-of-range; treat them as "no hover".
             let resolved: Int
-            if row >= 0, row < items.count, items[row].bookmark != nil {
+            if row >= 0,
+               row < items.count,
+               items[row].bookmark != nil || selectedCollectionId(for: row) != nil {
                 resolved = row
             } else {
                 resolved = -1
@@ -291,11 +293,17 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
             guard row >= 0, row < items.count else { return false }
-            return items[row].bookmark != nil
+            if items[row].bookmark != nil {
+                return true
+            }
+            return selectedCollectionId(for: row) != nil
         }
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-            guard row >= 0, row < items.count, items[row].bookmark != nil else {
+            guard row >= 0,
+                  row < items.count,
+                  items[row].bookmark != nil || selectedCollectionId(for: row) != nil
+            else {
                 return nil
             }
             let view = HoverableRowView()
@@ -352,15 +360,21 @@ struct NativeBookmarkList: NSViewRepresentable {
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let tableView else { return }
             var selectedIDs: Set<Bookmark.ID> = []
+            var selectedCollectionId: UUID?
 
             for row in tableView.selectedRowIndexes {
-                guard row >= 0, row < items.count, let bookmark = items[row].bookmark else {
+                guard row >= 0, row < items.count else {
                     continue
                 }
-                selectedIDs.insert(bookmark.id)
+                if let bookmark = items[row].bookmark {
+                    selectedIDs.insert(bookmark.id)
+                } else if tableView.selectedRowIndexes.count == 1 {
+                    selectedCollectionId = self.selectedCollectionId(for: row)
+                }
             }
 
             parent.selection = selectedIDs
+            parent.selectedCollectionId?.wrappedValue = selectedIDs.isEmpty ? selectedCollectionId : nil
         }
 
         @objc func handleDoubleClick(_ sender: NSTableView) {
@@ -465,6 +479,10 @@ struct NativeBookmarkList: NSViewRepresentable {
             for (row, item) in items.enumerated() {
                 if let bookmark = item.bookmark, parent.selection.contains(bookmark.id) {
                     rowIndexes.insert(row)
+                } else if parent.selection.isEmpty,
+                          let selectedCollectionId = parent.selectedCollectionId?.wrappedValue,
+                          item.collectionId == selectedCollectionId {
+                    rowIndexes.insert(row)
                 }
             }
 
@@ -495,6 +513,16 @@ struct NativeBookmarkList: NSViewRepresentable {
             item.target = self
             item.representedObject = collectionId
             return item
+        }
+
+        private func selectedCollectionId(for row: Int) -> UUID? {
+            guard parent.selectedCollectionId != nil,
+                  row >= 0,
+                  row < items.count
+            else {
+                return nil
+            }
+            return items[row].collectionId
         }
 
         private func destructiveCollectionMenuItem(_ title: String, action: Selector, collectionId: UUID) -> NSMenuItem {
@@ -695,9 +723,18 @@ private final class HoverableRowView: NSTableRowView {
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
         guard isHovered, !isSelected else { return }
+        drawRoundedBackground(color: NSColor.labelColor.withAlphaComponent(0.08))
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard selectionHighlightStyle != .none else { return }
+        drawRoundedBackground(color: .selectedContentBackgroundColor)
+    }
+
+    private func drawRoundedBackground(color: NSColor) {
         let inset = bounds.insetBy(dx: 10, dy: 2)
         let path = NSBezierPath(roundedRect: inset, xRadius: 8, yRadius: 8)
-        NSColor.labelColor.withAlphaComponent(0.08).setFill()
+        color.setFill()
         path.fill()
     }
 }
@@ -758,7 +795,8 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         action: Selector
     ) {
         titleField.stringValue = title
-        titleCenterYConstraint?.constant = topSpacing + NativeBookmarkList.headerHeight / 2
+        let rowHeight = topSpacing + NativeBookmarkList.headerHeight + NativeBookmarkList.headerBottomSpacing
+        titleCenterYConstraint?.constant = rowHeight / 2
         sortButton.isHidden = sortMode == nil
         sortButton.target = target
         sortButton.action = action

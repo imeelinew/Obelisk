@@ -81,6 +81,7 @@ struct BookmarkManagerView: View {
     @State private var toast: Toast?
     @State private var searchText = ""
     @State private var settingsPage: SettingsPage = .bookmarks
+    @State private var selectedCollectionId: UUID?
     @State private var llmConfig = LLMConfig()
     @State private var llmConfigMessage: String?
     @State private var hiddenBookmarksUnlocked = false
@@ -197,7 +198,7 @@ struct BookmarkManagerView: View {
             case .archive:         return "归档"
             case .appearance:      return "外观"
             case .shortcuts:       return "快捷键"
-            case .ai:              return "AI"
+            case .ai:              return "Intelligence"
             case .privacy:         return "隐私"
             case .developer:       return "开发者选项"
             }
@@ -211,7 +212,7 @@ struct BookmarkManagerView: View {
             case .archive:         return "archivebox.fill"
             case .appearance:      return "paintpalette.fill"
             case .shortcuts:       return "command"
-            case .ai:              return "sparkles"
+            case .ai:              return "apple.intelligence"
             case .privacy:         return "lock.fill"
             case .developer:       return "wrench.fill"
             }
@@ -227,7 +228,12 @@ struct BookmarkManagerView: View {
                 )
             case .ai:
                 return LinearGradient(
-                    colors: [Color(red: 0.30, green: 0.68, blue: 1.0), Color(red: 0.08, green: 0.38, blue: 0.86)],
+                    colors: [
+                        Color(red: 1.0, green: 0.78, blue: 0.25),
+                        Color(red: 1.0, green: 0.20, blue: 0.28),
+                        Color(red: 0.54, green: 0.28, blue: 0.96),
+                        Color(red: 0.22, green: 0.66, blue: 1.0)
+                    ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -411,6 +417,11 @@ struct BookmarkManagerView: View {
         return model.bookmarks.first { $0.id == id }
     }
 
+    private var selectedCollection: BookmarkCollection? {
+        guard let selectedCollectionId, selection.isEmpty else { return nil }
+        return model.collections.first { $0.id == selectedCollectionId }
+    }
+
     private var canDeleteSelection: Bool {
         !selection.isEmpty
     }
@@ -427,6 +438,16 @@ struct BookmarkManagerView: View {
     private func confirmDelete(_ confirmation: DeleteConfirmation) {
         model.delete(ids: confirmation.ids)
         selection.subtract(confirmation.ids)
+    }
+
+    private func requestDeleteSelectedCollection() {
+        guard let selectedCollection else { return }
+        beginDeleteCollection(id: selectedCollection.id)
+    }
+
+    private func requestRenameSelectedCollection() {
+        guard let selectedCollection else { return }
+        beginRenameCollection(id: selectedCollection.id)
     }
 
     private func copyURL(_ bookmark: Bookmark) {
@@ -551,6 +572,7 @@ struct BookmarkManagerView: View {
             showToast(error, kind: .error)
         } else {
             collectionToDelete = nil
+            selectedCollectionId = nil
             showToast("已删除分组")
         }
     }
@@ -817,7 +839,7 @@ struct BookmarkManagerView: View {
         .environment(\.sidebarIconTileSize, sidebarIconTileSize)
         .environment(\.sidebarIconSymbolSize, sidebarIconSymbolSize)
         .environment(\.sidebarIconCornerRadius, sidebarIconCornerRadius)
-        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索标题或网址")
+        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索书签")
         .toolbar {
             settingsToolbar
         }
@@ -868,6 +890,9 @@ struct BookmarkManagerView: View {
         }
         .onChange(of: addRequest.seq) { _, _ in
             consumePendingAddRequestIfNeeded()
+        }
+        .onChange(of: settingsPage) { _, _ in
+            selectedCollectionId = nil
         }
         .modifier(HiddenBookmarksLockingModifier(
             settingsPage: $settingsPage,
@@ -1113,6 +1138,7 @@ struct BookmarkManagerView: View {
                 NativeBookmarkList(
                     sections: collectionBookmarkSections,
                     selection: $selection,
+                    selectedCollectionId: $selectedCollectionId,
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
@@ -1124,6 +1150,7 @@ struct BookmarkManagerView: View {
                 NativeBookmarkList(
                     sections: collectionBookmarkSections,
                     selection: $selection,
+                    selectedCollectionId: $selectedCollectionId,
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
@@ -1408,12 +1435,12 @@ struct BookmarkManagerView: View {
 
     private var aiOptimizationPage: some View {
         Form {
-            Section("AI 功能") {
-                Toggle("开启 AI 功能", isOn: $aiFeaturesEnabled)
+            Section("Intelligence 功能") {
+                Toggle("开启 Intelligence 功能", isOn: $aiFeaturesEnabled)
             }
 
             if aiFeaturesEnabled {
-                Section("AI 标题优化") {
+                Section("Intelligence 标题优化") {
                     VStack(alignment: .leading, spacing: 4) {
                         LabeledContent {
                             titleIntensityPicker
@@ -1469,7 +1496,7 @@ struct BookmarkManagerView: View {
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
-        .navigationTitle("AI")
+        .navigationTitle("Intelligence")
     }
 
     private var privacyPage: some View {
@@ -1646,7 +1673,7 @@ struct BookmarkManagerView: View {
                     } label: {
                         Label(
                             model.isOptimizingTitles ? "优化中" : "优化标题",
-                            systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                            systemImage: "apple.intelligence"
                         )
                     }
                     .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
@@ -1680,6 +1707,22 @@ struct BookmarkManagerView: View {
                     Label("新建", systemImage: "plus")
                 }
                 .help("新建分组")
+
+                Button {
+                    requestDeleteSelectedCollection()
+                } label: {
+                    Label("删除", systemImage: "minus")
+                }
+                .disabled(selectedCollection == nil)
+                .help("删除选中的分组")
+
+                Button {
+                    requestRenameSelectedCollection()
+                } label: {
+                    Label("重命名", systemImage: "pencil")
+                }
+                .disabled(selectedCollection == nil)
+                .help("重命名选中的分组")
             }
 
             if aiFeaturesEnabled {
@@ -1691,7 +1734,7 @@ struct BookmarkManagerView: View {
                     } label: {
                         Label(
                             model.isOptimizingTitles ? "优化中" : "优化标题",
-                            systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                            systemImage: "apple.intelligence"
                         )
                     }
                     .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
@@ -1736,7 +1779,7 @@ struct BookmarkManagerView: View {
                     } label: {
                         Label(
                             model.isOptimizingTitles ? "优化中" : "优化标题",
-                            systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
+                            systemImage: "apple.intelligence"
                         )
                     }
                     .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
@@ -1768,6 +1811,11 @@ private struct SidebarCategoryIcon: View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(page.iconGradient)
+                .overlay {
+                    if page == .ai {
+                        IntelligenceTileOverlay(cornerRadius: cornerRadius)
+                    }
+                }
 
             Image(systemName: page.symbolName)
                 .font(.system(size: symbolSize, weight: .semibold))
@@ -1775,6 +1823,53 @@ private struct SidebarCategoryIcon: View {
                 .foregroundStyle(.white)
         }
         .frame(width: tileSize, height: tileSize)
+    }
+}
+
+private struct IntelligenceTileOverlay: View {
+    let cornerRadius: Double
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(
+                RadialGradient(
+                    colors: [
+                        Color(red: 0.70, green: 0.90, blue: 0.72).opacity(0.96),
+                        Color(red: 0.70, green: 0.90, blue: 0.72).opacity(0.0)
+                    ],
+                    center: UnitPoint(x: 0.28, y: 0.55),
+                    startRadius: 0,
+                    endRadius: 22
+                )
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color(red: 1.0, green: 0.18, blue: 0.36).opacity(0.78),
+                                Color(red: 1.0, green: 0.18, blue: 0.36).opacity(0.0)
+                            ],
+                            center: UnitPoint(x: 0.82, y: 0.18),
+                            startRadius: 0,
+                            endRadius: 20
+                        )
+                    )
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color(red: 0.24, green: 0.66, blue: 1.0).opacity(0.78),
+                                Color(red: 0.24, green: 0.66, blue: 1.0).opacity(0.0)
+                            ],
+                            center: UnitPoint(x: 0.14, y: 0.92),
+                            startRadius: 0,
+                            endRadius: 18
+                        )
+                    )
+            }
     }
 }
 
@@ -2173,7 +2268,7 @@ private struct ExtraAlerts: ViewModifier {
                     fetchAllOriginalTitles()
                 }
             } message: {
-                Text("将从各书签网址抓取网页标题并应用到全部书签，已 AI 优化的标题也会被覆盖。")
+                Text("将从各书签网址抓取网页标题并应用到全部书签，已 Intelligence 优化的标题也会被覆盖。")
             }
             .alert(
                 "刷新全部 favicon?",

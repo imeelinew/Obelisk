@@ -424,7 +424,7 @@ final class BookmarksModel {
 
     func optimizeTitles(bookmarkIds: Set<UUID>) async -> String {
         guard UserDefaults.standard.object(forKey: Self.aiFeaturesEnabledKey) as? Bool ?? true else {
-            return "AI 功能已关闭"
+            return "Intelligence 功能已关闭"
         }
 
         guard !isOptimizingTitles else {
@@ -478,7 +478,7 @@ final class BookmarksModel {
         }
 
         guard !revertableIds.isEmpty else {
-            return "所选书签无法恢复原标题（需已 AI 优化且保存了原标题）"
+            return "所选书签无法恢复原标题（需已 Intelligence 优化且保存了原标题）"
         }
 
         do {

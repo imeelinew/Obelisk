@@ -430,6 +430,14 @@ struct BookmarkManagerView: View {
         selectedBookmark != nil
     }
 
+    private var canDeleteCollectionPageSelection: Bool {
+        !selection.isEmpty || selectedCollection != nil
+    }
+
+    private var canEditCollectionPageSelection: Bool {
+        selectedBookmark != nil || selectedCollection != nil
+    }
+
     private func requestDelete(ids: Set<Bookmark.ID>) {
         guard !ids.isEmpty else { return }
         deleteConfirmation = DeleteConfirmation(ids: ids)
@@ -448,6 +456,22 @@ struct BookmarkManagerView: View {
     private func requestRenameSelectedCollection() {
         guard let selectedCollection else { return }
         beginRenameCollection(id: selectedCollection.id)
+    }
+
+    private func requestDeleteCollectionPageSelection() {
+        if !selection.isEmpty {
+            requestDelete(ids: selection)
+        } else {
+            requestDeleteSelectedCollection()
+        }
+    }
+
+    private func requestEditCollectionPageSelection() {
+        if let bookmark = selectedBookmark {
+            presentation = .edit(bookmark)
+        } else {
+            requestRenameSelectedCollection()
+        }
     }
 
     private func copyURL(_ bookmark: Bookmark) {
@@ -1709,19 +1733,19 @@ struct BookmarkManagerView: View {
                 .help("新建分组")
 
                 Button {
-                    requestDeleteSelectedCollection()
+                    requestDeleteCollectionPageSelection()
                 } label: {
                     Label("删除", systemImage: "minus")
                 }
-                .disabled(selectedCollection == nil)
+                .disabled(!canDeleteCollectionPageSelection)
                 .help("删除选中的分组")
 
                 Button {
-                    requestRenameSelectedCollection()
+                    requestEditCollectionPageSelection()
                 } label: {
                     Label("重命名", systemImage: "pencil")
                 }
-                .disabled(selectedCollection == nil)
+                .disabled(!canEditCollectionPageSelection)
                 .help("重命名选中的分组")
             }
 

@@ -582,7 +582,7 @@ public enum SecureJSONFileCodecError: LocalizedError {
         case .invalidEnvelope:
             return "本地加密文件格式无效"
         case .decryptFailed:
-            return "无法解密本地数据"
+            return "无法解密本地数据：钥匙串中的加密密钥与磁盘上的加密书签不匹配。若刚切换过签名/Team，旧密钥可能已丢失；可在终端关闭「本地数据加密」并备份 EncryptedData 文件夹后重新打开 Obelisk（详见 docs/local-signing.md）。"
         case .encryptionKeyMissing:
             return "找不到本地数据加密密钥，无法解密书签。若刚切换过签名/Team，请尝试用 Time Machine 恢复「登录」钥匙串后再打开 Obelisk。"
         case .encryptionKeyWouldOverwrite:
@@ -663,7 +663,7 @@ public final class SecureJSONFileCodec {
         guard let combined = Data(base64Encoded: envelope.payload) else {
             throw SecureJSONFileCodecError.invalidEnvelope
         }
-        let key = try keyStore.getExistingKey()
+        let key = try keyStore.resolveSymmetricKey(validatingAgainst: data)
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: combined)
             return try AES.GCM.open(sealedBox, using: key)
@@ -835,6 +835,26 @@ public final class KeychainEncryptionKeyStore {
         return SymmetricKey(data: data)
     }
 
+    /// Picks a keychain key that decrypts the given ciphertext; scans all matching items before failing.
+    public func resolveSymmetricKey(validatingAgainst encryptedData: Data) throws -> SymmetricKey {
+        let codec = SecureJSONFileCodec(keyStore: self)
+        if let current = try? readKeyData(), codec.canDecrypt(encryptedData, using: current) {
+            return SymmetricKey(data: current)
+        }
+        for candidate in allKeychainKeyCandidates() where candidate.count == 32 {
+            guard codec.canDecrypt(encryptedData, using: candidate) else { continue }
+            if let current = try? readKeyData(), current != candidate {
+                Self.keyLog.fault("Using alternate keychain encryption key that decrypts local data")
+            }
+            try? saveKeyData(candidate, preferLegacySlot: true)
+            return SymmetricKey(data: candidate)
+        }
+        if (try? readKeyData()) != nil {
+            throw SecureJSONFileCodecError.decryptFailed
+        }
+        throw SecureJSONFileCodecError.encryptionKeyMissing
+    }
+
     public func getOrCreateKey() throws -> SymmetricKey {
         if let data = try readKeyData() {
             try? migrateKeyToAccessGroupIfNeeded(data)
@@ -866,7 +886,7 @@ public final class KeychainEncryptionKeyStore {
         for candidate in allKeychainKeyCandidates() where candidate.count == 32 {
             guard codec.canDecrypt(sampleData, using: candidate) else { continue }
             do {
-                if let current = try? readKeyData(), !current.isEmpty, current != candidate {
+                if let current = try? readKeyData(), current != candidate {
                     Self.keyLog.fault(
                         "Replacing unreadable encryption key with recovered candidate from keychain scan"
                     )

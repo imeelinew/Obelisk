@@ -53,6 +53,20 @@ COMPARE_DR=1 ./scripts/verify-dev-signing.sh
 - 切换 Team/签名后若提示找不到加密密钥，**应用不会自动新建密钥覆盖**（会抛出 `encryptionKeyMissing` / `encryptionKeyWouldOverwrite`）
 - 密钥曾丢失时：关闭加密、重建书签库，或从备份恢复钥匙串
 
+### 启动提示「无法解密本地数据」
+
+说明钥匙串里**有**密钥，但**不能**解密 `EncryptedData` 里的 `.bin`（常见于签名/Team 切换后钥匙串与数据不一致）。
+
+在终端执行（会**备份**加密目录，Obelisk 会以未加密空库启动；旧加密书签无法自动恢复）：
+
+```bash
+defaults write local.elidev.Obelisk encryptLocalJSONData -bool false
+mv ~/Documents/Obelisk/EncryptedData ~/Documents/Obelisk/EncryptedData.backup-$(date +%Y%m%d)
+mkdir -p ~/Documents/Obelisk/Data
+```
+
+然后重新用 Xcode 运行 Obelisk。若有 Time Machine 备份的「登录」钥匙串，可先尝试恢复后再打开应用。
+
 ## Keychain 行为摘要
 
 | 项 | Service | 说明 |

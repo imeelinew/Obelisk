@@ -679,9 +679,11 @@ public final class KeychainEncryptionKeyStore {
 
 public final class KeychainAPIKeyStore {
     private let service = "local.elidev.Obelisk.llm-apikey"
-    private let account = "default"
+    private let account: String
 
-    public init() {}
+    public init(account: String = "default") {
+        self.account = account
+    }
 
     public func readAPIKey() throws -> String? {
         var query = baseQuery()

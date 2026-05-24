@@ -389,16 +389,7 @@ final class BookmarksModel {
         }
     }
 
-    enum TitleOptimizationScope {
-        /// Ungrouped, non-hidden, non-archived bookmarks (the bookmarks settings page).
-        case visible
-        /// Bookmarks assigned to a collection (the collections settings page).
-        case grouped
-        /// Hidden bookmarks page.
-        case hidden
-    }
-
-    func optimizeAllTitles(scope: TitleOptimizationScope = .visible) async -> String {
+    func optimizeTitles(bookmarkIds: Set<UUID>) async -> String {
         guard UserDefaults.standard.object(forKey: Self.aiFeaturesEnabledKey) as? Bool ?? true else {
             return "AI 功能已关闭"
         }
@@ -407,21 +398,9 @@ final class BookmarksModel {
             return "标题优化正在进行中"
         }
 
-            let candidates = bookmarks
+        let candidates = bookmarks
             .filter { bookmark in
-                guard !bookmark.titleOptimized else { return false }
-                switch scope {
-                case .visible:
-                    return !bookmark.isHidden
-                        && !isEffectivelyArchived(bookmark)
-                        && membershipByBookmarkId[bookmark.id] == nil
-                case .grouped:
-                    return !bookmark.isHidden
-                        && !isEffectivelyArchived(bookmark)
-                        && membershipByBookmarkId[bookmark.id] != nil
-                case .hidden:
-                    return bookmark.isHidden
-                }
+                bookmarkIds.contains(bookmark.id) && !bookmark.titleOptimized
             }
             .map {
                 TitleOptimizationCandidate(

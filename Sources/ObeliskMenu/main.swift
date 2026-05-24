@@ -162,9 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if autoOptimizeNewBookmarks, aiFeaturesEnabled {
             pendingOptimizationTask?.cancel()
             pendingOptimizationTask = Task { [weak self] in
-                let message = await self?.bookmarksModel.optimizeAllTitles(
-                    scope: isHidden ? .hidden : .visible
-                )
+                let message = await self?.bookmarksModel.optimizeTitles(bookmarkIds: [bookmark.id])
                 if let message {
                     self?.notifyUser(
                         title: "标题优化完成",
@@ -398,10 +396,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let recent = bookmarksModel.recent
 
             if !frequent.isEmpty {
-                appendSection(title: "常用", bookmarks: frequent, to: menu)
+                appendSection(title: "常用 (\(frequent.count))", bookmarks: frequent, to: menu)
             }
             if !recent.isEmpty {
-                appendSection(title: "最近添加", bookmarks: recent, to: menu)
+                appendSection(title: "最近添加 (\(recent.count))", bookmarks: recent, to: menu)
             }
             for section in librarySections {
                 let bookmarks = BookmarkListSortMode.stored.sorted(section.bookmarks)

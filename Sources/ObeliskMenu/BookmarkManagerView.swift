@@ -323,7 +323,7 @@ struct BookmarkManagerView: View {
         guard !bookmarks.isEmpty else { return [] }
         return [
             BookmarkListSection(
-                title: "未分组",
+                title: "未分组 (\(bookmarks.count))",
                 bookmarks: bookmarks,
                 sortMode: bookmarkListSortMode
             )
@@ -339,7 +339,7 @@ struct BookmarkManagerView: View {
             let filteredSorted = sorted(filtered(bookmarks))
             sections.append(
                 BookmarkListSection(
-                    title: collection.name,
+                    title: "\(collection.name) (\(filteredSorted.count))",
                     bookmarks: filteredSorted,
                     sortMode: isFirst ? bookmarkListSortMode : nil,
                     collectionId: collection.id
@@ -614,33 +614,13 @@ struct BookmarkManagerView: View {
         )
     }
 
-    private func matchesOptimizationScope(_ bookmark: Bookmark, scope: BookmarksModel.TitleOptimizationScope) -> Bool {
-        guard !bookmark.titleOptimized, !isEffectivelyArchived(bookmark) else { return false }
-        switch scope {
-        case .visible:
-            return !bookmark.isHidden && model.collectionId(for: bookmark.id) == nil
-        case .grouped:
-            return !bookmark.isHidden && model.collectionId(for: bookmark.id) != nil
-        case .hidden:
-            return bookmark.isHidden
-        }
+    private var selectedUnoptimizedTitleCount: Int {
+        model.bookmarks.filter { selection.contains($0.id) && !$0.titleOptimized }.count
     }
 
-    private var unoptimizedTitleCount: Int {
-        model.bookmarks.filter { matchesOptimizationScope($0, scope: .visible) }.count
-    }
-
-    private var groupedUnoptimizedTitleCount: Int {
-        model.bookmarks.filter { matchesOptimizationScope($0, scope: .grouped) }.count
-    }
-
-    private var hiddenUnoptimizedTitleCount: Int {
-        model.bookmarks.filter { matchesOptimizationScope($0, scope: .hidden) }.count
-    }
-
-    private func optimizeTitles(scope: BookmarksModel.TitleOptimizationScope = .visible) {
+    private func optimizeSelectedTitles() {
         Task {
-            let message = await model.optimizeAllTitles(scope: scope)
+            let message = await model.optimizeTitles(bookmarkIds: selection)
             showToast(message)
         }
     }
@@ -1689,15 +1669,14 @@ struct BookmarkManagerView: View {
 
                 ToolbarItem {
                     Button {
-                        optimizeTitles(scope: .visible)
+                        optimizeSelectedTitles()
                     } label: {
                         Label(
                             model.isOptimizingTitles ? "优化中" : "优化标题",
                             systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
                         )
                     }
-                    .disabled(model.bookmarks.isEmpty || model.isOptimizingTitles || unoptimizedTitleCount == 0)
-                    .help("优化「书签」页中未分组的未处理标题")
+                    .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
                 }
             }
         } else if settingsPage == .collections {
@@ -1735,15 +1714,14 @@ struct BookmarkManagerView: View {
 
                 ToolbarItem {
                     Button {
-                        optimizeTitles(scope: .grouped)
+                        optimizeSelectedTitles()
                     } label: {
                         Label(
                             model.isOptimizingTitles ? "优化中" : "优化标题",
                             systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
                         )
                     }
-                    .disabled(model.collections.isEmpty || model.isOptimizingTitles || groupedUnoptimizedTitleCount == 0)
-                    .help("优化「分组」页中已分组且未处理的标题")
+                    .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
                 }
             }
         } else if settingsPage == .hiddenBookmarks {
@@ -1781,15 +1759,14 @@ struct BookmarkManagerView: View {
 
                 ToolbarItem {
                     Button {
-                        optimizeTitles(scope: .hidden)
+                        optimizeSelectedTitles()
                     } label: {
                         Label(
                             model.isOptimizingTitles ? "优化中" : "优化标题",
                             systemImage: model.isOptimizingTitles ? "hourglass" : "sparkles"
                         )
                     }
-                    .disabled(hiddenBookmarks.isEmpty || model.isOptimizingTitles || hiddenUnoptimizedTitleCount == 0)
-                    .help("优化「隐藏书签」页中未处理的标题")
+                    .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
                 }
             }
         }

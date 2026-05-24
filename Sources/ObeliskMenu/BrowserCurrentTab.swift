@@ -13,8 +13,7 @@ struct BrowserTab {
 ///   - the user denied automation permission
 ///   - the browser has no open windows
 ///
-/// Caller (Wave 5 hotkey path) should fall back to clipboard URL detection
-/// in those cases.
+/// Caller (Wave 5 hotkey path) falls back to `ClipboardURL` when fetch fails.
 @MainActor
 enum BrowserCurrentTab {
 

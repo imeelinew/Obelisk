@@ -154,18 +154,20 @@ public final class UsageStore {
         cachedUsage = dict
         let payload = Dictionary(uniqueKeysWithValues: dict.map { ($0.key.uuidString, $0.value) })
         do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let data = try encoder.encode(payload)
-            try secureCodec.writeData(
-                data,
-                to: fileURL,
-                encrypted: LocalJSONEncryption.isEnabled
-            )
-            for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "usage.json") {
-                try? LocalFileAccess.removeItem(at: staleURL)
+            try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
+                try FileManager.default.createDirectory(
+                    at: fileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let data = try encoder.encode(payload)
+                try secureCodec.writeData(
+                    data,
+                    to: fileURL,
+                    encrypted: LocalJSONEncryption.isEnabled
+                )
+                for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "usage.json") {
+                    try? LocalFileAccess.removeItem(at: staleURL)
+                }
             }
         } catch {
             usageLog.error("Failed to persist usage data: \(error.localizedDescription)")

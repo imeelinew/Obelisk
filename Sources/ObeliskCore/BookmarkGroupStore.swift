@@ -121,6 +121,23 @@ public final class BookmarkGroupStore {
     }
 
     public func save(_ database: BookmarkGroupDatabase) throws {
+        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
+            try saveUnlocked(database)
+        }
+    }
+
+    public func update(_ body: (inout BookmarkGroupDatabase) -> Void) throws {
+        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
+            var database = load()
+            let prior = database
+            body(&database)
+            database.version = BookmarkGroupDatabase.currentVersion
+            guard database != prior else { return }
+            try saveUnlocked(database)
+        }
+    }
+
+    private func saveUnlocked(_ database: BookmarkGroupDatabase) throws {
         try FileManager.default.createDirectory(
             at: rootDirectory,
             withIntermediateDirectories: true
@@ -136,15 +153,6 @@ public final class BookmarkGroupStore {
             try? LocalFileAccess.removeItem(at: staleURL)
         }
         cachedDatabase = database
-    }
-
-    public func update(_ body: (inout BookmarkGroupDatabase) -> Void) throws {
-        var database = load()
-        let prior = database
-        body(&database)
-        database.version = BookmarkGroupDatabase.currentVersion
-        guard database != prior else { return }
-        try save(database)
     }
 
     public func collectionId(for bookmarkId: UUID) -> UUID? {

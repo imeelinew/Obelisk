@@ -22,7 +22,7 @@ public enum ObeliskPlaintextDataBackup {
         }
     }
 
-    private static let jsonLogicalNames = ObeliskStorageMigrator.logicalJSONFiles + ["bookmark_groups.json"]
+    private static let jsonLogicalNames = ObeliskStorageMigrator.logicalJSONFiles
     private static let backupFolderPrefix = "Backup-"
 
     public static func createBackup(in rootDirectory: URL, now: Date = Date()) throws -> Result {

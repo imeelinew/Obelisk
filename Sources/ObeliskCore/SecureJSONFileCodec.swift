@@ -212,7 +212,8 @@ public enum ObeliskStorageMigrator {
         "llm.json",
         "bookmarks.json",
         "bookmark_state.json",
-        "usage.json"
+        "usage.json",
+        "bookmark_groups.json"
     ]
 
     public static func normalizeStorage(in rootDirectory: URL, encrypted: Bool) throws {

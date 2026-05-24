@@ -123,6 +123,22 @@ public final class BookmarkStateStore {
     }
 
     public func save(_ state: BookmarkStateDatabase) throws {
+        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
+            try saveUnlocked(state)
+        }
+    }
+
+    public func update(_ body: (inout BookmarkStateDatabase) -> Void) throws {
+        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
+            var state = load()
+            let prior = state
+            body(&state)
+            guard state != prior else { return }
+            try saveUnlocked(state)
+        }
+    }
+
+    private func saveUnlocked(_ state: BookmarkStateDatabase) throws {
         try FileManager.default.createDirectory(
             at: rootDirectory,
             withIntermediateDirectories: true
@@ -138,14 +154,6 @@ public final class BookmarkStateStore {
             try? LocalFileAccess.removeItem(at: staleURL)
         }
         cachedState = state
-    }
-
-    public func update(_ body: (inout BookmarkStateDatabase) -> Void) throws {
-        var state = load()
-        let prior = state
-        body(&state)
-        guard state != prior else { return }
-        try save(state)
     }
 }
 

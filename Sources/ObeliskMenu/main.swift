@@ -85,9 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Wave 5: ⌥B from anywhere → fetch the frontmost browser's current
     /// tab via AppleScript and present the manage window's add sheet
-    /// prefilled with URL + title. Falls back to clipboard URL prefill if
-    /// the frontmost app isn't a recognized browser or automation
-    /// permission was denied.
+    /// prefilled with URL + title. Falls back to a clipboard http(s) URL when
+    /// the frontmost app isn't a recognized browser or automation permission
+    /// was denied (silent add uses the same fallback).
     ///
     /// Note: ⌥B normally types `∫` in text fields. Carbon's `RegisterEventHotKey`
     /// intercepts the keystroke at the system level so it never reaches the
@@ -122,14 +122,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleGlobalHotkey(isHidden: Bool) {
-        let tab = BrowserCurrentTab.fetch()
+        let resolved = resolveHotkeyBookmark()
         if silentAddEnabled {
-            handleSilentAdd(url: tab?.url, title: tab?.title, isHidden: isHidden)
+            handleSilentAdd(url: resolved.url, title: resolved.title, isHidden: isHidden)
         } else {
-            addRequest.request(url: tab?.url, title: tab?.title, isHidden: isHidden)
+            addRequest.request(url: resolved.url, title: resolved.title, isHidden: isHidden)
             NSApp.setActivationPolicy(.regular)
             managerWindow.show()
         }
+    }
+
+    private func resolveHotkeyBookmark() -> (url: String, title: String?) {
+        if let tab = BrowserCurrentTab.fetch() {
+            return (tab.url, tab.title)
+        }
+        if let url = ClipboardURL.normalizedHTTPURL() {
+            return (url, nil)
+        }
+        return ("", nil)
     }
 
     private func handleSilentAdd(url: String?, title: String?, isHidden: Bool) {

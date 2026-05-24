@@ -2313,14 +2313,7 @@ private struct BookmarkEditor: View {
     // MARK: - Auto-fill helpers
 
     private func clipboardURL() -> String? {
-        guard let raw = NSPasteboard.general.string(forType: .string) else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let parsed = URL(string: trimmed),
-              let scheme = parsed.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              parsed.host?.isEmpty == false
-        else { return nil }
-        return trimmed
+        ClipboardURL.normalizedHTTPURL()
     }
 
     private func scheduleTitleFetch(for raw: String) {

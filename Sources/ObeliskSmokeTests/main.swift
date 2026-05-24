@@ -36,6 +36,7 @@ struct SmokeTests {
         try testEncryptedBookmarkStoreRoundTrip()
         try testEncryptedBookmarkStateStoreRoundTrip()
         try testEncryptionNormalizationPreservesBookmarksStateAndUsage()
+        try testBookmarkGroupsEncryptionRoundTrip()
         try testBookmarkCollectionMembership()
         try testEncryptionKeyRefusesOverwrite()
         try testEncryptionKeyMissingWhenEncryptedPayloadsExist()
@@ -1005,6 +1006,50 @@ struct SmokeTests {
             try expect(state.createdAtById.count == 2, "expected encryption normalization to preserve createdAt state")
             try expect(state.titleOptimizedIds == [visible.id, hidden.id], "expected encryption normalization to preserve title state")
             try expect(usage[visible.id]?.count == 2, "expected encryption normalization to preserve usage count")
+        }
+    }
+
+    private static func testBookmarkGroupsEncryptionRoundTrip() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        LocalJSONEncryption.isEnabled = false
+        let groupStore = BookmarkGroupStore(rootDirectory: root)
+        let bookmarkID = UUID()
+        var workID: UUID?
+
+        try groupStore.update { database in
+            let work = BookmarkCollection(name: "工作", sortOrder: 0)
+            workID = work.id
+            database.collections = [work]
+            database.membershipByBookmarkId[bookmarkID] = work.id
+        }
+
+        for encrypted in [true, false, true] {
+            try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: encrypted)
+            LocalJSONEncryption.isEnabled = encrypted
+            groupStore.invalidateCache()
+
+            let loaded = groupStore.load()
+            try expect(loaded.collections.count == 1, "expected encryption toggle to preserve collection count")
+            try expect(loaded.collections.first?.name == "工作", "expected encryption toggle to preserve collection name")
+            try expect(loaded.membershipByBookmarkId[bookmarkID] == workID, "expected encryption toggle to preserve membership")
+
+            let groupsURL = groupStore.fileURL
+            if encrypted {
+                try expect(groupsURL.path.contains("EncryptedData"), "expected encrypted groups under EncryptedData")
+                try expect(groupsURL.pathExtension == "bin", "expected encrypted groups to use obscured bin file")
+                let raw = try Data(contentsOf: groupsURL)
+                let rawText = String(decoding: raw, as: UTF8.self)
+                try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted groups envelope marker")
+                try expect(!rawText.contains("工作"), "expected encrypted groups to hide collection name")
+            } else {
+                try expect(
+                    groupsURL.path.contains("Data"),
+                    "expected plaintext groups under Data"
+                )
+            }
         }
     }
 

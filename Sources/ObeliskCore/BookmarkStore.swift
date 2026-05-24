@@ -214,21 +214,11 @@ public final class BookmarkStore {
     }
 
     private func withFileLock<T>(_ body: () throws -> T) throws -> T {
-        try FileManager.default.createDirectory(
-            at: rootDirectory,
-            withIntermediateDirectories: true
-        )
-        let lockURL = rootDirectory.appendingPathComponent(".lock")
-        let fd = open(lockURL.path, O_RDWR | O_CREAT, 0o644)
-        guard fd >= 0 else {
+        do {
+            return try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory, body)
+        } catch ObeliskStorageLockError.lockFailed {
             throw BookmarkStoreError.lockFailed
         }
-        defer { close(fd) }
-        guard flock(fd, LOCK_EX) == 0 else {
-            throw BookmarkStoreError.lockFailed
-        }
-        defer { _ = flock(fd, LOCK_UN) }
-        return try body()
     }
 
     public func bookmarks() throws -> [Bookmark] {

@@ -499,6 +499,23 @@ final class BookmarksModel {
         }
     }
 
+    func restoreAllOriginalTitles() -> String {
+        guard UserDefaults.standard.bool(forKey: Self.developerFeaturesEnabledKey) else {
+            return "开发者功能已关闭"
+        }
+
+        do {
+            let count = try store.restoreAllOriginalTitles()
+            reload()
+            if count == 0 {
+                return "没有可恢复的原标题"
+            }
+            return "已恢复 \(count) 个标题"
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func fetchAllOriginalTitles() async -> String {
         guard UserDefaults.standard.bool(forKey: Self.developerFeaturesEnabledKey) else {
             return "开发者功能已关闭"

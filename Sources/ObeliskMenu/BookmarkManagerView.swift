@@ -113,6 +113,7 @@ struct BookmarkManagerView: View {
     @State private var collectionToDelete: BookmarkCollection?
     @State private var isFetchingOriginalTitles = false
     @State private var restoreAllOriginalTitlesConfirmation = false
+    @State private var refetchAllOriginalTitlesConfirmation = false
     @AppStorage(BookmarksModel.developerFeaturesEnabledKey) private var developerFeaturesEnabled = false
     @State private var enableDeveloperFeaturesConfirmation = false
     @State private var resetDeveloperOptionsConfirmation = false
@@ -650,6 +651,11 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private func restoreAllOriginalTitles() {
+        let message = model.restoreAllOriginalTitles()
+        showToast(message, kind: message.hasPrefix("已恢复") ? .success : .error)
+    }
+
     private func fetchAllOriginalTitles() {
         guard developerFeaturesEnabled else {
             showToast("开发者功能已关闭", kind: .error)
@@ -790,6 +796,13 @@ struct BookmarkManagerView: View {
         Binding(
             get: { restoreAllOriginalTitlesConfirmation },
             set: { if !$0 { restoreAllOriginalTitlesConfirmation = false } }
+        )
+    }
+
+    private var refetchAllOriginalTitlesAlertBinding: Binding<Bool> {
+        Binding(
+            get: { refetchAllOriginalTitlesConfirmation },
+            set: { if !$0 { refetchAllOriginalTitlesConfirmation = false } }
         )
     }
 
@@ -992,6 +1005,9 @@ struct BookmarkManagerView: View {
             deleteCollection: deleteCollection,
             restoreAllOriginalTitlesAlertBinding: restoreAllOriginalTitlesAlertBinding,
             restoreAllOriginalTitlesConfirmation: $restoreAllOriginalTitlesConfirmation,
+            restoreAllOriginalTitles: restoreAllOriginalTitles,
+            refetchAllOriginalTitlesAlertBinding: refetchAllOriginalTitlesAlertBinding,
+            refetchAllOriginalTitlesConfirmation: $refetchAllOriginalTitlesConfirmation,
             fetchAllOriginalTitles: fetchAllOriginalTitles,
             enableDeveloperFeaturesAlertBinding: enableDeveloperFeaturesAlertBinding,
             enableDeveloperFeaturesConfirmation: $enableDeveloperFeaturesConfirmation,
@@ -1589,13 +1605,26 @@ struct BookmarkManagerView: View {
                         Button(role: .destructive) {
                             restoreAllOriginalTitlesConfirmation = true
                         } label: {
-                            Text(isFetchingOriginalTitles ? "恢复中…" : "恢复")
+                            Text("恢复")
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.red)
                         .disabled(isFetchingOriginalTitles || model.bookmarks.isEmpty || model.isOptimizingTitles)
                     } label: {
                         Text("恢复全部原标题")
+                    }
+
+                    LabeledContent {
+                        Button(role: .destructive) {
+                            refetchAllOriginalTitlesConfirmation = true
+                        } label: {
+                            Text(isFetchingOriginalTitles ? "获取中…" : "覆盖")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .disabled(isFetchingOriginalTitles || model.bookmarks.isEmpty || model.isOptimizingTitles)
+                    } label: {
+                        Text("重新获取并覆盖全部标题")
                     }
                 }
 
@@ -2250,6 +2279,9 @@ private struct ExtraAlerts: ViewModifier {
     let deleteCollection: () -> Void
     let restoreAllOriginalTitlesAlertBinding: Binding<Bool>
     @Binding var restoreAllOriginalTitlesConfirmation: Bool
+    let restoreAllOriginalTitles: () -> Void
+    let refetchAllOriginalTitlesAlertBinding: Binding<Bool>
+    @Binding var refetchAllOriginalTitlesConfirmation: Bool
     let fetchAllOriginalTitles: () -> Void
     let enableDeveloperFeaturesAlertBinding: Binding<Bool>
     @Binding var enableDeveloperFeaturesConfirmation: Bool
@@ -2289,6 +2321,20 @@ private struct ExtraAlerts: ViewModifier {
                 }
                 Button("恢复", role: .destructive) {
                     restoreAllOriginalTitlesConfirmation = false
+                    restoreAllOriginalTitles()
+                }
+            } message: {
+                Text("将使用本地保存的原标题覆盖当前标题，此操作不可撤销。")
+            }
+            .alert(
+                "重新获取并覆盖全部标题?",
+                isPresented: refetchAllOriginalTitlesAlertBinding
+            ) {
+                Button("取消", role: .cancel) {
+                    refetchAllOriginalTitlesConfirmation = false
+                }
+                Button("覆盖", role: .destructive) {
+                    refetchAllOriginalTitlesConfirmation = false
                     fetchAllOriginalTitles()
                 }
             } message: {

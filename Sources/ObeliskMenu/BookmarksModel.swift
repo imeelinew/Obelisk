@@ -3,6 +3,11 @@ import Foundation
 import Observation
 import ObeliskCore
 
+struct BookmarkMenuSection: Equatable {
+    var title: String
+    var bookmarks: [Bookmark]
+}
+
 @MainActor
 @Observable
 final class BookmarksModel {
@@ -26,8 +31,7 @@ final class BookmarksModel {
     /// bookmark appears in exactly one of `frequent` / `recent` / `others`,
     /// so a single List with selection can show all three sections without
     /// duplicate IDs.
-    /// Bookmarks not shown in menu spotlight (frequent/recent). Used for the
-    /// menubar "其他" submenu — not the manage-window primary layout.
+    /// Bookmarks not shown in menu spotlight (frequent/recent).
     private(set) var others: [Bookmark] = []
     /// User-defined collections, sorted by `sortOrder` then name.
     private(set) var collections: [BookmarkCollection] = []
@@ -267,6 +271,14 @@ final class BookmarksModel {
         }
 
         return sections
+    }
+
+    func menuLibrarySections() -> [BookmarkMenuSection] {
+        let usage = usageStore.load()
+        let visible = visibleBookmarks(from: bookmarks, usage: usage)
+        return visibleCollectionSections(from: visible).map { section in
+            BookmarkMenuSection(title: section.title, bookmarks: section.bookmarks)
+        }
     }
 
     func createCollection(name: String) -> String? {

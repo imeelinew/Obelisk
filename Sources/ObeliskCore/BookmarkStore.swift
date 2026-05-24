@@ -356,6 +356,36 @@ public final class BookmarkStore {
     }
 
     @discardableResult
+    public func restoreAllOriginalTitles() throws -> Int {
+        try withFileLock {
+            var database = try load()
+            var changedCount = 0
+            try stateStore.update { state in
+                for idx in database.bookmarks.indices {
+                    let bookmark = database.bookmarks[idx]
+                    guard let original = state.originalTitleById[bookmark.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !original.isEmpty
+                    else {
+                        continue
+                    }
+                    guard bookmark.title != original || bookmark.titleOptimized else { continue }
+                    database.bookmarks[idx].title = original
+                    database.bookmarks[idx].titleOptimized = false
+                    state.titleOptimizedIds.remove(bookmark.id)
+                    changedCount += 1
+                }
+            }
+            if changedCount > 0 {
+                database.bookmarks.sort {
+                    $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                }
+                try save(database)
+            }
+            return changedCount
+        }
+    }
+
+    @discardableResult
     public func applyOriginalTitles(_ titles: [UUID: String], forceApplyDisplay: Bool = false) throws -> Int {
         guard !titles.isEmpty else { return 0 }
         return try withFileLock {

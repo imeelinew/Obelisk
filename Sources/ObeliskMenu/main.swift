@@ -162,9 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if autoOptimizeNewBookmarks, aiFeaturesEnabled {
             pendingOptimizationTask?.cancel()
             pendingOptimizationTask = Task { [weak self] in
-                let message = await self?.bookmarksModel.optimizeAllTitles(
-                    scope: isHidden ? .hidden : .visible
-                )
+                let message = await self?.bookmarksModel.optimizeTitles(bookmarkIds: [bookmark.id])
                 if let message {
                     self?.notifyUser(
                         title: "标题优化完成",
@@ -379,11 +377,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
+        let librarySections = bookmarksModel.menuLibrarySections(sortMode: .stored)
+
         if let error = bookmarksModel.loadErrorMessage {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
-        } else if bookmarksModel.frequent.isEmpty && bookmarksModel.recent.isEmpty && bookmarksModel.others.isEmpty {
+        } else if bookmarksModel.frequent.isEmpty && bookmarksModel.recent.isEmpty && librarySections.isEmpty {
             let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -394,19 +394,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let frequent = bookmarksModel.frequent
             let recent = bookmarksModel.recent
-            // `model.others` is already deduped (excludes frequent/recent).
-            // Showing the full list here was duplicating items in the
-            // dropdown — match the manage window's "everything once" behavior.
-            let others = BookmarkListSortMode.stored.sorted(bookmarksModel.others)
 
             if !frequent.isEmpty {
-                appendSection(title: "常用", bookmarks: frequent, to: menu)
+                appendSection(title: "常用 (\(frequent.count))", bookmarks: frequent, to: menu)
             }
             if !recent.isEmpty {
-                appendSection(title: "最近添加", bookmarks: recent, to: menu)
+                appendSection(title: "最近添加 (\(recent.count))", bookmarks: recent, to: menu)
             }
-            if !others.isEmpty {
-                appendBookmarkSubmenu(title: "其他", bookmarks: others, to: menu)
+            for section in librarySections {
+                guard let title = section.title else { continue }
+                appendBookmarkSubmenu(title: title, bookmarks: section.bookmarks, to: menu)
             }
         }
 
@@ -447,7 +444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        let item = NSMenuItem(title: "\(title) (\(bookmarks.count))", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: title)
         submenu.autoenablesItems = false
         for bookmark in bookmarks {

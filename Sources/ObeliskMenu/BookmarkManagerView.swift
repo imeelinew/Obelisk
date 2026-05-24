@@ -82,8 +82,9 @@ struct BookmarkManagerView: View {
     @State private var searchText = ""
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var selectedCollectionId: UUID?
-    @State private var llmConfig = LLMConfig()
+    @State private var llmProfiles = LLMProfilesSettings()
     @State private var llmConfigMessage: String?
+    @State private var isTestingLLMConfig = false
     @State private var hiddenBookmarksUnlocked = false
     @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 22
     @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 11
@@ -100,7 +101,7 @@ struct BookmarkManagerView: View {
     @AppStorage("silentAddEnabled") private var silentAddEnabled = false
     @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
-    @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.compressed.rawValue
+    @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.standard.rawValue
     @AppStorage(BookmarkListSortMode.storageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
@@ -383,7 +384,7 @@ struct BookmarkManagerView: View {
 
     private var titleOptimizationIntensity: TitleOptimizationIntensity {
         get {
-            TitleOptimizationIntensity(rawValue: titleOptimizationIntensityRaw) ?? .compressed
+            TitleOptimizationIntensity(rawValue: titleOptimizationIntensityRaw) ?? .standard
         }
         nonmutating set {
             titleOptimizationIntensityRaw = newValue.rawValue
@@ -694,15 +695,40 @@ struct BookmarkManagerView: View {
     }
 
     private func loadLLMConfig() {
-        llmConfig = llmConfigStore.load()
+        llmProfiles = llmConfigStore.loadProfiles()
     }
 
     private func saveLLMConfig() {
         do {
-            try llmConfigStore.save(llmConfig)
+            try llmConfigStore.save(llmProfiles)
             showToast("模型配置已保存")
         } catch {
             llmConfigMessage = error.localizedDescription
+        }
+    }
+
+    private func testLLMConfig() {
+        guard !isTestingLLMConfig else { return }
+        isTestingLLMConfig = true
+        let config = llmProfiles.activeConfig
+        Task {
+            do {
+                let result = try await TitleOptimizer(rootDirectory: model.rootDirectory).benchmark(config: config)
+                let lines = result.candidates.map { candidate in
+                    let title = result.optimizedTitles[candidate.id] ?? "未返回"
+                    return "\(candidate.title) -> \(title)"
+                }
+                llmConfigMessage = String(
+                    format: "耗时 %.2f 秒，返回 %d/%d 个标题\n\n%@",
+                    result.elapsedSeconds,
+                    result.optimizedTitles.count,
+                    result.candidates.count,
+                    lines.joined(separator: "\n")
+                )
+            } catch {
+                llmConfigMessage = error.localizedDescription
+            }
+            isTestingLLMConfig = false
         }
     }
 
@@ -1081,6 +1107,58 @@ struct BookmarkManagerView: View {
             options: Array(TitleOptimizationIntensity.allCases),
             selection: titleOptimizationIntensityBinding,
             title: { $0.title }
+        )
+    }
+
+    private var llmModelSourcePicker: some View {
+        CompactBorderedMenuPicker(
+            options: Array(LLMModelSource.allCases),
+            selection: llmModelSourceBinding,
+            title: { $0.title }
+        )
+    }
+
+    private var llmModelSourceBinding: Binding<LLMModelSource> {
+        Binding(
+            get: { llmProfiles.activeSource },
+            set: { newValue in
+                var profiles = llmProfiles
+                profiles.activeSource = newValue
+                llmProfiles = profiles
+            }
+        )
+    }
+
+    private var llmAPIKeyBinding: Binding<String> {
+        llmConfigBinding(\.apiKey)
+    }
+
+    private var llmModelBinding: Binding<String> {
+        llmConfigBinding(\.model)
+    }
+
+    private var llmBaseURLBinding: Binding<String> {
+        llmConfigBinding(\.baseURL)
+    }
+
+    private func llmConfigBinding(_ keyPath: WritableKeyPath<LLMConfig, String>) -> Binding<String> {
+        Binding(
+            get: {
+                switch llmProfiles.activeSource {
+                case .remote: llmProfiles.remote[keyPath: keyPath]
+                case .local: llmProfiles.local[keyPath: keyPath]
+                }
+            },
+            set: { newValue in
+                var profiles = llmProfiles
+                switch profiles.activeSource {
+                case .remote:
+                    profiles.remote[keyPath: keyPath] = newValue
+                case .local:
+                    profiles.local[keyPath: keyPath] = newValue
+                }
+                llmProfiles = profiles
+            }
         )
     }
 
@@ -1481,54 +1559,88 @@ struct BookmarkManagerView: View {
 
             if aiFeaturesEnabled {
                 Section("Intelligence 标题优化") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        LabeledContent {
-                            titleIntensityPicker
-                        } label: {
-                            Text("优化程度")
-                        }
-                        Text("克制仅清理多余符号与通知计数；压缩会将标题改得更短。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                    LabeledContent {
+                        titleIntensityPicker
+                    } label: {
+                        Text("优化程度")
                     }
                 }
 
                 Section("模型配置") {
+                    LabeledContent {
+                        llmModelSourcePicker
+                    } label: {
+                        Text("模型来源")
+                    }
+
                     VStack(alignment: .leading, spacing: 4) {
-                        SecureField(text: $llmConfig.apiKey, prompt: Text("sk-...")) {
+                        SecureField(
+                            text: llmAPIKeyBinding,
+                            prompt: Text(llmProfiles.activeSource == .remote ? "sk-..." : "lm-studio")
+                        ) {
                             Label("API Key", systemImage: "key")
                         }
-                        Text("你的 OpenAI 兼容 API Key。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            llmProfiles.activeSource == .remote
+                                ? "用于访问云端 OpenAI 兼容服务的 API Key。"
+                                : "本地服务通常不校验 Key，填任意非空字符串即可。"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        TextField(text: $llmConfig.model, prompt: Text("gpt-4.1-mini")) {
+                        TextField(
+                            text: llmModelBinding,
+                            prompt: Text(llmProfiles.activeSource == .remote ? "gpt-4.1-mini" : "qwen3.5-4b")
+                        ) {
                             Label("Model", systemImage: "cpu")
                         }
-                        Text("用于优化书签标题的模型名称，如 gpt-4.1-mini。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            llmProfiles.activeSource == .remote
+                                ? "远程服务的模型名称，如 gpt-4.1-mini。"
+                                : "须与 LM Studio Local Server 里已加载模型的 id 一致。"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        TextField(text: $llmConfig.baseURL, prompt: Text("https://api.openai.com/v1/chat/completions")) {
+                        TextField(
+                            text: llmBaseURLBinding,
+                            prompt: Text(
+                                llmProfiles.activeSource == .remote
+                                    ? "https://api.openai.com/v1/chat/completions"
+                                    : "http://localhost:1234/v1/chat/completions"
+                            )
+                        ) {
                             Label("Base URL", systemImage: "link")
                         }
-                        Text("OpenAI 兼容 API 的 endpoint 地址。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            llmProfiles.activeSource == .remote
+                                ? "远程 API 的 chat completions 地址。"
+                                : "须先在本机启动 LM Studio Local Server（默认端口 1234）。"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     }
 
-                    HStack {
+                    HStack(spacing: 12) {
                         Button {
                             saveLLMConfig()
                         } label: {
                             Text("保存配置")
                         }
                         .buttonStyle(.borderedProminent)
-                        Spacer()
+
+                        Button {
+                            testLLMConfig()
+                        } label: {
+                            Text(isTestingLLMConfig ? "测试中…" : "测试模型连接")
+                        }
+                        .disabled(isTestingLLMConfig)
+
+                        Spacer(minLength: 0)
                     }
                 }
             }

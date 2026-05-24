@@ -149,13 +149,14 @@ public enum ObeliskPrivateStorage {
             legacyEncryptedDataDirectory(in: rootDirectory)
         ]
         for directory in directories {
-            guard let urls = try? FileManager.default.contentsOfDirectory(
+            guard let enumerator = FileManager.default.enumerator(
                 at: directory,
-                includingPropertiesForKeys: nil
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
             ) else {
                 continue
             }
-            if urls.contains(where: { $0.pathExtension == "bin" }) {
+            if enumerator.contains(where: { ($0 as? URL)?.pathExtension == "bin" }) {
                 return true
             }
         }
@@ -172,14 +173,14 @@ public enum ObeliskPrivateStorage {
             legacyEncryptedDataDirectory(in: rootDirectory)
         ]
         for directory in directories {
-            guard let urls = try? FileManager.default.contentsOfDirectory(
+            guard let enumerator = FileManager.default.enumerator(
                 at: directory,
                 includingPropertiesForKeys: [.fileSizeKey],
                 options: [.skipsHiddenFiles]
             ) else {
                 continue
             }
-            let bins = urls.filter { $0.pathExtension == "bin" }
+            let bins = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "bin" }
             if let largest = bins.max(by: { lhs, rhs in
                 let lhsSize = (try? lhs.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 let rhsSize = (try? rhs.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -216,7 +217,25 @@ public enum ObeliskStorageMigrator {
         "bookmark_groups.json"
     ]
 
-    public static func normalizeStorage(in rootDirectory: URL, encrypted: Bool) throws {
+    public static func validateEncryptedPayloadsAreReadable(
+        in rootDirectory: URL,
+        keyStore: KeychainEncryptionKeyStore = KeychainEncryptionKeyStore()
+    ) throws {
+        guard ObeliskPrivateStorage.hasEncryptedPayloads(in: rootDirectory) else {
+            return
+        }
+        guard let sampleURL = ObeliskPrivateStorage.sampleEncryptedPayloadURL(in: rootDirectory) else {
+            throw SecureJSONFileCodecError.encryptionKeyMissing
+        }
+        _ = try SecureJSONFileCodec(keyStore: keyStore).readData(from: sampleURL)
+    }
+
+    public static func normalizeStorage(
+        in rootDirectory: URL,
+        encrypted: Bool,
+        keyStore: KeychainEncryptionKeyStore = KeychainEncryptionKeyStore()
+    ) throws {
+        try validateEncryptedPayloadsAreReadable(in: rootDirectory, keyStore: keyStore)
         try normalizeJSONFiles(in: rootDirectory, encrypted: encrypted)
         try normalizeFavicons(in: rootDirectory, encrypted: encrypted)
         removeEmptyStorageDirectories(in: rootDirectory)
@@ -227,6 +246,7 @@ public enum ObeliskStorageMigrator {
         encrypted: Bool,
         logicalNames: [String] = logicalJSONFiles
     ) throws {
+        try validateEncryptedPayloadsAreReadable(in: rootDirectory)
         defer { removeEmptyStorageDirectories(in: rootDirectory) }
 
         let codec = SecureJSONFileCodec()
@@ -286,6 +306,7 @@ public enum ObeliskStorageMigrator {
     }
 
     public static func normalizeFavicons(in rootDirectory: URL, encrypted: Bool) throws {
+        try validateEncryptedPayloadsAreReadable(in: rootDirectory)
         defer { removeEmptyStorageDirectories(in: rootDirectory) }
 
         let targetLocation = FaviconLocation(

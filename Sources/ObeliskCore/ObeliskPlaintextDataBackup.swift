@@ -292,3 +292,22 @@ public enum ObeliskPlaintextDataBackup {
         ) ?? .distantPast
     }
 }
+
+public enum ObeliskStorageTransition {
+    @discardableResult
+    public static func backUpThenNormalize(
+        in rootDirectory: URL,
+        encrypted: Bool,
+        backup: (URL) throws -> ObeliskPlaintextDataBackup.Result? = { rootDirectory in
+            do {
+                return try ObeliskPlaintextDataBackup.createBackup(in: rootDirectory)
+            } catch ObeliskPlaintextDataBackup.BackupError.nothingToExport {
+                return nil
+            }
+        }
+    ) throws -> ObeliskPlaintextDataBackup.Result? {
+        let result = try backup(rootDirectory)
+        try ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
+        return result
+    }
+}

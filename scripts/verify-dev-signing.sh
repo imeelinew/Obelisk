@@ -8,9 +8,14 @@ cd "$ROOT_DIR"
 
 EXPECTED_TEAM="${DEVELOPMENT_TEAM_ID:-5Q5QT76MJU}"
 EXPECTED_BUNDLE_ID="local.elidev.Obelisk"
+DEVELOPMENT_TEAM_ID="$EXPECTED_TEAM"
+export DEVELOPMENT_TEAM_ID EXPECTED_BUNDLE_ID
 CONFIGURATION="${CONFIGURATION:-Debug}"
 SCHEME="${SCHEME:-Obelisk}"
 COMPARE_DR="${COMPARE_DR:-0}"
+
+# shellcheck source=scripts/codesign-identity.sh
+source "$ROOT_DIR/scripts/codesign-identity.sh"
 
 fail() {
   echo "verify-dev-signing: FAIL: $*" >&2
@@ -36,14 +41,9 @@ if [[ "$YML_TEAM" != "$EXPECTED_TEAM" ]]; then
 fi
 pass "project.yml team = $YML_TEAM"
 
-if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "(${EXPECTED_TEAM})"; then
-  fail "no codesigning identity for team $EXPECTED_TEAM (run Xcode once to create Apple Development cert)"
-fi
+TEAM_IDENTITY="$(find_default_codesign_identity || true)"
+[[ -n "$TEAM_IDENTITY" ]] || fail "no Apple Development identity for team $EXPECTED_TEAM"
 pass "codesigning identity exists for team $EXPECTED_TEAM"
-
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "(7558SBX9GQ)"; then
-  echo "verify-dev-signing: WARN: another team cert 7558SBX9GQ is present; do not use scripts without DEVELOPMENT_TEAM_ID=$EXPECTED_TEAM" >&2
-fi
 
 BUILD_SETTINGS="$(xcodebuild -scheme "$SCHEME" -configuration "$CONFIGURATION" -showBuildSettings 2>/dev/null || true)"
 if [[ -z "$BUILD_SETTINGS" ]]; then
@@ -73,8 +73,7 @@ if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
 fi
 pass "app: $APP_PATH"
 
-codesign --verify --deep --strict "$APP_PATH"
-
+verify_signed_code_identity "$APP_PATH" || fail "codesign metadata mismatch"
 SIGN_INFO="$(codesign -dvvv "$APP_PATH" 2>&1)" || fail "codesign -dvvv failed"
 echo "$SIGN_INFO" | grep -q "Identifier=$EXPECTED_BUNDLE_ID" || fail "missing Identifier=$EXPECTED_BUNDLE_ID"
 echo "$SIGN_INFO" | grep -q "TeamIdentifier=$EXPECTED_TEAM" || fail "missing TeamIdentifier=$EXPECTED_TEAM"
@@ -82,8 +81,7 @@ echo "$SIGN_INFO" | grep -q 'Signature=adhoc' && fail "app is adhoc signed"
 pass "codesign metadata OK"
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-  echo "$CODESIGN_IDENTITY" | grep -q "$EXPECTED_TEAM" || fail "CODESIGN_IDENTITY does not include team $EXPECTED_TEAM"
-  pass "CODESIGN_IDENTITY matches expected team"
+  pass "CODESIGN_IDENTITY supplied; signed app metadata matches expected team"
 fi
 
 if [[ "$COMPARE_DR" == "1" ]]; then

@@ -12,21 +12,8 @@ VERSION="${VERSION:-1.3.4}"
 BUILD="${BUILD:-$(date +%Y%m%d%H%M)}"
 
 cd "$ROOT_DIR"
-
-DEVELOPMENT_TEAM_ID="${DEVELOPMENT_TEAM_ID:-5Q5QT76MJU}"
-
-find_default_codesign_identity() {
-  local team_pattern="(${DEVELOPMENT_TEAM_ID})"
-  local match
-  match="$(security find-identity -v -p codesigning \
-    | awk -v team="$team_pattern" -F '"' '$0 ~ team { print $2; exit }')"
-  if [[ -n "$match" ]]; then
-    echo "$match"
-    return 0
-  fi
-  echo "No Apple Development identity for team ${DEVELOPMENT_TEAM_ID}. Run Xcode Product → Run once." >&2
-  return 1
-}
+# shellcheck source=scripts/codesign-identity.sh
+source "$ROOT_DIR/scripts/codesign-identity.sh"
 
 # Try universal (arm64 + x86_64); requires full Xcode. Fall back to host arch
 # (good enough for personal use) when only Command Line Tools are installed.
@@ -101,22 +88,26 @@ PLIST
 # Prefer a stable Apple Development identity for local installs. This keeps the
 # app's designated requirement stable across rebuilds, so Keychain prompts do
 # not reset just because the binary hash changed.
-CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-$(find_default_codesign_identity)}"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+  CODESIGN_IDENTITY="$(find_default_codesign_identity)"
+fi
 ENTITLEMENTS="$ROOT_DIR/Obelisk.entitlements"
-if [[ -n "$CODESIGN_IDENTITY" && "$CODESIGN_IDENTITY" != "-" ]]; then
-  echo "==> Signing with: $CODESIGN_IDENTITY"
-  codesign --force --deep --sign "$CODESIGN_IDENTITY" \
-    --identifier local.elidev.Obelisk \
-    --entitlements "$ENTITLEMENTS" \
-    --options runtime \
-    "$APP_DIR"
-else
-  echo "==> Signing ad-hoc"
-  codesign --force --deep --sign - "$APP_DIR"
+if [[ "$CODESIGN_IDENTITY" == "-" ]]; then
+  echo "==> Refusing ad-hoc signing for Obelisk. Use the ${DEVELOPMENT_TEAM_ID} Apple Development identity." >&2
+  exit 1
 fi
 
+echo "==> Signing with: $CODESIGN_IDENTITY"
+codesign --force --deep --sign "$CODESIGN_IDENTITY" \
+  --identifier local.elidev.Obelisk \
+  --entitlements "$ENTITLEMENTS" \
+  --options runtime \
+  "$APP_DIR"
+
 # Verify
-codesign --verify --deep --strict "$APP_DIR"
+verify_signed_code_identity "$APP_DIR"
+"$ROOT_DIR/scripts/verify-dev-signing.sh" "$APP_DIR"
 
 # Zip for portability.
 ZIP_PATH="$DIST_DIR/Obelisk-$VERSION.zip"

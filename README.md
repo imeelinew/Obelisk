@@ -111,6 +111,11 @@ scripts/build-app.sh
 .build/dist/Obelisk.app
 ```
 
+说明：
+
+- **Xcode** Product → Run / Build 是日常开发唯一推荐入口，不会写入 `.build/dist`
+- **命令行** `scripts/build-app.sh` 只用于生成安装包和 zip，找不到固定 Team 的 Apple Development 证书会失败
+
 本地快速检查：
 
 ```bash

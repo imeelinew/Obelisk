@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Re-sign a swift-build Obelisk binary with a stable bundle ID + entitlements so
-# Keychain items stay accessible across rebuilds (avoids 3x password prompts).
+# Secondary debug helper. Xcode Product -> Run is the normal development path.
+# Re-signs a swift-build Obelisk binary with the pinned Team + bundle ID.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -8,20 +8,8 @@ ENTITLEMENTS="$ROOT_DIR/Obelisk.entitlements"
 BUNDLE_ID="local.elidev.Obelisk"
 CONFIG="${1:-debug}"
 
-DEVELOPMENT_TEAM_ID="${DEVELOPMENT_TEAM_ID:-5Q5QT76MJU}"
-
-find_default_codesign_identity() {
-  local team_pattern="(${DEVELOPMENT_TEAM_ID})"
-  local match
-  match="$(security find-identity -v -p codesigning \
-    | awk -v team="$team_pattern" -F '"' '$0 ~ team { print $2; exit }')"
-  if [[ -n "$match" ]]; then
-    echo "$match"
-    return 0
-  fi
-  echo "No Apple Development identity for team ${DEVELOPMENT_TEAM_ID}. Run Xcode Product → Run once." >&2
-  return 1
-}
+# shellcheck source=scripts/codesign-identity.sh
+source "$ROOT_DIR/scripts/codesign-identity.sh"
 
 find_binary() {
   local config="$1"
@@ -44,9 +32,12 @@ BINARY="$(find_binary "$CONFIG")" || {
   exit 1
 }
 
-IDENTITY="${CODESIGN_IDENTITY:-$(find_default_codesign_identity)}"
+IDENTITY="${CODESIGN_IDENTITY:-}"
 if [[ -z "$IDENTITY" ]]; then
-  echo "No Apple Development signing identity found. Install one in Xcode or set CODESIGN_IDENTITY." >&2
+  IDENTITY="$(find_default_codesign_identity)"
+fi
+if [[ -z "$IDENTITY" || "$IDENTITY" == "-" ]]; then
+  echo "No ${DEVELOPMENT_TEAM_ID} Apple Development signing identity found. Use Xcode Product -> Run once." >&2
   exit 1
 fi
 
@@ -60,5 +51,5 @@ echo "    Bundle ID: $BUNDLE_ID"
   --options runtime \
   "$BINARY"
 
-/usr/bin/codesign --verify --verbose=2 "$BINARY"
+verify_signed_code_identity "$BINARY"
 echo "==> Done"

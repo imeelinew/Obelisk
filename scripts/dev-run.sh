@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Secondary debug helper. Prefer Xcode Product -> Run for real data development.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

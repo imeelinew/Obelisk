@@ -368,11 +368,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rootDirectory = store.rootDirectory
         let encrypted = LocalJSONEncryption.isEnabled
         Task.detached(priority: .utility) {
-            try? ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
-            await MainActor.run { [weak self] in
-                self?.bookmarksModel.invalidateStorageCaches()
-                self?.faviconLoader.reloadStorage()
-                self?.bookmarksModel.reload()
+            do {
+                try ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
+                await MainActor.run { [weak self] in
+                    self?.bookmarksModel.invalidateStorageCaches()
+                    self?.faviconLoader.reloadStorage()
+                    self?.bookmarksModel.reload()
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.bookmarksModel.errorMessage = error.localizedDescription
+                }
             }
         }
     }

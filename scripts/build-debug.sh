@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build + stable-sign Obelisk for local development (Keychain won't re-prompt every compile).
+# Secondary debug helper. Prefer Xcode Product -> Run for real data development.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

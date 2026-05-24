@@ -40,6 +40,9 @@ struct SmokeTests {
         try testBookmarkCollectionMembership()
         try testEncryptionKeyRefusesOverwrite()
         try testEncryptionKeyMissingWhenEncryptedPayloadsExist()
+        try testStorageNormalizeStopsWhenEncryptedPayloadKeyMissing()
+        try testStorageNormalizeStopsWhenOnlyNestedEncryptedPayloadKeyMissing()
+        try testStorageTransitionBackupFailureStopsNormalize()
         try testKeychainMigrationSkipsEncryptionService()
         try testPlaintextDataBackup()
         print("Obelisk smoke tests passed")
@@ -1104,6 +1107,119 @@ struct SmokeTests {
         try expect(restoredData == originalData, "expected encryption key to remain unchanged after refused overwrite")
         let roundTrip = try codec.readData(from: encryptedURL)
         try expect(String(decoding: roundTrip, as: UTF8.self).contains("protected"), "expected encrypted payload to remain readable")
+    }
+
+    private static func testStorageNormalizeStopsWhenEncryptedPayloadKeyMissing() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        let service = try isolatedEncryptionKeychainService()
+        defer { deleteKeychainItems(service: service) }
+
+        LocalJSONEncryption.isEnabled = false
+        let plaintextURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try FileManager.default.createDirectory(
+            at: plaintextURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {
+          "version": 1,
+          "bookmarks": []
+        }
+        """.write(to: plaintextURL, atomically: true, encoding: .utf8)
+
+        let keyStore = KeychainEncryptionKeyStore(encryptedPayloadsRoot: root, keychainService: service)
+        let codec = SecureJSONFileCodec(keyStore: keyStore)
+        let encryptedURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try codec.writeData(
+            Data("""
+            {
+              "version": 1,
+              "bookmarks": [
+                {
+                  "id": "00000000-0000-0000-0000-000000000909",
+                  "title": "Encrypted",
+                  "url": "https://encrypted.example"
+                }
+              ]
+            }
+            """.utf8),
+            to: encryptedURL,
+            encrypted: true
+        )
+        deleteKeychainItems(service: service)
+
+        do {
+            try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: false, keyStore: keyStore)
+            throw SmokeTestError.failure("expected normalizeStorage to stop before migrating unreadable encrypted data")
+        } catch let error as SecureJSONFileCodecError {
+            guard case .encryptionKeyMissing = error else { throw error }
+        }
+
+        try expect(FileManager.default.fileExists(atPath: plaintextURL.path), "expected plaintext file to remain")
+        try expect(FileManager.default.fileExists(atPath: encryptedURL.path), "expected unreadable encrypted file to remain")
+    }
+
+    private static func testStorageNormalizeStopsWhenOnlyNestedEncryptedPayloadKeyMissing() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        let service = try isolatedEncryptionKeychainService()
+        defer { deleteKeychainItems(service: service) }
+
+        LocalJSONEncryption.isEnabled = false
+        let keyStore = KeychainEncryptionKeyStore(encryptedPayloadsRoot: root, keychainService: service)
+        let codec = SecureJSONFileCodec(keyStore: keyStore)
+        let encryptedIconURL = ObeliskPrivateStorage.faviconIconURL(
+            rootDirectory: root,
+            key: "nested-only",
+            encrypted: true
+        )
+        try codec.writeData(Data("encrypted favicon".utf8), to: encryptedIconURL, encrypted: true)
+        deleteKeychainItems(service: service)
+
+        do {
+            try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: false, keyStore: keyStore)
+            throw SmokeTestError.failure("expected normalizeStorage to stop before migrating unreadable nested encrypted data")
+        } catch let error as SecureJSONFileCodecError {
+            guard case .encryptionKeyMissing = error else { throw error }
+        }
+
+        try expect(
+            FileManager.default.fileExists(atPath: encryptedIconURL.path),
+            "expected unreadable nested encrypted file to remain"
+        )
+    }
+
+    private static func testStorageTransitionBackupFailureStopsNormalize() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        LocalJSONEncryption.isEnabled = false
+        let store = BookmarkStore(rootDirectory: root)
+        _ = try store.add(title: "Do Not Migrate", url: "https://do-not-migrate.example")
+
+        let plaintextURL = store.fileURL
+        let encryptedURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+
+        do {
+            try ObeliskStorageTransition.backUpThenNormalize(
+                in: root,
+                encrypted: true,
+                backup: { _ in
+                    throw ObeliskPlaintextDataBackup.BackupError.destinationAlreadyExists(root)
+                }
+            )
+            throw SmokeTestError.failure("expected backup failure to stop storage normalization")
+        } catch ObeliskPlaintextDataBackup.BackupError.destinationAlreadyExists {
+        }
+
+        try expect(FileManager.default.fileExists(atPath: plaintextURL.path), "expected plaintext file to remain")
+        try expect(!FileManager.default.fileExists(atPath: encryptedURL.path), "expected encrypted file not to be created")
     }
 
     private static func testKeychainMigrationSkipsEncryptionService() throws {

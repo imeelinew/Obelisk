@@ -783,11 +783,12 @@ struct BookmarkManagerView: View {
         LocalJSONEncryption.isEnabled = isEnabled
 
         do {
-            try migrateLocalPrivateStorage(isEnabled: isEnabled)
+            let backup = try migrateLocalPrivateStorage(isEnabled: isEnabled)
             onStorageRootChanged(model.rootDirectory)
             model.reload()
             loadLLMConfig()
-            showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
+            let backupSuffix = backup.map { "，已备份至 \($0.destinationURL.lastPathComponent)" } ?? ""
+            showToast((isEnabled ? "数据加密已开启" : "数据加密已关闭") + backupSuffix)
         } catch {
             encryptLocalJSONData = previousValue
             LocalJSONEncryption.isEnabled = previousValue
@@ -795,11 +796,12 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private func migrateLocalPrivateStorage(isEnabled: Bool) throws {
+    private func migrateLocalPrivateStorage(isEnabled: Bool) throws -> ObeliskPlaintextDataBackup.Result? {
         let root = model.rootDirectory
-        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: isEnabled)
+        let backup = try ObeliskStorageTransition.backUpThenNormalize(in: root, encrypted: isEnabled)
 
         faviconLoader.reloadStorage()
+        return backup
     }
 
     private var modelErrorAlertBinding: Binding<Bool> {

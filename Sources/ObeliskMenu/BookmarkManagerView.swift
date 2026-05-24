@@ -289,18 +289,6 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private var ungroupedVisibleBookmarks: [Bookmark] {
-        visibleBookmarks.filter { model.collectionId(for: $0.id) == nil }
-    }
-
-    private var filteredBookmarks: [Bookmark] {
-        filtered(ungroupedVisibleBookmarks)
-    }
-
-    private var groupedVisibleBookmarks: [Bookmark] {
-        visibleBookmarks.filter { model.collectionId(for: $0.id) != nil }
-    }
-
     private var visibleBookmarks: [Bookmark] {
         model.bookmarks.filter { !$0.isHidden && !isEffectivelyArchived($0) }
     }
@@ -319,36 +307,20 @@ struct BookmarkManagerView: View {
     }
 
     private var bookmarkSections: [BookmarkListSection] {
-        let bookmarks = sorted(filteredBookmarks)
-        guard !bookmarks.isEmpty else { return [] }
-        return [
-            BookmarkListSection(
-                title: "未分组 (\(bookmarks.count))",
-                bookmarks: bookmarks,
-                sortMode: bookmarkListSortMode
-            )
-        ]
+        model.visibleUngroupedSections(
+            searchText: searchText,
+            sortMode: bookmarkListSortMode,
+            showsSortControl: true
+        )
     }
 
     private var collectionBookmarkSections: [BookmarkListSection] {
-        var sections: [BookmarkListSection] = []
-        var isFirst = true
-
-        for collection in model.collections {
-            let bookmarks = groupedVisibleBookmarks.filter { model.collectionId(for: $0.id) == collection.id }
-            let filteredSorted = sorted(filtered(bookmarks))
-            sections.append(
-                BookmarkListSection(
-                    title: "\(collection.name) (\(filteredSorted.count))",
-                    bookmarks: filteredSorted,
-                    sortMode: isFirst ? bookmarkListSortMode : nil,
-                    collectionId: collection.id
-                )
-            )
-            isFirst = false
-        }
-
-        return sections
+        model.visibleCollectionSections(
+            searchText: searchText,
+            sortMode: bookmarkListSortMode,
+            includeEmptyCollections: true,
+            showsSortControlOnFirstSection: true
+        )
     }
 
     private var collectionAssignOptions: [BookmarkCollectionAssignOption] {
@@ -391,6 +363,7 @@ struct BookmarkManagerView: View {
         }
         nonmutating set {
             bookmarkListSortModeRaw = newValue.rawValue
+            model.notifyMenuPresentationChanged()
         }
     }
 
@@ -1088,7 +1061,7 @@ struct BookmarkManagerView: View {
             } else if bookmarkSections.isEmpty {
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView.search(text: searchText)
-                } else if !groupedVisibleBookmarks.isEmpty {
+                } else if !model.visibleCollectionSections(sortMode: bookmarkListSortMode).isEmpty {
                     ContentUnavailableView {
                         Label("没有未分组的书签", systemImage: "bookmark")
                     } description: {

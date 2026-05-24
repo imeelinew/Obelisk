@@ -377,7 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let librarySections = bookmarksModel.menuLibrarySections()
+        let librarySections = bookmarksModel.menuLibrarySections(sortMode: .stored)
 
         if let error = bookmarksModel.loadErrorMessage {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
@@ -402,8 +402,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 appendSection(title: "最近添加 (\(recent.count))", bookmarks: recent, to: menu)
             }
             for section in librarySections {
-                let bookmarks = BookmarkListSortMode.stored.sorted(section.bookmarks)
-                appendBookmarkSubmenu(title: section.title, bookmarks: bookmarks, to: menu)
+                guard let title = section.title else { continue }
+                appendBookmarkSubmenu(title: title, bookmarks: section.bookmarks, to: menu)
             }
         }
 
@@ -444,7 +444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        let item = NSMenuItem(title: "\(title) (\(bookmarks.count))", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: title)
         submenu.autoenablesItems = false
         for bookmark in bookmarks {

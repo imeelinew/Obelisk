@@ -3,11 +3,6 @@ import Foundation
 import Observation
 import ObeliskCore
 
-struct BookmarkMenuSection: Equatable {
-    var title: String
-    var bookmarks: [Bookmark]
-}
-
 @MainActor
 @Observable
 final class BookmarksModel {
@@ -68,6 +63,10 @@ final class BookmarksModel {
 
     func collectionId(for bookmarkId: UUID) -> UUID? {
         membershipByBookmarkId[bookmarkId]
+    }
+
+    func notifyMenuPresentationChanged() {
+        onChange?()
     }
 
     private var autoArchiveEnabled: Bool {
@@ -239,45 +238,79 @@ final class BookmarksModel {
         }
     }
 
-    /// Visible bookmarks partitioned by user collection for the manage window.
-    /// Each bookmark appears in exactly one section.
-    func visibleCollectionSections(from visible: [Bookmark]) -> [(collectionId: UUID?, title: String, bookmarks: [Bookmark])] {
-        var buckets: [UUID?: [Bookmark]] = [:]
-        buckets[nil] = []
+    func visibleUngroupedSections(
+        searchText: String = "",
+        sortMode: BookmarkListSortMode,
+        showsSortControl: Bool = false
+    ) -> [BookmarkListSection] {
+        let bookmarks = sortedVisibleBookmarks(
+            collectionId: nil,
+            searchText: searchText,
+            sortMode: sortMode
+        )
+        guard !bookmarks.isEmpty else { return [] }
+        return [
+            BookmarkListSection(
+                title: "未分组 (\(bookmarks.count))",
+                bookmarks: bookmarks,
+                sortMode: showsSortControl ? sortMode : nil
+            )
+        ]
+    }
 
+    func visibleCollectionSections(
+        searchText: String = "",
+        sortMode: BookmarkListSortMode,
+        includeEmptyCollections: Bool = false,
+        showsSortControlOnFirstSection: Bool = false
+    ) -> [BookmarkListSection] {
+        var sections: [BookmarkListSection] = []
         for collection in collections {
-            buckets[collection.id] = []
+            let bookmarks = sortedVisibleBookmarks(
+                collectionId: collection.id,
+                searchText: searchText,
+                sortMode: sortMode
+            )
+            guard includeEmptyCollections || !bookmarks.isEmpty else { continue }
+            sections.append(
+                BookmarkListSection(
+                    title: "\(collection.name) (\(bookmarks.count))",
+                    bookmarks: bookmarks,
+                    sortMode: showsSortControlOnFirstSection && sections.isEmpty ? sortMode : nil,
+                    collectionId: collection.id
+                )
+            )
         }
-
-        for bookmark in visible {
-            let collectionId = membershipByBookmarkId[bookmark.id]
-            if let collectionId, buckets[collectionId] != nil {
-                buckets[collectionId, default: []].append(bookmark)
-            } else {
-                buckets[nil, default: []].append(bookmark)
-            }
-        }
-
-        var sections: [(collectionId: UUID?, title: String, bookmarks: [Bookmark])] = []
-        for collection in collections {
-            let bookmarks = buckets[collection.id] ?? []
-            if !bookmarks.isEmpty {
-                sections.append((collection.id, collection.name, bookmarks))
-            }
-        }
-
-        if let ungrouped = buckets[nil], !ungrouped.isEmpty {
-            sections.append((nil, "未分组", ungrouped))
-        }
-
         return sections
     }
 
-    func menuLibrarySections() -> [BookmarkMenuSection] {
+    func menuLibrarySections(sortMode: BookmarkListSortMode = .stored) -> [BookmarkListSection] {
+        visibleCollectionSections(sortMode: sortMode)
+            + visibleUngroupedSections(sortMode: sortMode)
+    }
+
+    private func sortedVisibleBookmarks(
+        collectionId: UUID?,
+        searchText: String = "",
+        sortMode: BookmarkListSortMode
+    ) -> [Bookmark] {
         let usage = usageStore.load()
         let visible = visibleBookmarks(from: bookmarks, usage: usage)
-        return visibleCollectionSections(from: visible).map { section in
-            BookmarkMenuSection(title: section.title, bookmarks: section.bookmarks)
+        let filtered = filteredBookmarks(
+            visible.filter { bookmark in
+                membershipByBookmarkId[bookmark.id] == collectionId
+            },
+            searchText: searchText
+        )
+        return sortMode.sorted(filtered)
+    }
+
+    private func filteredBookmarks(_ bookmarks: [Bookmark], searchText: String) -> [Bookmark] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return bookmarks }
+        return bookmarks.filter {
+            $0.title.localizedCaseInsensitiveContains(query)
+                || $0.url.localizedCaseInsensitiveContains(query)
         }
     }
 

@@ -13,9 +13,19 @@ BUILD="${BUILD:-$(date +%Y%m%d%H%M)}"
 
 cd "$ROOT_DIR"
 
+DEVELOPMENT_TEAM_ID="${DEVELOPMENT_TEAM_ID:-5Q5QT76MJU}"
+
 find_default_codesign_identity() {
-  security find-identity -v -p codesigning \
-    | awk -F '"' '/"Apple Development:/{ print $2; exit }'
+  local team_pattern="(${DEVELOPMENT_TEAM_ID})"
+  local match
+  match="$(security find-identity -v -p codesigning \
+    | awk -v team="$team_pattern" -F '"' '$0 ~ team { print $2; exit }')"
+  if [[ -n "$match" ]]; then
+    echo "$match"
+    return 0
+  fi
+  echo "No Apple Development identity for team ${DEVELOPMENT_TEAM_ID}. Run Xcode Product → Run once." >&2
+  return 1
 }
 
 # Try universal (arm64 + x86_64); requires full Xcode. Fall back to host arch
@@ -92,9 +102,14 @@ PLIST
 # app's designated requirement stable across rebuilds, so Keychain prompts do
 # not reset just because the binary hash changed.
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-$(find_default_codesign_identity)}"
+ENTITLEMENTS="$ROOT_DIR/Obelisk.entitlements"
 if [[ -n "$CODESIGN_IDENTITY" && "$CODESIGN_IDENTITY" != "-" ]]; then
   echo "==> Signing with: $CODESIGN_IDENTITY"
-  codesign --force --deep --sign "$CODESIGN_IDENTITY" "$APP_DIR"
+  codesign --force --deep --sign "$CODESIGN_IDENTITY" \
+    --identifier local.elidev.Obelisk \
+    --entitlements "$ENTITLEMENTS" \
+    --options runtime \
+    "$APP_DIR"
 else
   echo "==> Signing ad-hoc"
   codesign --force --deep --sign - "$APP_DIR"

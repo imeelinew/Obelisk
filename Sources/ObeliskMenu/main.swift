@@ -63,6 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let storageRoot = BookmarkStore.defaultRootDirectory()
+        if LocalJSONEncryption.isEnabled {
+            _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)
+        }
+        ObeliskKeychainMigration.migrateIfNeeded()
         NSApp.setActivationPolicy(.accessory)
         installMainMenu()
         configureStatusItem()

@@ -98,6 +98,13 @@ Obelisk 是菜单栏应用。启动后，在 macOS 菜单栏里找 Obelisk 图�
 scripts/build-app.sh
 ```
 
+本地开发签名与 Keychain 稳定性（改 Team / 证书后必读）：[docs/local-signing.md](docs/local-signing.md)
+
+```bash
+# Xcode 编过一次 Debug 后执行
+./scripts/verify-dev-signing.sh
+```
+
 构建结果会输出到：
 
 ```text

@@ -19,6 +19,8 @@ targets:
         PRODUCT_NAME: ObeliskCore
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 5Q5QT76MJU
 
   Obelisk:
     type: application
@@ -42,7 +44,8 @@ targets:
         INFOPLIST_KEY_NSAppleEventsUsageDescription: Obelisk uses AppleScript to read the URL and title of the active tab from your frontmost browser when you press the global add-bookmark shortcut.
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: 5Q5QT76MJU
+        CODE_SIGN_ENTITLEMENTS: Obelisk.entitlements
     scheme:
       testTargets: []
 

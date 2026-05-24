@@ -108,12 +108,16 @@ struct LLMConfig: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
         model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? "https://api.openai.com/v1/chat/completions"
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        if !apiKey.isEmpty {
+            try container.encode(apiKey, forKey: .apiKey)
+        }
         try container.encode(model, forKey: .model)
         try container.encode(baseURL, forKey: .baseURL)
     }
@@ -121,9 +125,10 @@ struct LLMConfig: Codable, Equatable {
 
 final class LLMConfigStore {
     private static let remoteKeychainAccount = "remote"
-    private static let localKeychainAccount = "local"
+    private static let legacyLocalKeychainAccount = "local"
 
     private(set) var rootDirectory: URL
+    private let remoteAPIKeyStore = KeychainAPIKeyStore(account: remoteKeychainAccount)
     var configURL: URL {
         ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "llm.json")
     }
@@ -150,19 +155,33 @@ final class LLMConfigStore {
             settings = LLMProfilesSettings()
         }
 
-        settings.remote.apiKey = readAPIKey(
-            account: Self.remoteKeychainAccount,
-            legacyData: data
-        ) ?? ""
-        settings.local.apiKey = readAPIKey(
-            account: Self.localKeychainAccount,
-            legacyData: nil
-        ) ?? LLMConfig.lmStudioPreset.apiKey
+        settings.remote.apiKey = loadRemoteAPIKey(legacyData: data)
+
+        var shouldPurgeLegacyLocalKeychain = false
+        if settings.local.apiKey.isEmpty,
+           let legacyLocalKey = try? KeychainAPIKeyStore(account: Self.legacyLocalKeychainAccount).readAPIKey(),
+           !legacyLocalKey.isEmpty {
+            settings.local.apiKey = legacyLocalKey
+            do {
+                try save(settings)
+                shouldPurgeLegacyLocalKeychain = true
+            } catch {
+                // Keep keychain copy if llm.json write failed.
+            }
+        } else if settings.local.apiKey.isEmpty {
+            settings.local.apiKey = LLMConfig.lmStudioPreset.apiKey
+        } else if (try? KeychainAPIKeyStore(account: Self.legacyLocalKeychainAccount).readAPIKey())?.isEmpty == false {
+            shouldPurgeLegacyLocalKeychain = true
+        }
 
         if settings.local.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             var local = LLMConfig.lmStudioPreset
             local.apiKey = settings.local.apiKey
             settings.local = local
+        }
+
+        if shouldPurgeLegacyLocalKeychain {
+            purgeLocalAPIKeyFromKeychain()
         }
 
         return settings
@@ -173,8 +192,10 @@ final class LLMConfigStore {
     }
 
     func save(_ settings: LLMProfilesSettings) throws {
-        try KeychainAPIKeyStore(account: Self.remoteKeychainAccount).saveAPIKey(settings.remote.apiKey)
-        try KeychainAPIKeyStore(account: Self.localKeychainAccount).saveAPIKey(settings.local.apiKey)
+        try remoteAPIKeyStore.saveAPIKey(settings.remote.apiKey)
+
+        var fileSettings = settings
+        fileSettings.remote.apiKey = ""
 
         try FileManager.default.createDirectory(
             at: configURL.deletingLastPathComponent(),
@@ -182,7 +203,7 @@ final class LLMConfigStore {
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(settings)
+        let data = try encoder.encode(fileSettings)
         try SecureJSONFileCodec().writeData(
             data,
             to: configURL,
@@ -204,28 +225,31 @@ final class LLMConfigStore {
         try save(settings)
     }
 
-    private func readAPIKey(account: String, legacyData: Data?) -> String? {
-        let keychain = KeychainAPIKeyStore(account: account)
-        if let storedKey = try? keychain.readAPIKey(), !storedKey.isEmpty {
+    private func loadRemoteAPIKey(legacyData: Data?) -> String {
+        if let storedKey = try? remoteAPIKeyStore.readAPIKey(), !storedKey.isEmpty {
             return storedKey
         }
 
-        if account == Self.remoteKeychainAccount {
-            let legacyKeychain = KeychainAPIKeyStore()
-            if let legacyStoredKey = try? legacyKeychain.readAPIKey(), !legacyStoredKey.isEmpty {
-                try? keychain.saveAPIKey(legacyStoredKey)
-                return legacyStoredKey
-            }
-            if let legacyData,
-               let rawJSON = try? JSONSerialization.jsonObject(with: legacyData) as? [String: Any],
-               let legacyKey = rawJSON["apiKey"] as? String,
-               !legacyKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                try? keychain.saveAPIKey(legacyKey)
-                return legacyKey
-            }
+        let legacyKeychain = KeychainAPIKeyStore()
+        if let legacyStoredKey = try? legacyKeychain.readAPIKey(), !legacyStoredKey.isEmpty {
+            try? remoteAPIKeyStore.saveAPIKey(legacyStoredKey)
+            return legacyStoredKey
         }
 
-        return nil
+        if let legacyData,
+           let rawJSON = try? JSONSerialization.jsonObject(with: legacyData) as? [String: Any],
+           let legacyKey = rawJSON["apiKey"] as? String,
+           !legacyKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try? remoteAPIKeyStore.saveAPIKey(legacyKey)
+            return legacyKey
+        }
+
+        return ""
+    }
+
+    private func purgeLocalAPIKeyFromKeychain() {
+        try? KeychainAPIKeyStore(account: Self.legacyLocalKeychainAccount).deleteAPIKey()
+        try? KeychainAPIKeyStore(account: "profiles").deleteAPIKey()
     }
 }
 

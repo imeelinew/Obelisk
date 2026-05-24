@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 import Security
 
 public enum LocalJSONEncryption {
@@ -140,6 +141,54 @@ public enum ObeliskPrivateStorage {
         let material = "local.elidev.Obelisk.private-storage.v1:\(logicalName)"
         let digest = SHA256.hash(data: Data(material.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    public static func hasEncryptedPayloads(in rootDirectory: URL) -> Bool {
+        let directories = [
+            encryptedDataDirectory(in: rootDirectory),
+            legacyEncryptedDataDirectory(in: rootDirectory)
+        ]
+        for directory in directories {
+            guard let urls = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ) else {
+                continue
+            }
+            if urls.contains(where: { $0.pathExtension == "bin" }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    public static func sampleEncryptedPayloadURL(in rootDirectory: URL) -> URL? {
+        let bookmarksURL = fileURL(rootDirectory: rootDirectory, logicalName: "bookmarks.json", encrypted: true)
+        if FileManager.default.fileExists(atPath: bookmarksURL.path) {
+            return bookmarksURL
+        }
+        let directories = [
+            encryptedDataDirectory(in: rootDirectory),
+            legacyEncryptedDataDirectory(in: rootDirectory)
+        ]
+        for directory in directories {
+            guard let urls = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.fileSizeKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+            let bins = urls.filter { $0.pathExtension == "bin" }
+            if let largest = bins.max(by: { lhs, rhs in
+                let lhsSize = (try? lhs.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                let rhsSize = (try? rhs.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                return lhsSize < rhsSize
+            }) {
+                return largest
+            }
+        }
+        return nil
     }
 
     private static func uniqueURLs(_ urls: [URL]) -> [URL] {
@@ -521,6 +570,8 @@ public enum SecureJSONFileCodecError: LocalizedError {
     case keychainWriteFailed(OSStatus)
     case invalidEnvelope
     case decryptFailed
+    case encryptionKeyMissing
+    case encryptionKeyWouldOverwrite
 
     public var errorDescription: String? {
         switch self {
@@ -532,6 +583,10 @@ public enum SecureJSONFileCodecError: LocalizedError {
             return "本地加密文件格式无效"
         case .decryptFailed:
             return "无法解密本地数据"
+        case .encryptionKeyMissing:
+            return "找不到本地数据加密密钥，无法解密书签。若刚切换过签名/Team，请尝试用 Time Machine 恢复「登录」钥匙串后再打开 Obelisk。"
+        case .encryptionKeyWouldOverwrite:
+            return "拒绝写入新的加密主密钥：磁盘上已有加密数据，且新密钥无法解密现有文件。不会覆盖钥匙串中的现有密钥。"
         }
     }
 }
@@ -608,7 +663,7 @@ public final class SecureJSONFileCodec {
         guard let combined = Data(base64Encoded: envelope.payload) else {
             throw SecureJSONFileCodecError.invalidEnvelope
         }
-        let key = try keyStore.getOrCreateKey()
+        let key = try keyStore.getExistingKey()
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: combined)
             return try AES.GCM.open(sealedBox, using: key)
@@ -623,26 +678,255 @@ public final class SecureJSONFileCodec {
         }
         return envelope.format == format && envelope.algorithm == algorithm
     }
+
+    fileprivate func canDecrypt(_ encryptedData: Data, using keyData: Data) -> Bool {
+        guard isEncryptedData(encryptedData), keyData.count == 32 else { return false }
+        guard let envelope = try? envelopeDecoder.decode(Envelope.self, from: encryptedData),
+              envelope.format == format,
+              envelope.algorithm == algorithm,
+              let combined = Data(base64Encoded: envelope.payload) else {
+            return false
+        }
+        let key = SymmetricKey(data: keyData)
+        guard let sealedBox = try? AES.GCM.SealedBox(combined: combined) else { return false }
+        return (try? AES.GCM.open(sealedBox, using: key)) != nil
+    }
+}
+
+public enum ObeliskKeychainMigration {
+    private static let apiKeyService = "local.elidev.Obelisk.llm-apikey"
+    private static let legacyAPIKeyAccounts = ["default", "local", "profiles"]
+
+    /// Moves LLM API keys into the signed app's access group. Never touches the encryption master key.
+    public static func migrateIfNeeded() {
+        guard ObeliskKeychain.accessGroup != nil else { return }
+
+        if readItem(service: apiKeyService, account: "remote", includeAccessGroup: true) == nil,
+           let legacyDefault = readItem(service: apiKeyService, account: "default", includeAccessGroup: false) {
+            if writeItem(legacyDefault, service: apiKeyService, account: "remote") {
+                deleteLegacyAPIKeyItem(account: "default")
+            }
+        }
+        migrateItem(service: apiKeyService, account: "remote")
+
+        for legacyAccount in legacyAPIKeyAccounts {
+            deleteLegacyAPIKeyItem(account: legacyAccount)
+        }
+    }
+
+    private static func migrateItem(service: String, account: String) {
+        assertMigrationServiceAllowed(service)
+        guard let legacyData = readItem(service: service, account: account, includeAccessGroup: false) else {
+            return
+        }
+        guard writeItem(legacyData, service: service, account: account) else {
+            return
+        }
+        guard let migrated = readItem(service: service, account: account, includeAccessGroup: true),
+              migrated == legacyData else {
+            return
+        }
+        deleteLegacyAPIKeyItem(account: account)
+    }
+
+    private static func assertMigrationServiceAllowed(_ service: String) {
+        precondition(
+            !service.localizedCaseInsensitiveContains("encryption"),
+            "ObeliskKeychainMigration must never touch encryption keys"
+        )
+        precondition(
+            service == apiKeyService,
+            "ObeliskKeychainMigration only supports LLM API key service"
+        )
+    }
+
+    private static func readItem(service: String, account: String, includeAccessGroup: Bool) -> Data? {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        if includeAccessGroup {
+            ObeliskKeychain.applyAccessGroup(to: &query)
+        }
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else {
+            return nil
+        }
+        return item as? Data
+    }
+
+    @discardableResult
+    private static func writeItem(_ data: Data, service: String, account: String) -> Bool {
+        assertMigrationServiceAllowed(service)
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        ObeliskKeychain.applyAccessGroup(to: &query)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+        if SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess {
+            return SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecSuccess
+        }
+        var addQuery = query
+        addQuery.merge(attributes) { _, new in new }
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    }
+
+    private static func deleteLegacyAPIKeyItem(account: String) {
+        guard legacyAPIKeyAccounts.contains(account) else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: apiKeyService,
+            kSecAttrAccount as String: account
+        ]
+        _ = SecItemDelete(query as CFDictionary)
+    }
+}
+
+private enum ObeliskKeychain {
+    static var accessGroup: String? {
+        guard let task = SecTaskCreateFromSelf(nil) else { return nil }
+        guard let groups = SecTaskCopyValueForEntitlement(
+            task,
+            "keychain-access-groups" as CFString,
+            nil
+        ) as? [String] else {
+            return nil
+        }
+        return groups.first { !$0.isEmpty }
+    }
+
+    static func applyAccessGroup(to query: inout [String: Any]) {
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+    }
 }
 
 public final class KeychainEncryptionKeyStore {
-    private let service = "local.elidev.Obelisk.encryption"
-    private let account = "default-v1"
+    private static let keyLog = Logger(subsystem: "local.elidev.Obelisk", category: "EncryptionKeychain")
+    private static let defaultService = "local.elidev.Obelisk.encryption"
 
-    public init() {}
+    private let service: String
+    private let account = "default-v1"
+    private let encryptedPayloadsRoot: URL?
+
+    public init(encryptedPayloadsRoot: URL? = nil, keychainService: String? = nil) {
+        self.encryptedPayloadsRoot = encryptedPayloadsRoot
+        self.service = keychainService ?? Self.defaultService
+    }
+
+    /// Persists encryption key bytes. Refuses to overwrite a different existing key when encrypted payloads exist on disk.
+    public func persistEncryptionKeyMaterial(_ data: Data) throws {
+        try saveKeyData(data, preferLegacySlot: false)
+    }
+
+    public func getExistingKey() throws -> SymmetricKey {
+        guard let data = try readKeyData() else {
+            throw SecureJSONFileCodecError.encryptionKeyMissing
+        }
+        return SymmetricKey(data: data)
+    }
 
     public func getOrCreateKey() throws -> SymmetricKey {
         if let data = try readKeyData() {
+            try? migrateKeyToAccessGroupIfNeeded(data)
             return SymmetricKey(data: data)
+        }
+        if let root = encryptedPayloadsRootDirectory(),
+           ObeliskPrivateStorage.hasEncryptedPayloads(in: root) {
+            throw SecureJSONFileCodecError.encryptionKeyMissing
         }
         let key = SymmetricKey(size: .bits256)
         let data = key.withUnsafeBytes { Data($0) }
-        try saveKeyData(data)
+        try saveKeyData(data, preferLegacySlot: false)
         return key
     }
 
+    /// Tries every accessible encryption-key item in Keychain against on-disk ciphertext.
+    public func recoverEncryptionKeyIfNeeded(rootDirectory: URL) -> Bool {
+        guard ObeliskPrivateStorage.hasEncryptedPayloads(in: rootDirectory) else { return false }
+        guard let sampleURL = ObeliskPrivateStorage.sampleEncryptedPayloadURL(in: rootDirectory),
+              let sampleData = try? Data(contentsOf: sampleURL) else {
+            return false
+        }
+        let codec = SecureJSONFileCodec()
+
+        if let current = try? readKeyData(), codec.canDecrypt(sampleData, using: current) {
+            return false
+        }
+
+        for candidate in allKeychainKeyCandidates() where candidate.count == 32 {
+            guard codec.canDecrypt(sampleData, using: candidate) else { continue }
+            do {
+                if let current = try? readKeyData(), !current.isEmpty, current != candidate {
+                    Self.keyLog.fault(
+                        "Replacing unreadable encryption key with recovered candidate from keychain scan"
+                    )
+                }
+                try saveKeyData(candidate, preferLegacySlot: true)
+                return true
+            } catch {
+                continue
+            }
+        }
+        return false
+    }
+
+    private func encryptedPayloadsRootDirectory() -> URL? {
+        encryptedPayloadsRoot ?? Self.defaultRecoveryRootDirectory()
+    }
+
+    private static func defaultRecoveryRootDirectory() -> URL? {
+        if let override = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents")
+            .appendingPathComponent("Obelisk")
+    }
+
+    private func allKeychainKeyCandidates() -> [Data] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+        var items: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &items)
+        guard status == errSecSuccess, let array = items as? [[String: Any]] else {
+            return []
+        }
+        return array.compactMap { $0[kSecValueData as String] as? Data }
+    }
+
+    /// Prefer the ad-hoc era item first; a wrongly created access-group item must not shadow it.
     private func readKeyData() throws -> Data? {
-        var query = baseQuery()
+        if let data = try readKeyData(includeAccessGroup: false) {
+            return data
+        }
+        return try readKeyData(includeAccessGroup: true)
+    }
+
+    private func migrateKeyToAccessGroupIfNeeded(_ data: Data) throws {
+        guard ObeliskKeychain.accessGroup != nil else { return }
+        if let grouped = try readKeyData(includeAccessGroup: true), grouped == data {
+            return
+        }
+        try saveKeyData(data, preferLegacySlot: false)
+    }
+
+    private func readKeyData(includeAccessGroup: Bool) throws -> Data? {
+        var query = baseQuery(includeAccessGroup: includeAccessGroup)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -657,23 +941,64 @@ public final class KeychainEncryptionKeyStore {
         return data
     }
 
-    private func saveKeyData(_ data: Data) throws {
-        var query = baseQuery()
-        query[kSecValueData as String] = data
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    private func saveKeyData(_ data: Data, preferLegacySlot: Bool) throws {
+        guard data.count == 32 else {
+            throw SecureJSONFileCodecError.invalidEnvelope
+        }
 
-        let status = SecItemAdd(query as CFDictionary, nil)
+        if let existing = try readKeyData() {
+            if existing == data {
+                return
+            }
+            try assertMayReplaceEncryptionKey(with: data)
+        }
+
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+
+        let useLegacySlot = preferLegacySlot || ObeliskKeychain.accessGroup == nil
+        let query = baseQuery(includeAccessGroup: !useLegacySlot)
+        if SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess {
+            let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            guard status == errSecSuccess else {
+                throw SecureJSONFileCodecError.keychainWriteFailed(status)
+            }
+            return
+        }
+
+        var addQuery = query
+        addQuery.merge(attributes) { _, new in new }
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw SecureJSONFileCodecError.keychainWriteFailed(status)
         }
     }
 
-    private func baseQuery() -> [String: Any] {
-        [
+    private func assertMayReplaceEncryptionKey(with newData: Data) throws {
+        guard let root = encryptedPayloadsRootDirectory(),
+              ObeliskPrivateStorage.hasEncryptedPayloads(in: root),
+              let sampleURL = ObeliskPrivateStorage.sampleEncryptedPayloadURL(in: root),
+              let sampleData = try? Data(contentsOf: sampleURL) else {
+            return
+        }
+        let codec = SecureJSONFileCodec(keyStore: self)
+        guard codec.canDecrypt(sampleData, using: newData) else {
+            throw SecureJSONFileCodecError.encryptionKeyWouldOverwrite
+        }
+    }
+
+    private func baseQuery(includeAccessGroup: Bool = true) -> [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
+        if includeAccessGroup {
+            ObeliskKeychain.applyAccessGroup(to: &query)
+        }
+        return query
     }
 }
 
@@ -686,7 +1011,14 @@ public final class KeychainAPIKeyStore {
     }
 
     public func readAPIKey() throws -> String? {
-        var query = baseQuery()
+        if let value = try readAPIKey(includeAccessGroup: true) {
+            return value
+        }
+        return try readAPIKey(includeAccessGroup: false)
+    }
+
+    private func readAPIKey(includeAccessGroup: Bool) throws -> String? {
+        var query = baseQuery(includeAccessGroup: includeAccessGroup)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -740,11 +1072,15 @@ public final class KeychainAPIKeyStore {
         (try? readAPIKey())?.isEmpty == false
     }
 
-    private func baseQuery() -> [String: Any] {
-        [
+    private func baseQuery(includeAccessGroup: Bool = true) -> [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
+        if includeAccessGroup {
+            ObeliskKeychain.applyAccessGroup(to: &query)
+        }
+        return query
     }
 }

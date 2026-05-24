@@ -1,5 +1,7 @@
+import CryptoKit
 import Foundation
 import ObeliskCore
+import Security
 
 struct SmokeTests {
     static func main() throws {
@@ -35,6 +37,9 @@ struct SmokeTests {
         try testEncryptedBookmarkStateStoreRoundTrip()
         try testEncryptionNormalizationPreservesBookmarksStateAndUsage()
         try testBookmarkCollectionMembership()
+        try testEncryptionKeyRefusesOverwrite()
+        try testEncryptionKeyMissingWhenEncryptedPayloadsExist()
+        try testKeychainMigrationSkipsEncryptionService()
         print("Obelisk smoke tests passed")
     }
 
@@ -63,7 +68,7 @@ struct SmokeTests {
 
         do {
             _ = try store.add(title: "No Host", url: "https:foo")
-            throw SmokeTestError.failure("expected URL without host to be rejected")
+            throw SmokeTestError.failure("expected U9RL without host to be rejected")
         } catch BookmarkStoreError.invalidURL {
         }
 
@@ -1000,6 +1005,91 @@ struct SmokeTests {
             try expect(state.titleOptimizedIds == [visible.id, hidden.id], "expected encryption normalization to preserve title state")
             try expect(usage[visible.id]?.count == 2, "expected encryption normalization to preserve usage count")
         }
+    }
+
+    private static func testEncryptionKeyMissingWhenEncryptedPayloadsExist() throws {
+        let root = try temporaryDirectory()
+        let service = try isolatedEncryptionKeychainService()
+        defer { deleteKeychainItems(service: service) }
+
+        let keyStore = KeychainEncryptionKeyStore(encryptedPayloadsRoot: root, keychainService: service)
+        let codec = SecureJSONFileCodec(keyStore: keyStore)
+        let encryptedURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "probe.json")
+        try FileManager.default.createDirectory(
+            at: encryptedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try codec.writeData(Data("{\"sealed\":true}".utf8), to: encryptedURL, encrypted: true)
+        deleteKeychainItems(service: service)
+
+        do {
+            _ = try keyStore.getOrCreateKey()
+            throw SmokeTestError.failure("expected getOrCreateKey to fail when encrypted payloads exist without a key")
+        } catch let error as SecureJSONFileCodecError {
+            guard case .encryptionKeyMissing = error else { throw error }
+        }
+    }
+
+    private static func testEncryptionKeyRefusesOverwrite() throws {
+        let root = try temporaryDirectory()
+        let service = try isolatedEncryptionKeychainService()
+        defer { deleteKeychainItems(service: service) }
+
+        let keyStore = KeychainEncryptionKeyStore(encryptedPayloadsRoot: root, keychainService: service)
+        let codec = SecureJSONFileCodec(keyStore: keyStore)
+        let encryptedURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "probe.json")
+        try FileManager.default.createDirectory(
+            at: encryptedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try codec.writeData(Data("{\"protected\":true}".utf8), to: encryptedURL, encrypted: true)
+
+        let originalData = try keyStore.getExistingKey().withUnsafeBytes { Data($0) }
+        let wrongData = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+
+        do {
+            try keyStore.persistEncryptionKeyMaterial(wrongData)
+            throw SmokeTestError.failure("expected persistEncryptionKeyMaterial to refuse overwriting encryption key")
+        } catch let error as SecureJSONFileCodecError {
+            guard case .encryptionKeyWouldOverwrite = error else { throw error }
+        }
+
+        let restoredData = try keyStore.getExistingKey().withUnsafeBytes { Data($0) }
+        try expect(restoredData == originalData, "expected encryption key to remain unchanged after refused overwrite")
+        let roundTrip = try codec.readData(from: encryptedURL)
+        try expect(String(decoding: roundTrip, as: UTF8.self).contains("protected"), "expected encrypted payload to remain readable")
+    }
+
+    private static func testKeychainMigrationSkipsEncryptionService() throws {
+        let root = try temporaryDirectory()
+        let service = try isolatedEncryptionKeychainService()
+        defer { deleteKeychainItems(service: service) }
+
+        let keyStore = KeychainEncryptionKeyStore(encryptedPayloadsRoot: root, keychainService: service)
+        let codec = SecureJSONFileCodec(keyStore: keyStore)
+        let encryptedURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "probe.json")
+        try FileManager.default.createDirectory(
+            at: encryptedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try codec.writeData(Data("{\"migration\":true}".utf8), to: encryptedURL, encrypted: true)
+
+        ObeliskKeychainMigration.migrateIfNeeded()
+
+        let roundTrip = try codec.readData(from: encryptedURL)
+        try expect(String(decoding: roundTrip, as: UTF8.self).contains("migration"), "expected payload readable after migration")
+    }
+
+    private static func isolatedEncryptionKeychainService() throws -> String {
+        "local.elidev.Obelisk.encryption.smoke.\(UUID().uuidString)"
+    }
+
+    private static func deleteKeychainItems(service: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service
+        ]
+        _ = SecItemDelete(query as CFDictionary)
     }
 
     private static func testBookmarkCollectionMembership() throws {

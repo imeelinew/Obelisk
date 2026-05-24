@@ -49,6 +49,12 @@ struct TitleOptimizationCandidate: Encodable {
     let url: String
 }
 
+struct TitleOptimizationBenchmarkResult {
+    let elapsedSeconds: TimeInterval
+    let optimizedTitles: [UUID: String]
+    let candidates: [TitleOptimizationCandidate]
+}
+
 struct LLMConfig: Codable, Equatable {
     var apiKey: String = ""
     var model: String = ""
@@ -65,6 +71,12 @@ struct LLMConfig: Codable, Equatable {
         self.model = model
         self.baseURL = baseURL
     }
+
+    static let lmStudioPreset = LLMConfig(
+        apiKey: "lm-studio",
+        model: "qwen/qwen3.5-4b",
+        baseURL: "http://localhost:1234/v1/chat/completions"
+    )
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -178,12 +190,47 @@ final class TitleOptimizer {
     init(rootDirectory: URL) {
         self.configStore = LLMConfigStore(rootDirectory: rootDirectory)
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 30
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 180
         self.session = URLSession(configuration: configuration)
     }
 
     func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String] {
+        let config = try loadConfig()
+        return try await optimize(candidates, config: config)
+    }
+
+    func benchmark(config: LLMConfig) async throws -> TitleOptimizationBenchmarkResult {
+        let candidates = [
+            TitleOptimizationCandidate(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                title: "GitHub - openai/openai-python: The official Python library for the OpenAI API",
+                url: "https://github.com/openai/openai-python"
+            ),
+            TitleOptimizationCandidate(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+                title: "(12) Qwen3.5-4B · Hugging Face",
+                url: "https://huggingface.co/Qwen/Qwen3.5-4B"
+            ),
+            TitleOptimizationCandidate(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+                title: "Apple Developer Documentation - URLSession | Apple Developer Documentation",
+                url: "https://developer.apple.com/documentation/foundation/urlsession"
+            )
+        ]
+        let start = Date()
+        let optimizedTitles = try await optimize(candidates, config: try validate(config))
+        return TitleOptimizationBenchmarkResult(
+            elapsedSeconds: Date().timeIntervalSince(start),
+            optimizedTitles: optimizedTitles,
+            candidates: candidates
+        )
+    }
+
+    private func optimize(
+        _ candidates: [TitleOptimizationCandidate],
+        config: LoadedConfig
+    ) async throws -> [UUID: String] {
         guard !candidates.isEmpty else {
             return [:]
         }
@@ -198,7 +245,6 @@ final class TitleOptimizer {
             return [:]
         }
 
-        let config = try loadConfig()
         let intensity = TitleOptimizationIntensity.stored
         let userPayload = try String(data: encoder.encode(sanitized), encoding: .utf8) ?? "[]"
         let requestBody = ChatRequest(
@@ -265,13 +311,25 @@ final class TitleOptimizer {
         let baseURLString = env["UNIBOOKMARK_LLM_BASE_URL"]
             ?? fileConfig.baseURL
 
-        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
+        do {
+            return try validate(LLMConfig(apiKey: apiKey, model: model, baseURL: baseURLString))
+        } catch TitleOptimizerError.invalidConfig {
+            throw TitleOptimizerError.invalidConfig(configURL)
+        } catch {
             throw TitleOptimizerError.missingConfig(configURL)
         }
+    }
+
+    private func validate(_ config: LLMConfig) throws -> LoadedConfig {
+        let apiKey = config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = config.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseURLString = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !apiKey.isEmpty, !model.isEmpty else {
+            throw TitleOptimizerError.missingConfig(configStore.configURL)
+        }
         guard let baseURL = URL(string: baseURLString) else {
-            throw TitleOptimizerError.invalidConfig(configURL)
+            throw TitleOptimizerError.invalidConfig(configStore.configURL)
         }
 
         return LoadedConfig(apiKey: apiKey, model: model, baseURL: baseURL)

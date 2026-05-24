@@ -84,6 +84,7 @@ struct BookmarkManagerView: View {
     @State private var selectedCollectionId: UUID?
     @State private var llmConfig = LLMConfig()
     @State private var llmConfigMessage: String?
+    @State private var isTestingLLMConfig = false
     @State private var hiddenBookmarksUnlocked = false
     @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 22
     @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 11
@@ -703,6 +704,36 @@ struct BookmarkManagerView: View {
             showToast("模型配置已保存")
         } catch {
             llmConfigMessage = error.localizedDescription
+        }
+    }
+
+    private func applyLMStudioPreset() {
+        llmConfig = .lmStudioPreset
+        showToast("已填入 LM Studio 配置")
+    }
+
+    private func testLLMConfig() {
+        guard !isTestingLLMConfig else { return }
+        isTestingLLMConfig = true
+        let config = llmConfig
+        Task {
+            do {
+                let result = try await TitleOptimizer(rootDirectory: model.rootDirectory).benchmark(config: config)
+                let lines = result.candidates.map { candidate in
+                    let title = result.optimizedTitles[candidate.id] ?? "未返回"
+                    return "\(candidate.title) -> \(title)"
+                }
+                llmConfigMessage = String(
+                    format: "耗时 %.2f 秒，返回 %d/%d 个标题\n\n%@",
+                    result.elapsedSeconds,
+                    result.optimizedTitles.count,
+                    result.candidates.count,
+                    lines.joined(separator: "\n")
+                )
+            } catch {
+                llmConfigMessage = error.localizedDescription
+            }
+            isTestingLLMConfig = false
         }
     }
 
@@ -1494,6 +1525,21 @@ struct BookmarkManagerView: View {
                 }
 
                 Section("模型配置") {
+                    HStack {
+                        Button {
+                            applyLMStudioPreset()
+                        } label: {
+                            Text("LM Studio")
+                        }
+
+                        Button {
+                            testLLMConfig()
+                        } label: {
+                            Text(isTestingLLMConfig ? "测试中…" : "测试速度和效果")
+                        }
+                        .disabled(isTestingLLMConfig)
+                    }
+
                     VStack(alignment: .leading, spacing: 4) {
                         SecureField(text: $llmConfig.apiKey, prompt: Text("sk-...")) {
                             Label("API Key", systemImage: "key")

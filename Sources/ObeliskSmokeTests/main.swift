@@ -40,6 +40,7 @@ struct SmokeTests {
         try testEncryptionKeyRefusesOverwrite()
         try testEncryptionKeyMissingWhenEncryptedPayloadsExist()
         try testKeychainMigrationSkipsEncryptionService()
+        try testPlaintextDataBackup()
         print("Obelisk smoke tests passed")
     }
 
@@ -1090,6 +1091,22 @@ struct SmokeTests {
             kSecAttrService as String: service
         ]
         _ = SecItemDelete(query as CFDictionary)
+    }
+
+    private static func testPlaintextDataBackup() throws {
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        _ = try store.add(title: "Backup Me", url: "https://backup-me.example")
+
+        let result = try ObeliskPlaintextDataBackup.createBackup(in: root)
+        try expect(result.destinationURL.lastPathComponent.hasPrefix("Backup-"), "expected dated backup folder name")
+        let bookmarksURL = result.destinationURL
+            .appendingPathComponent("Data")
+            .appendingPathComponent("bookmarks.json")
+        try expect(FileManager.default.fileExists(atPath: bookmarksURL.path), "expected plaintext bookmarks backup")
+        let raw = try String(contentsOf: bookmarksURL, encoding: .utf8)
+        try expect(raw.contains("backup-me.example"), "expected backup to contain bookmark URL")
+        try expect(!raw.contains("obelisk.encrypted-json.v1"), "expected backup to be plaintext JSON")
     }
 
     private static func testBookmarkCollectionMembership() throws {

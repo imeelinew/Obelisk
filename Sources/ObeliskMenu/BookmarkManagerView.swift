@@ -113,6 +113,7 @@ struct BookmarkManagerView: View {
     @State private var renameCollectionName = ""
     @State private var collectionToDelete: BookmarkCollection?
     @State private var isFetchingOriginalTitles = false
+    @State private var isCreatingPlaintextBackup = false
     @State private var restoreAllOriginalTitlesConfirmation = false
     @State private var refetchAllOriginalTitlesConfirmation = false
     @AppStorage(BookmarksModel.developerFeaturesEnabledKey) private var developerFeaturesEnabled = false
@@ -659,7 +660,7 @@ struct BookmarkManagerView: View {
 
     private func fetchAllOriginalTitles() {
         guard developerFeaturesEnabled else {
-            showToast("开发者功能已关闭", kind: .error)
+            showToast("开发者选项已关闭", kind: .error)
             return
         }
 
@@ -682,6 +683,31 @@ struct BookmarkManagerView: View {
         sidebarIconCornerRadius = BookmarksModel.defaultDebugSidebarIconCornerRadius
         resetDeveloperOptionsConfirmation = false
         showToast("已恢复开发者选项默认值")
+    }
+
+    private func createPlaintextDataBackup() {
+        guard developerFeaturesEnabled else {
+            showToast("开发者选项已关闭", kind: .error)
+            return
+        }
+        guard !isCreatingPlaintextBackup else { return }
+
+        isCreatingPlaintextBackup = true
+        let rootDirectory = model.rootDirectory
+        Task.detached(priority: .utility) {
+            do {
+                let result = try ObeliskPlaintextDataBackup.createBackup(in: rootDirectory)
+                await MainActor.run {
+                    isCreatingPlaintextBackup = false
+                    showToast("已备份至 \(result.destinationURL.lastPathComponent)")
+                }
+            } catch {
+                await MainActor.run {
+                    isCreatingPlaintextBackup = false
+                    showToast(error.localizedDescription, kind: .error)
+                }
+            }
+        }
     }
 
     private func showToast(_ message: String, kind: Toast.Kind = .success) {
@@ -1689,11 +1715,24 @@ struct BookmarkManagerView: View {
 
     private var developerOptionsPage: some View {
         Form {
-            Section("开发者功能") {
-                Toggle("开启开发者功能", isOn: developerFeaturesEnabledBinding)
+            Section("开发者选项") {
+                Toggle("开启开发者选项", isOn: developerFeaturesEnabledBinding)
             }
 
             if developerFeaturesEnabled {
+                Section("数据备份") {
+                    LabeledContent {
+                        Button {
+                            createPlaintextDataBackup()
+                        } label: {
+                            Text(isCreatingPlaintextBackup ? "备份中…" : "备份")
+                        }
+                        .disabled(isCreatingPlaintextBackup)
+                    } label: {
+                        Text("备份明文数据")
+                    }
+                }
+
                 Section("Toast 调试") {
                     HStack(spacing: 10) {
                         Button("成功 Toast") {
@@ -2487,11 +2526,11 @@ private struct ExtraAlerts: ViewModifier {
                 Button("取消", role: .cancel) {
                     enableDeveloperFeaturesConfirmation = false
                 }
-                Button("开启") {
+                Button("开启", role: .destructive) {
                     enableDeveloperFeatures()
                 }
             } message: {
-                Text("将显示 Toast 调试、侧栏图标参数和批量恢复标题等工具。这些功能可能影响界面或批量修改书签标题。")
+                Text("修改「开发者选项」中的任意一项配置都可能导致 Obelisk 出现非预期的变化、甚至崩溃和数据丢失，如果你不清楚设置和选项的含义，请不要修改任何内容，并保持「开发者选项」关闭。")
             }
             .alert(
                 "恢复默认设置?",

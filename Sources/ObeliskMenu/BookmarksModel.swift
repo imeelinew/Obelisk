@@ -501,7 +501,7 @@ final class BookmarksModel {
 
     func restoreAllOriginalTitles() -> String {
         guard UserDefaults.standard.bool(forKey: Self.developerFeaturesEnabledKey) else {
-            return "开发者功能已关闭"
+            return "开发者选项已关闭"
         }
 
         do {
@@ -518,7 +518,7 @@ final class BookmarksModel {
 
     func fetchAllOriginalTitles() async -> String {
         guard UserDefaults.standard.bool(forKey: Self.developerFeaturesEnabledKey) else {
-            return "开发者功能已关闭"
+            return "开发者选项已关闭"
         }
 
         guard !isOptimizingTitles else {

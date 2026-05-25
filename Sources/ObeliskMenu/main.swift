@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import CoreSpotlight
 import CryptoKit
 import Foundation
+import Network
 import Observation
 import ObeliskCore
 import os
@@ -553,6 +554,7 @@ app.run()
 private struct FaviconRecord: Codable {
     var fetchedAt: Date
     var success: Bool
+    var strategyVersion: Int?
 }
 
 @MainActor
@@ -574,6 +576,7 @@ final class FaviconLoader {
     @ObservationIgnored private let positiveTTL: TimeInterval = 30 * 24 * 3600
     /// Failed lookups are not retried for this long.
     @ObservationIgnored private let negativeTTL: TimeInterval = 7 * 24 * 3600
+    @ObservationIgnored private let faviconFetchStrategyVersion = 2
 
     init(rootDirectory: URL) {
         self.rootDirectory = rootDirectory
@@ -650,7 +653,10 @@ final class FaviconLoader {
         }
 
         // Negative cache: don't hammer sites that recently failed.
-        if let record, !record.success, now.timeIntervalSince(record.fetchedAt) < negativeTTL {
+        if let record,
+           !record.success,
+           record.strategyVersion == faviconFetchStrategyVersion,
+           now.timeIntervalSince(record.fetchedAt) < negativeTTL {
             return nil
         }
 
@@ -803,6 +809,12 @@ final class FaviconLoader {
                 return data
             }
         }
+
+        for url in fallbackFaviconURLs(for: pageURL) {
+            if let data = await downloadImageData(from: url) {
+                return data
+            }
+        }
         return nil
     }
 
@@ -824,6 +836,31 @@ final class FaviconLoader {
             origin.appendingPathComponent("favicon.png"),
             origin.appendingPathComponent("favicon.ico")
         ]
+    }
+
+    private func fallbackFaviconURLs(for pageURL: URL) -> [URL] {
+        guard
+            let host = URLComponents(url: pageURL, resolvingAgainstBaseURL: false)?.host?.lowercased(),
+            shouldUseExternalFaviconFallback(for: host),
+            let duckDuckGoURL = URL(string: "https://icons.duckduckgo.com/ip3/\(host).ico")
+        else {
+            return []
+        }
+
+        return [duckDuckGoURL]
+    }
+
+    private func shouldUseExternalFaviconFallback(for host: String) -> Bool {
+        guard host.contains("."),
+              host != "localhost",
+              !host.hasSuffix(".local"),
+              IPv4Address(host) == nil,
+              IPv6Address(host) == nil
+        else {
+            return false
+        }
+
+        return true
     }
 
     private func downloadImageData(from url: URL) async -> Data? {
@@ -1006,7 +1043,11 @@ final class FaviconLoader {
     }
 
     private func recordResult(key: String, success: Bool) {
-        index[key] = FaviconRecord(fetchedAt: Date(), success: success)
+        index[key] = FaviconRecord(
+            fetchedAt: Date(),
+            success: success,
+            strategyVersion: faviconFetchStrategyVersion
+        )
         saveIndex()
     }
 

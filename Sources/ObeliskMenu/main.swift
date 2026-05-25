@@ -182,7 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.notifyUser(
                         title: "标题优化完成",
                         body: message,
-                        kind: .success
+                        kind: .intelligence
                     )
                 }
             }

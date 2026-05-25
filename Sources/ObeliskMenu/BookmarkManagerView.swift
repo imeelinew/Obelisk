@@ -724,12 +724,14 @@ struct BookmarkManagerView: View {
         llmProfiles = llmConfigStore.loadProfiles()
     }
 
-    private func saveLLMConfig() {
+    private func persistLLMConfig(_ profiles: LLMProfilesSettings) {
+        llmProfiles = profiles
+
         do {
-            try llmConfigStore.save(llmProfiles)
-            showToast("模型配置已保存")
+            try llmConfigStore.save(profiles)
         } catch {
-            llmConfigMessage = error.localizedDescription
+            // Auto-save failures are intentionally quiet; users can verify the
+            // current fields with "测试模型连接".
         }
     }
 
@@ -739,20 +741,10 @@ struct BookmarkManagerView: View {
         let config = llmProfiles.activeConfig
         Task {
             do {
-                let result = try await TitleOptimizer(rootDirectory: model.rootDirectory).benchmark(config: config)
-                let lines = result.candidates.map { candidate in
-                    let title = result.optimizedTitles[candidate.id] ?? "未返回"
-                    return "\(candidate.title) -> \(title)"
-                }
-                llmConfigMessage = String(
-                    format: "耗时 %.2f 秒，返回 %d/%d 个标题\n\n%@",
-                    result.elapsedSeconds,
-                    result.optimizedTitles.count,
-                    result.candidates.count,
-                    lines.joined(separator: "\n")
-                )
+                _ = try await TitleOptimizer(rootDirectory: model.rootDirectory).benchmark(config: config)
+                showToast("连接成功")
             } catch {
-                llmConfigMessage = error.localizedDescription
+                showToast("连接失败", kind: .error)
             }
             isTestingLLMConfig = false
         }
@@ -1152,7 +1144,7 @@ struct BookmarkManagerView: View {
             set: { newValue in
                 var profiles = llmProfiles
                 profiles.activeSource = newValue
-                llmProfiles = profiles
+                persistLLMConfig(profiles)
             }
         )
     }
@@ -1185,7 +1177,7 @@ struct BookmarkManagerView: View {
                 case .local:
                     profiles.local[keyPath: keyPath] = newValue
                 }
-                llmProfiles = profiles
+                persistLLMConfig(profiles)
             }
         )
     }
@@ -1589,6 +1581,9 @@ struct BookmarkManagerView: View {
                 Section("Intelligence 标题优化") {
                     LabeledContent {
                         titleIntensityPicker
+                            // Match the trailing inset SwiftUI gives picker rows
+                            // inside the multi-row model configuration section.
+                            .padding(.trailing, -12)
                     } label: {
                         Text("优化程度")
                     }
@@ -1654,13 +1649,6 @@ struct BookmarkManagerView: View {
                     }
 
                     HStack(spacing: 12) {
-                        Button {
-                            saveLLMConfig()
-                        } label: {
-                            Text("保存配置")
-                        }
-                        .buttonStyle(.borderedProminent)
-
                         Button {
                             testLLMConfig()
                         } label: {

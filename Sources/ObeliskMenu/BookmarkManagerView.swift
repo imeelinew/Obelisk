@@ -102,6 +102,7 @@ struct BookmarkManagerView: View {
     @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
     @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.standard.rawValue
+    @AppStorage(TitleOptimizationTranslation.storageKey) private var translateNonChineseTitles = false
     @AppStorage(BookmarkListSortMode.storageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
@@ -1581,12 +1582,14 @@ struct BookmarkManagerView: View {
                 Section("Intelligence 标题优化") {
                     LabeledContent {
                         titleIntensityPicker
-                            // Match the trailing inset SwiftUI gives picker rows
-                            // inside the multi-row model configuration section.
+                            // SwiftUI gives this picker a larger trailing inset
+                            // than the model source row; keep the chevrons aligned.
                             .padding(.trailing, -12)
                     } label: {
                         Text("优化程度")
                     }
+
+                    Toggle("自动翻译非中文标题", isOn: $translateNonChineseTitles)
                 }
 
                 Section("模型配置") {

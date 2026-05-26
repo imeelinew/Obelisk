@@ -3,6 +3,21 @@ import Foundation
 import Observation
 import ObeliskCore
 
+struct BookmarkMenuSections {
+    var pinned: [BookmarkListSection]
+    var recent: [Bookmark]
+    var collections: [BookmarkListSection]
+    var ungrouped: [BookmarkListSection]
+
+    var library: [BookmarkListSection] {
+        collections + ungrouped
+    }
+
+    var isEmpty: Bool {
+        pinned.isEmpty && recent.isEmpty && collections.isEmpty && ungrouped.isEmpty
+    }
+}
+
 @MainActor
 @Observable
 final class BookmarksModel {
@@ -113,7 +128,7 @@ final class BookmarksModel {
                 bookmarkIds: Set(all.map(\.id))
             )
             let visibleBookmarks = visibleBookmarks(from: all, usage: usage)
-            pinned = BookmarkListSortMode.stored.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
+            pinned = BookmarkListSortMode.storedForBookmarks.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
             recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
@@ -137,7 +152,7 @@ final class BookmarksModel {
 
         let usage = usageStore.load()
         let visibleBookmarks = visibleBookmarks(from: bookmarks, usage: usage)
-        pinned = BookmarkListSortMode.stored.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
+        pinned = BookmarkListSortMode.storedForBookmarks.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
         recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
 
         let changed = recent.map(\.id) != priorRecent
@@ -326,13 +341,16 @@ final class BookmarksModel {
         return sections
     }
 
-    func menuLibrarySections(sortMode: BookmarkListSortMode = .stored) -> [BookmarkListSection] {
-        visibleCollectionSections(sortMode: sortMode)
-            + visibleUngroupedSections(sortMode: sortMode)
-    }
-
-    func menuPinnedSections(sortMode: BookmarkListSortMode = .stored) -> [BookmarkListSection] {
-        pinnedSections(sortMode: sortMode)
+    func menuSections(
+        bookmarkSortMode: BookmarkListSortMode = .storedForBookmarks,
+        collectionSortMode: BookmarkListSortMode = .storedForCollections
+    ) -> BookmarkMenuSections {
+        BookmarkMenuSections(
+            pinned: pinnedSections(sortMode: bookmarkSortMode),
+            recent: recent,
+            collections: visibleCollectionSections(sortMode: collectionSortMode),
+            ungrouped: visibleUngroupedSections(sortMode: bookmarkSortMode)
+        )
     }
 
     private func sortedVisibleBookmarks(

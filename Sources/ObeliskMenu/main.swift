@@ -398,14 +398,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let pinnedSections = bookmarksModel.menuPinnedSections(sortMode: .stored)
-        let librarySections = bookmarksModel.menuLibrarySections(sortMode: .stored)
+        let menuSections = bookmarksModel.menuSections()
 
         if let error = bookmarksModel.loadErrorMessage {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
-        } else if pinnedSections.isEmpty && bookmarksModel.recent.isEmpty && librarySections.isEmpty {
+        } else if menuSections.isEmpty {
             let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -414,16 +413,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             emptyItem.isEnabled = false
             menu.addItem(emptyItem)
         } else {
-            let recent = bookmarksModel.recent
-
-            for section in pinnedSections {
+            for section in menuSections.pinned {
                 guard let title = section.title else { continue }
                 appendSection(title: title, bookmarks: section.bookmarks, to: menu)
             }
-            if !recent.isEmpty {
-                appendSection(title: "最近添加 (\(recent.count))", bookmarks: recent, to: menu, isReference: true)
+            if !menuSections.recent.isEmpty {
+                appendSection(title: "最近添加 (\(menuSections.recent.count))", bookmarks: menuSections.recent, to: menu, isReference: true)
             }
-            for section in librarySections {
+            for section in menuSections.library {
                 guard let title = section.title else { continue }
                 appendBookmarkSubmenu(title: title, bookmarks: section.bookmarks, to: menu)
             }

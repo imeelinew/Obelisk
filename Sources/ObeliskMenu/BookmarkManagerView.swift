@@ -7,7 +7,10 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
     case recentlyAdded
     case frequency
 
-    static let storageKey = "bookmarkListSortMode"
+    static let bookmarksStorageKey = "bookmarkListSortMode"
+    static let collectionsStorageKey = "bookmarkCollectionListSortMode"
+    static let hiddenStorageKey = "hiddenBookmarkListSortMode"
+    static let storageKey = bookmarksStorageKey
 
     var id: String { rawValue }
 
@@ -19,9 +22,10 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
         }
     }
 
-    static var stored: BookmarkListSortMode {
-        BookmarkListSortMode(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .name
-    }
+    static var stored: BookmarkListSortMode { storedForBookmarks }
+    static var storedForBookmarks: BookmarkListSortMode { stored(for: bookmarksStorageKey) }
+    static var storedForCollections: BookmarkListSortMode { stored(for: collectionsStorageKey) }
+    static var storedForHiddenBookmarks: BookmarkListSortMode { stored(for: hiddenStorageKey) }
 
     func sorted(
         _ bookmarks: [Bookmark],
@@ -57,6 +61,10 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
         }
 
         return lhs.id.uuidString < rhs.id.uuidString
+    }
+
+    private static func stored(for key: String) -> BookmarkListSortMode {
+        BookmarkListSortMode(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .name
     }
 }
 
@@ -112,7 +120,9 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
     @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.standard.rawValue
     @AppStorage(TitleOptimizationTranslation.storageKey) private var translateNonChineseTitles = false
-    @AppStorage(BookmarkListSortMode.storageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
+    @AppStorage(BookmarkListSortMode.bookmarksStorageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
+    @AppStorage(BookmarkListSortMode.collectionsStorageKey) private var collectionListSortModeRaw = BookmarkListSortMode.name.rawValue
+    @AppStorage(BookmarkListSortMode.hiddenStorageKey) private var hiddenBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
     @AppStorage("customTransparencyEnabled") private var customTransparencyEnabled = false
@@ -317,7 +327,7 @@ struct BookmarkManagerView: View {
     }
 
     private var filteredHiddenBookmarks: [Bookmark] {
-        sorted(filtered(hiddenBookmarks))
+        model.sortedBookmarks(filtered(hiddenBookmarks), sortMode: hiddenBookmarkListSortMode)
     }
 
     private var archivedBookmarks: [Bookmark] {
@@ -342,7 +352,7 @@ struct BookmarkManagerView: View {
     private var collectionBookmarkSections: [BookmarkListSection] {
         model.visibleCollectionSections(
             searchText: searchText,
-            sortMode: bookmarkListSortMode,
+            sortMode: collectionListSortMode,
             includeEmptyCollections: true,
             showsSortControlOnFirstSection: true
         )
@@ -399,6 +409,32 @@ struct BookmarkManagerView: View {
         )
     }
 
+    private var collectionListSortMode: BookmarkListSortMode {
+        get {
+            BookmarkListSortMode(rawValue: collectionListSortModeRaw) ?? .name
+        }
+        nonmutating set {
+            collectionListSortModeRaw = newValue.rawValue
+            model.notifyMenuPresentationChanged()
+        }
+    }
+
+    private var hiddenBookmarkListSortMode: BookmarkListSortMode {
+        get {
+            BookmarkListSortMode(rawValue: hiddenBookmarkListSortModeRaw) ?? .name
+        }
+        nonmutating set {
+            hiddenBookmarkListSortModeRaw = newValue.rawValue
+        }
+    }
+
+    private var hiddenBookmarkListSortModeBinding: Binding<BookmarkListSortMode> {
+        Binding(
+            get: { hiddenBookmarkListSortMode },
+            set: { hiddenBookmarkListSortMode = $0 }
+        )
+    }
+
     private var titleOptimizationIntensity: TitleOptimizationIntensity {
         get {
             TitleOptimizationIntensity(rawValue: titleOptimizationIntensityRaw) ?? .standard
@@ -413,10 +449,6 @@ struct BookmarkManagerView: View {
             get: { titleOptimizationIntensity },
             set: { titleOptimizationIntensity = $0 }
         )
-    }
-
-    private func sorted(_ bookmarks: [Bookmark]) -> [Bookmark] {
-        model.sortedBookmarks(bookmarks, sortMode: bookmarkListSortMode)
     }
 
     private func consumePendingAddRequestIfNeeded() {
@@ -1164,9 +1196,17 @@ struct BookmarkManagerView: View {
     }
 
     private var bookmarkSortMenu: some View {
+        sortMenu(selection: bookmarkListSortModeBinding)
+    }
+
+    private var hiddenBookmarkSortMenu: some View {
+        sortMenu(selection: hiddenBookmarkListSortModeBinding)
+    }
+
+    private func sortMenu(selection: Binding<BookmarkListSortMode>) -> some View {
         CompactBorderedMenuPicker(
             options: Array(BookmarkListSortMode.allCases),
-            selection: bookmarkListSortModeBinding,
+            selection: selection,
             title: { $0.title }
         )
     }
@@ -1273,7 +1313,7 @@ struct BookmarkManagerView: View {
             } else if bookmarkSections.isEmpty {
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView.search(text: searchText)
-                } else if !model.visibleCollectionSections(sortMode: bookmarkListSortMode).isEmpty {
+                } else if !model.visibleCollectionSections(sortMode: collectionListSortMode).isEmpty {
                     ContentUnavailableView {
                         Label("没有未分组的书签", systemImage: "bookmark")
                     } description: {
@@ -1331,6 +1371,7 @@ struct BookmarkManagerView: View {
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
+                    onSortModeChange: { sortMode in collectionListSortMode = sortMode },
                     onRenameCollection: { id in beginRenameCollection(id: id) },
                     onDeleteCollection: { id in beginDeleteCollection(id: id) },
                     onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
@@ -1354,7 +1395,7 @@ struct BookmarkManagerView: View {
                     onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
                     pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
-                    onSortModeChange: { sortMode in bookmarkListSortMode = sortMode },
+                    onSortModeChange: { sortMode in collectionListSortMode = sortMode },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
                         assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
@@ -1380,7 +1421,7 @@ struct BookmarkManagerView: View {
                 ContentUnavailableView.search(text: searchText)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    bookmarkSortMenu
+                    hiddenBookmarkSortMenu
                         .padding(.leading, 16)
                         .padding(.top, 8)
                         .padding(.bottom, 4)

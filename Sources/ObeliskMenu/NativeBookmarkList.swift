@@ -64,9 +64,12 @@ struct NativeBookmarkList: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.hasHorizontalScroller = false
+        scrollView.horizontalScrollElasticity = .none
         scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
         let tableView = HoverTableView()
+        tableView.frame = scrollView.contentView.bounds
+        tableView.autoresizingMask = [.width]
         tableView.headerView = nil
         tableView.backgroundColor = .clear
         tableView.selectionHighlightStyle = .regular
@@ -124,16 +127,31 @@ struct NativeBookmarkList: NSViewRepresentable {
         }
 
         func reloadTable() {
-            guard let tableView, let scrollView else { return }
-            if let column = tableView.tableColumns.first {
-                column.width = max(scrollView.contentView.bounds.width, 100)
-            }
+            guard let tableView else { return }
+            syncTableWidth()
             tableView.reloadData()
+            syncTableWidth()
             syncSelectionToTable()
             // Row indices may have shifted after reload; clear stale hover and
             // re-derive from the current cursor location.
             applyHoveredRow(-1)
             tableView.updateHoverFromCurrentMouse()
+        }
+
+        private func syncTableWidth() {
+            guard let tableView, let scrollView else { return }
+            let width = max(scrollView.contentView.bounds.width, 100)
+            if tableView.frame.width != width {
+                tableView.frame.size.width = width
+            }
+            if let column = tableView.tableColumns.first, column.width != width {
+                column.width = width
+            }
+
+            let clipView = scrollView.contentView
+            guard clipView.bounds.origin.x != 0 else { return }
+            clipView.scroll(to: NSPoint(x: 0, y: clipView.bounds.origin.y))
+            scrollView.reflectScrolledClipView(clipView)
         }
 
         func installScrollObserver() {
@@ -148,6 +166,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         }
 
         @objc private func contentBoundsDidChange() {
+            syncTableWidth()
             // Content moved under the cursor: even if the mouse hasn't moved,
             // the row beneath it has changed. Recompute from real cursor pos
             // so hovered state has exactly one source of truth.
@@ -762,7 +781,9 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         titleField.translatesAutoresizingMaskIntoConstraints = false
         titleField.font = .systemFont(ofSize: 13, weight: .semibold)
         titleField.textColor = .labelColor
+        titleField.lineBreakMode = .byTruncatingTail
         titleField.setContentHuggingPriority(.required, for: .horizontal)
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(titleField)
 
         sortButton.translatesAutoresizingMaskIntoConstraints = false
@@ -840,12 +861,16 @@ private final class BookmarkTableCellView: NSTableCellView {
         titleField.translatesAutoresizingMaskIntoConstraints = false
         titleField.font = .systemFont(ofSize: 13)
         titleField.lineBreakMode = .byTruncatingTail
+        titleField.usesSingleLineMode = true
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textField = titleField
 
         urlField.translatesAutoresizingMaskIntoConstraints = false
         urlField.font = .systemFont(ofSize: 11)
         urlField.textColor = .secondaryLabelColor
         urlField.lineBreakMode = .byTruncatingMiddle
+        urlField.usesSingleLineMode = true
+        urlField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         [faviconView, titleField, urlField].forEach(addSubview)
 

@@ -16,20 +16,15 @@ final class BookmarksModel {
     static let minArchiveAfterDays = 3
     static let maxArchiveAfterDays = 30
     static let defaultArchiveAfterDays = 30
+    private static let autoArchiveFrequentProtectionLimit = 5
 
     private(set) var bookmarks: [Bookmark] = []
-    /// Top-N most frecent bookmarks (≥3 clicks, decayed).
-    private(set) var frequent: [Bookmark] = []
-    /// Top-N by createdAt, excluding any already in `frequent`.
+    /// Top-N by createdAt, excluding pinned items.
     private(set) var recent: [Bookmark] = []
     /// User-pinned visible bookmarks. These are excluded from the smart
     /// spotlight and library sections so they only appear in the pinned group.
     private(set) var pinned: [Bookmark] = []
-    /// Remaining bookmarks not surfaced in the two groups above. Each
-    /// bookmark appears in exactly one of `frequent` / `recent` / `others`,
-    /// so a single List with selection can show all three sections without
-    /// duplicate IDs.
-    /// Bookmarks not shown in menu spotlight (frequent/recent).
+    /// Bookmarks not shown in menu spotlight.
     private(set) var others: [Bookmark] = []
     /// User-defined collections, sorted by `sortOrder` then name.
     private(set) var collections: [BookmarkCollection] = []
@@ -46,7 +41,6 @@ final class BookmarksModel {
     private let usageStore: UsageStore
     private let groupStore: BookmarkGroupStore
     private let titleOptimizer: TitleOptimizer
-    private var frequentGroupLimit: Int
     private var recentGroupLimit: Int
     private(set) var isOptimizingTitles = false
 
@@ -88,14 +82,12 @@ final class BookmarksModel {
     init(
         store: BookmarkStore,
         usageStore: UsageStore,
-        frequentGroupLimit: Int = 5,
         recentGroupLimit: Int = 5
     ) {
         self.store = store
         self.usageStore = usageStore
         self.groupStore = BookmarkGroupStore(rootDirectory: store.rootDirectory)
         self.titleOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
-        self.frequentGroupLimit = frequentGroupLimit
         self.recentGroupLimit = recentGroupLimit
         reload()
     }
@@ -121,7 +113,7 @@ final class BookmarksModel {
                 bookmarkIds: Set(all.map(\.id))
             )
             let visibleBookmarks = visibleBookmarks(from: all, usage: usage)
-            pinned = BookmarkListSortMode.stored.sorted(visibleBookmarks.filter(\.isPinned))
+            pinned = BookmarkListSortMode.stored.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
             recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
@@ -139,18 +131,16 @@ final class BookmarksModel {
 
     @discardableResult
     func applyAutoArchiveIfNeeded() -> Bool {
-        let priorFrequent = frequent.map(\.id)
         let priorRecent = recent.map(\.id)
         let priorOthers = others.map(\.id)
         let priorPinned = pinned.map(\.id)
 
         let usage = usageStore.load()
         let visibleBookmarks = visibleBookmarks(from: bookmarks, usage: usage)
-        pinned = BookmarkListSortMode.stored.sorted(visibleBookmarks.filter(\.isPinned))
+        pinned = BookmarkListSortMode.stored.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
         recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
 
-        let changed = frequent.map(\.id) != priorFrequent
-            || recent.map(\.id) != priorRecent
+        let changed = recent.map(\.id) != priorRecent
             || others.map(\.id) != priorOthers
             || pinned.map(\.id) != priorPinned
         if changed {
@@ -229,13 +219,11 @@ final class BookmarksModel {
         }
     }
 
-    func setMenuGroupLimits(frequent: Int, recent: Int) {
-        let nextFrequent = max(0, frequent)
+    func setMenuRecentGroupLimit(_ recent: Int) {
         let nextRecent = max(0, recent)
-        guard nextFrequent != frequentGroupLimit || nextRecent != recentGroupLimit else {
+        guard nextRecent != recentGroupLimit else {
             return
         }
-        frequentGroupLimit = nextFrequent
         recentGroupLimit = nextRecent
         let usage = usageStore.load()
         recomputeMenuSpotlight(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
@@ -258,6 +246,15 @@ final class BookmarksModel {
             errorMessage = error.localizedDescription
             return error.localizedDescription
         }
+    }
+
+    func recordUsage(for bookmark: Bookmark) {
+        usageStore.record(id: bookmark.id)
+        reload()
+    }
+
+    func sortedBookmarks(_ bookmarks: [Bookmark], sortMode: BookmarkListSortMode) -> [Bookmark] {
+        sortMode.sorted(bookmarks, usage: usageStore.load())
     }
 
     func visibleUngroupedSections(
@@ -290,7 +287,8 @@ final class BookmarksModel {
             filteredBookmarks(
                 visibleBookmarks(from: self.bookmarks, usage: usage).filter(\.isPinned),
                 searchText: searchText
-            )
+            ),
+            usage: usage
         )
         guard !bookmarks.isEmpty else { return [] }
         return [
@@ -351,7 +349,7 @@ final class BookmarksModel {
             },
             searchText: searchText
         )
-        return sortMode.sorted(filtered)
+        return sortMode.sorted(filtered, usage: usage)
     }
 
     private func filteredBookmarks(_ bookmarks: [Bookmark], searchText: String) -> [Bookmark] {
@@ -645,17 +643,9 @@ final class BookmarksModel {
 
     private func recomputeMenuSpotlight(from all: [Bookmark], usage: [UUID: UsageRecord]) {
         let spotlightCandidates = all.filter { !$0.isPinned }
-        let topFrequent = usageStore.topFrequent(among: spotlightCandidates, usage: usage, limit: frequentGroupLimit)
-        let frequentIds = Set(topFrequent.map(\.id))
+        let topRecent = usageStore.recent(among: spotlightCandidates, limit: recentGroupLimit)
+        let surfacedIds = Set(topRecent.map(\.id))
 
-        // Recent excludes anything already shown in "frequent" so each
-        // bookmark only appears once.
-        let recentCandidates = spotlightCandidates.filter { !frequentIds.contains($0.id) }
-        let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)
-
-        let surfacedIds = frequentIds.union(topRecent.map(\.id))
-
-        frequent = topFrequent
         recent = topRecent
         others = spotlightCandidates.filter { !surfacedIds.contains($0.id) }
     }
@@ -682,7 +672,12 @@ final class BookmarksModel {
         }
 
         let active = all.filter { !$0.isHidden && $0.archivedAt == nil }
-        let topFrequent = usageStore.topFrequent(among: active, usage: usage, limit: frequentGroupLimit, now: now)
+        let topFrequent = usageStore.topFrequent(
+            among: active,
+            usage: usage,
+            limit: Self.autoArchiveFrequentProtectionLimit,
+            now: now
+        )
         let frequentIds = Set(topFrequent.map(\.id))
         let recentCandidates = active.filter { !frequentIds.contains($0.id) }
         let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)

@@ -795,10 +795,10 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         if let cell = sortButton.cell as? NSPopUpButtonCell {
             cell.alignment = .left
         }
-        sortButton.addItem(withTitle: BookmarkListSortMode.name.title)
-        sortButton.addItem(withTitle: BookmarkListSortMode.recentlyAdded.title)
-        sortButton.item(at: 0)?.representedObject = BookmarkListSortMode.name.rawValue
-        sortButton.item(at: 1)?.representedObject = BookmarkListSortMode.recentlyAdded.rawValue
+        for mode in BookmarkListSortMode.allCases {
+            sortButton.addItem(withTitle: mode.title)
+            sortButton.lastItem?.representedObject = mode.rawValue
+        }
         addSubview(sortButton)
 
         titleCenterYConstraint = titleField.centerYAnchor.constraint(

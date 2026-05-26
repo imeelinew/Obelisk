@@ -100,6 +100,32 @@ public final class UsageStore {
         }
     }
 
+    public static func frecencyScore(for record: UsageRecord, now: Date = Date()) -> Double {
+        let days = max(0, now.timeIntervalSince(record.lastClickedAt) / 86_400)
+        return Double(record.count) * pow(0.95, days)
+    }
+
+    public func frecencySorted(among bookmarks: [Bookmark], now: Date = Date()) -> [Bookmark] {
+        Self.frecencySorted(among: bookmarks, usage: load(), now: now)
+    }
+
+    public static func frecencySorted(
+        among bookmarks: [Bookmark],
+        usage: [UUID: UsageRecord],
+        now: Date = Date()
+    ) -> [Bookmark] {
+        bookmarks.sorted { lhs, rhs in
+            let lhsScore = usage[lhs.id].map { frecencyScore(for: $0, now: now) } ?? 0
+            let rhsScore = usage[rhs.id].map { frecencyScore(for: $0, now: now) } ?? 0
+
+            if lhsScore != rhsScore {
+                return lhsScore > rhsScore
+            }
+
+            return isOrderedByName(lhs, before: rhs)
+        }
+    }
+
     /// Top-N most-frecent bookmarks. Bookmarks below `minCount` are excluded
     /// so a brand-new install doesn't show "frequently used" items the user
     /// has only clicked once.
@@ -123,12 +149,15 @@ public final class UsageStore {
             guard let record = usage[bm.id], record.count >= minCount else {
                 return nil
             }
-            let days = max(0, now.timeIntervalSince(record.lastClickedAt) / 86_400)
-            let score = Double(record.count) * pow(0.95, days)
-            return (bm, score)
+            return (bm, Self.frecencyScore(for: record, now: now))
         }
         return scored
-            .sorted { $0.score > $1.score }
+            .sorted {
+                if $0.score != $1.score {
+                    return $0.score > $1.score
+                }
+                return Self.isOrderedByName($0.bookmark, before: $1.bookmark)
+            }
             .prefix(limit)
             .map { $0.bookmark }
     }
@@ -172,5 +201,19 @@ public final class UsageStore {
         } catch {
             usageLog.error("Failed to persist usage data: \(error.localizedDescription)")
         }
+    }
+
+    private static func isOrderedByName(_ lhs: Bookmark, before rhs: Bookmark) -> Bool {
+        let titleComparison = lhs.title.localizedStandardCompare(rhs.title)
+        if titleComparison != .orderedSame {
+            return titleComparison == .orderedAscending
+        }
+
+        let urlComparison = lhs.url.localizedStandardCompare(rhs.url)
+        if urlComparison != .orderedSame {
+            return urlComparison == .orderedAscending
+        }
+
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 }

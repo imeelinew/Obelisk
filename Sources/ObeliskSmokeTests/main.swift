@@ -944,26 +944,61 @@ struct SmokeTests {
             url: "https://low.example",
             createdAt: Date(timeIntervalSince1970: 20)
         )
-        let legacy = Bookmark(
+        let staleLowScore = Bookmark(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+            title: "Stale",
+            url: "https://stale.example",
+            createdAt: Date(timeIntervalSince1970: 30)
+        )
+        let noUsageAlpha = Bookmark(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+            title: "Alpha",
+            url: "https://alpha.example",
+            createdAt: Date(timeIntervalSince1970: 40)
+        )
+        let noUsageBeta = Bookmark(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
+            title: "Beta",
+            url: "https://beta.example",
+            createdAt: Date(timeIntervalSince1970: 50)
+        )
+        let legacy = Bookmark(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
             title: "Legacy",
             url: "https://legacy.example",
             createdAt: .distantPast
         )
 
-        usageStore.record(id: frequent.id)
-        usageStore.record(id: frequent.id)
-        usageStore.record(id: frequent.id)
-        usageStore.record(id: lowCount.id)
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        usageStore.saveAll([
+            frequent.id: UsageRecord(count: 5, lastClickedAt: now),
+            lowCount.id: UsageRecord(count: 1, lastClickedAt: now),
+            staleLowScore.id: UsageRecord(count: 2, lastClickedAt: now.addingTimeInterval(-60 * 86_400))
+        ])
 
         let bookmarks = [frequent, lowCount, legacy]
         try expect(
-            usageStore.topFrequent(among: bookmarks, limit: 5).map(\.id) == [frequent.id],
+            usageStore.topFrequent(among: bookmarks + [staleLowScore], limit: 5, now: now).map(\.id) == [frequent.id],
             "expected only count >= 3 bookmark in frequent group"
         )
         try expect(
             usageStore.recent(among: bookmarks, limit: 5).map(\.id) == [lowCount.id, frequent.id],
             "expected recent group to skip legacy dates"
+        )
+        try expect(
+            UsageStore.frecencySorted(
+                among: [noUsageBeta, staleLowScore, frequent, lowCount, legacy, noUsageAlpha],
+                usage: usageStore.load(),
+                now: now
+            ).map(\.id) == [
+                frequent.id,
+                lowCount.id,
+                staleLowScore.id,
+                noUsageAlpha.id,
+                noUsageBeta.id,
+                legacy.id
+            ],
+            "expected full frecency sort with name fallback for unused bookmarks"
         )
     }
 

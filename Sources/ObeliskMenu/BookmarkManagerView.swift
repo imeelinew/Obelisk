@@ -5,6 +5,7 @@ import ObeliskCore
 enum BookmarkListSortMode: String, CaseIterable, Identifiable {
     case name
     case recentlyAdded
+    case frequency
 
     static let storageKey = "bookmarkListSortMode"
 
@@ -14,6 +15,7 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
         switch self {
         case .name: return "按名称"
         case .recentlyAdded: return "按最近添加"
+        case .frequency: return "按使用频率"
         }
     }
 
@@ -21,17 +23,25 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
         BookmarkListSortMode(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .name
     }
 
-    func sorted(_ bookmarks: [Bookmark]) -> [Bookmark] {
-        bookmarks.sorted { lhs, rhs in
-            switch self {
-            case .name:
-                return Self.isOrderedByName(lhs, before: rhs)
-            case .recentlyAdded:
+    func sorted(
+        _ bookmarks: [Bookmark],
+        usage: [UUID: UsageRecord] = [:],
+        now: Date = Date()
+    ) -> [Bookmark] {
+        switch self {
+        case .name:
+            return bookmarks.sorted { lhs, rhs in
+                Self.isOrderedByName(lhs, before: rhs)
+            }
+        case .recentlyAdded:
+            return bookmarks.sorted { lhs, rhs in
                 if lhs.createdAt != rhs.createdAt {
                     return lhs.createdAt > rhs.createdAt
                 }
                 return Self.isOrderedByName(lhs, before: rhs)
             }
+        case .frequency:
+            return UsageStore.frecencySorted(among: bookmarks, usage: usage, now: now)
         }
     }
 
@@ -91,7 +101,6 @@ struct BookmarkManagerView: View {
     @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 6
     @AppStorage("showHiddenBookmarksPage") private var showHiddenBookmarksPage = false
     @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
-    @AppStorage("menuFrequentGroupLimit") private var menuFrequentGroupLimit = 5
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
     @AppStorage(BookmarksModel.autoArchiveEnabledKey) private var autoArchiveEnabled = false
     @AppStorage(BookmarksModel.archiveAfterDaysKey) private var archiveAfterDays = BookmarksModel.defaultArchiveAfterDays
@@ -407,7 +416,7 @@ struct BookmarkManagerView: View {
     }
 
     private func sorted(_ bookmarks: [Bookmark]) -> [Bookmark] {
-        bookmarkListSortMode.sorted(bookmarks)
+        model.sortedBookmarks(bookmarks, sortMode: bookmarkListSortMode)
     }
 
     private func consumePendingAddRequestIfNeeded() {
@@ -577,13 +586,15 @@ struct BookmarkManagerView: View {
         }
         guard openHiddenBookmarksIncognito else {
             guard let url = URL(string: bookmark.url) else { return }
-            NSWorkspace.shared.open(url)
+            if NSWorkspace.shared.open(url) {
+                model.recordUsage(for: bookmark)
+            }
             return
         }
 
         switch PrivateBrowserOpener.openIncognito(urlString: bookmark.url) {
         case .opened:
-            break
+            model.recordUsage(for: bookmark)
         case .unsupportedBrowser:
             showToast("当前默认浏览器不支持无痕打开", kind: .error)
         case .invalidURL:
@@ -596,7 +607,7 @@ struct BookmarkManagerView: View {
     }
 
     private func syncMenuGroupLimits() {
-        model.setMenuGroupLimits(frequent: menuFrequentGroupLimit, recent: menuRecentGroupLimit)
+        model.setMenuRecentGroupLimit(menuRecentGroupLimit)
     }
 
     private func assignCollection(bookmarkIds: Set<Bookmark.ID>, collectionId: UUID?) {
@@ -1024,9 +1035,6 @@ struct BookmarkManagerView: View {
             showHiddenBookmarksPage: $showHiddenBookmarksPage,
             selection: $selection
         ))
-        .onChange(of: menuFrequentGroupLimit) { _, _ in
-            syncMenuGroupLimits()
-        }
         .onChange(of: menuRecentGroupLimit) { _, _ in
             syncMenuGroupLimits()
         }
@@ -1520,7 +1528,6 @@ struct BookmarkManagerView: View {
                     }
                 }
 
-                menuLimitStepper("常用数量", desc: "菜单栏智能置顶「常用」最多显示的书签数量。", value: $menuFrequentGroupLimit)
                 menuLimitStepper("最近添加数量", desc: "菜单栏智能置顶「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
             }
 

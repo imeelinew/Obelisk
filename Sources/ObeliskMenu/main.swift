@@ -23,7 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var bookmarksModel = BookmarksModel(
         store: store,
         usageStore: usageStore,
-        frequentGroupLimit: UserDefaults.standard.object(forKey: "menuFrequentGroupLimit") as? Int ?? 5,
         recentGroupLimit: UserDefaults.standard.object(forKey: "menuRecentGroupLimit") as? Int ?? 5
     )
     private let addRequest = AddBookmarkRequest()
@@ -406,7 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
-        } else if pinnedSections.isEmpty && bookmarksModel.frequent.isEmpty && bookmarksModel.recent.isEmpty && librarySections.isEmpty {
+        } else if pinnedSections.isEmpty && bookmarksModel.recent.isEmpty && librarySections.isEmpty {
             let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -415,15 +414,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             emptyItem.isEnabled = false
             menu.addItem(emptyItem)
         } else {
-            let frequent = bookmarksModel.frequent
             let recent = bookmarksModel.recent
 
             for section in pinnedSections {
                 guard let title = section.title else { continue }
                 appendSection(title: title, bookmarks: section.bookmarks, to: menu)
-            }
-            if !frequent.isEmpty {
-                appendSection(title: "常用 (\(frequent.count))", bookmarks: frequent, to: menu, isReference: true)
             }
             if !recent.isEmpty {
                 appendSection(title: "最近添加 (\(recent.count))", bookmarks: recent, to: menu, isReference: true)

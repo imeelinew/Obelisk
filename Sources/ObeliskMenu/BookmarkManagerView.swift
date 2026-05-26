@@ -2489,11 +2489,6 @@ private struct HiddenBookmarksLockingModifier: ViewModifier {
                     lockHiddenBookmarks()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
-                if settingsPage == .hiddenBookmarks {
-                    lockHiddenBookmarks()
-                }
-            }
     }
 
     private func lockHiddenBookmarks() {

@@ -41,6 +41,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         let win = NSWindow(contentViewController: hosting)
         win.title = BookmarkManagerView.SettingsPage.bookmarks.title
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        win.collectionBehavior = [.fullScreenNone, .fullScreenDisallowsTiling]
         win.isReleasedWhenClosed = false
         let contentSize = NSSize(width: 720, height: 600)
         let minimumContentSize = NSSize(width: 650, height: 540)
@@ -59,5 +60,13 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         window = nil
         // Hide the dock icon again so we behave like a pure menu-bar app.
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
+        window.screen?.visibleFrame ?? newFrame
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        true
     }
 }

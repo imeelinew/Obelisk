@@ -22,6 +22,9 @@ final class BookmarksModel {
     private(set) var frequent: [Bookmark] = []
     /// Top-N by createdAt, excluding any already in `frequent`.
     private(set) var recent: [Bookmark] = []
+    /// User-pinned visible bookmarks. These are excluded from the smart
+    /// spotlight and library sections so they only appear in the pinned group.
+    private(set) var pinned: [Bookmark] = []
     /// Remaining bookmarks not surfaced in the two groups above. Each
     /// bookmark appears in exactly one of `frequent` / `recent` / `others`,
     /// so a single List with selection can show all three sections without
@@ -118,6 +121,7 @@ final class BookmarksModel {
                 bookmarkIds: Set(all.map(\.id))
             )
             let visibleBookmarks = visibleBookmarks(from: all, usage: usage)
+            pinned = BookmarkListSortMode.stored.sorted(visibleBookmarks.filter(\.isPinned))
             recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
@@ -138,13 +142,17 @@ final class BookmarksModel {
         let priorFrequent = frequent.map(\.id)
         let priorRecent = recent.map(\.id)
         let priorOthers = others.map(\.id)
+        let priorPinned = pinned.map(\.id)
 
         let usage = usageStore.load()
-        recomputeMenuSpotlight(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
+        let visibleBookmarks = visibleBookmarks(from: bookmarks, usage: usage)
+        pinned = BookmarkListSortMode.stored.sorted(visibleBookmarks.filter(\.isPinned))
+        recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
 
         let changed = frequent.map(\.id) != priorFrequent
             || recent.map(\.id) != priorRecent
             || others.map(\.id) != priorOthers
+            || pinned.map(\.id) != priorPinned
         if changed {
             onChange?()
         }
@@ -207,6 +215,20 @@ final class BookmarksModel {
         }
     }
 
+    func setPinned(_ isPinned: Bool, for id: UUID) -> String? {
+        setPinned(isPinned, for: [id])
+    }
+
+    func setPinned(_ isPinned: Bool, for ids: Set<UUID>) -> String? {
+        do {
+            try store.setPinned(isPinned, ids: ids)
+            reload()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func setMenuGroupLimits(frequent: Int, recent: Int) {
         let nextFrequent = max(0, frequent)
         let nextRecent = max(0, recent)
@@ -258,6 +280,28 @@ final class BookmarksModel {
         ]
     }
 
+    func pinnedSections(
+        searchText: String = "",
+        sortMode: BookmarkListSortMode,
+        showsSortControl: Bool = false
+    ) -> [BookmarkListSection] {
+        let usage = usageStore.load()
+        let bookmarks = sortMode.sorted(
+            filteredBookmarks(
+                visibleBookmarks(from: self.bookmarks, usage: usage).filter(\.isPinned),
+                searchText: searchText
+            )
+        )
+        guard !bookmarks.isEmpty else { return [] }
+        return [
+            BookmarkListSection(
+                title: "置顶 (\(bookmarks.count))",
+                bookmarks: bookmarks,
+                sortMode: showsSortControl ? sortMode : nil
+            )
+        ]
+    }
+
     func visibleCollectionSections(
         searchText: String = "",
         sortMode: BookmarkListSortMode,
@@ -289,6 +333,10 @@ final class BookmarksModel {
             + visibleUngroupedSections(sortMode: sortMode)
     }
 
+    func menuPinnedSections(sortMode: BookmarkListSortMode = .stored) -> [BookmarkListSection] {
+        pinnedSections(sortMode: sortMode)
+    }
+
     private func sortedVisibleBookmarks(
         collectionId: UUID?,
         searchText: String = "",
@@ -298,6 +346,7 @@ final class BookmarksModel {
         let visible = visibleBookmarks(from: bookmarks, usage: usage)
         let filtered = filteredBookmarks(
             visible.filter { bookmark in
+                !bookmark.isPinned &&
                 membershipByBookmarkId[bookmark.id] == collectionId
             },
             searchText: searchText
@@ -595,19 +644,20 @@ final class BookmarksModel {
     }
 
     private func recomputeMenuSpotlight(from all: [Bookmark], usage: [UUID: UsageRecord]) {
-        let topFrequent = usageStore.topFrequent(among: all, usage: usage, limit: frequentGroupLimit)
+        let spotlightCandidates = all.filter { !$0.isPinned }
+        let topFrequent = usageStore.topFrequent(among: spotlightCandidates, usage: usage, limit: frequentGroupLimit)
         let frequentIds = Set(topFrequent.map(\.id))
 
         // Recent excludes anything already shown in "frequent" so each
         // bookmark only appears once.
-        let recentCandidates = all.filter { !frequentIds.contains($0.id) }
+        let recentCandidates = spotlightCandidates.filter { !frequentIds.contains($0.id) }
         let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)
 
         let surfacedIds = frequentIds.union(topRecent.map(\.id))
 
         frequent = topFrequent
         recent = topRecent
-        others = all.filter { !surfacedIds.contains($0.id) }
+        others = spotlightCandidates.filter { !surfacedIds.contains($0.id) }
     }
 
     func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
@@ -641,7 +691,8 @@ final class BookmarksModel {
                 membershipByBookmarkId[bookmark.id]
             }
         )
-        let protectedIds = frequentIds.union(topRecent.map(\.id)).union(groupedIds)
+        let pinnedIds = Set(active.filter(\.isPinned).map(\.id))
+        let protectedIds = frequentIds.union(topRecent.map(\.id)).union(groupedIds).union(pinnedIds)
         let cutoff = TimeInterval(archiveAfterDays) * 86_400
 
         return AutoArchiveContext(protectedIds: protectedIds, cutoff: cutoff, now: now)

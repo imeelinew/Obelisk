@@ -39,6 +39,8 @@ struct NativeBookmarkList: NSViewRepresentable {
     var onSetHidden: ((Bookmark) -> Void)?
     var archiveStateActionTitle: String? = nil
     var onSetArchived: ((Bookmark) -> Void)? = nil
+    var pinStateActionTitle: ((Bookmark) -> String)? = nil
+    var onSetPinned: ((Bookmark) -> Void)? = nil
     var onSortModeChange: ((BookmarkListSortMode) -> Void)? = nil
     var collectionAssignOptions: [BookmarkCollectionAssignOption] = []
     var onAssignCollection: ((Set<Bookmark.ID>, UUID?) -> Void)? = nil
@@ -230,6 +232,10 @@ struct NativeBookmarkList: NSViewRepresentable {
             if parent.onRevertTitleOptimization != nil,
                selectionHasRevertableTitleOptimization(contextBookmark: bookmark) {
                 menu.addItem(menuItem("恢复原标题", action: #selector(revertTitleFromMenu(_:)), bookmark: bookmark))
+            }
+            if let pinStateActionTitle = parent.pinStateActionTitle, parent.onSetPinned != nil {
+                menu.addItem(NSMenuItem.separator())
+                menu.addItem(menuItem(pinStateActionTitle(bookmark), action: #selector(setPinnedFromMenu(_:)), bookmark: bookmark))
             }
             if !parent.collectionAssignOptions.isEmpty, parent.onAssignCollection != nil {
                 menu.addItem(NSMenuItem.separator())
@@ -462,6 +468,11 @@ struct NativeBookmarkList: NSViewRepresentable {
         @objc private func setArchivedFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
             parent.onSetArchived?(bookmark)
+        }
+
+        @objc private func setPinnedFromMenu(_ sender: NSMenuItem) {
+            guard let bookmark = sender.representedObject as? Bookmark else { return }
+            parent.onSetPinned?(bookmark)
         }
 
         @objc private func changeSortModeFromHeader(_ sender: NSPopUpButton) {

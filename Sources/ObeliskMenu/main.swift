@@ -399,13 +399,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
+        let pinnedSections = bookmarksModel.menuPinnedSections(sortMode: .stored)
         let librarySections = bookmarksModel.menuLibrarySections(sortMode: .stored)
 
         if let error = bookmarksModel.loadErrorMessage {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
-        } else if bookmarksModel.frequent.isEmpty && bookmarksModel.recent.isEmpty && librarySections.isEmpty {
+        } else if pinnedSections.isEmpty && bookmarksModel.frequent.isEmpty && bookmarksModel.recent.isEmpty && librarySections.isEmpty {
             let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -417,11 +418,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let frequent = bookmarksModel.frequent
             let recent = bookmarksModel.recent
 
+            for section in pinnedSections {
+                guard let title = section.title else { continue }
+                appendSection(title: title, bookmarks: section.bookmarks, to: menu)
+            }
             if !frequent.isEmpty {
-                appendSection(title: "常用 (\(frequent.count))", bookmarks: frequent, to: menu)
+                appendSection(title: "常用 (\(frequent.count))", bookmarks: frequent, to: menu, isReference: true)
             }
             if !recent.isEmpty {
-                appendSection(title: "最近添加 (\(recent.count))", bookmarks: recent, to: menu)
+                appendSection(title: "最近添加 (\(recent.count))", bookmarks: recent, to: menu, isReference: true)
             }
             for section in librarySections {
                 guard let title = section.title else { continue }
@@ -449,7 +454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
 
-    private func appendSection(title: String, bookmarks: [Bookmark], to menu: NSMenu) {
+    private func appendSection(title: String, bookmarks: [Bookmark], to menu: NSMenu, isReference: Bool = false) {
         if menu.items.last != nil {
             menu.addItem(NSMenuItem.separator())
         }
@@ -457,7 +462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         header.isEnabled = false
         menu.addItem(header)
         for bookmark in bookmarks {
-            menu.addItem(menuItem(for: bookmark))
+            menu.addItem(menuItem(for: bookmark, isReference: isReference))
         }
     }
 
@@ -476,16 +481,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item)
     }
 
-    private func menuItem(for bookmark: Bookmark) -> NSMenuItem {
+    private func menuItem(for bookmark: Bookmark, isReference: Bool = false) -> NSMenuItem {
+        let title = truncatedTitle(bookmark.title)
         let item = NSMenuItem(
-            title: truncatedTitle(bookmark.title),
+            title: title,
             action: #selector(openBookmark(_:)),
             keyEquivalent: ""
         )
         item.representedObject = bookmark
-        item.toolTip = "\(bookmark.title)\n\(bookmark.url)"
+        item.toolTip = isReference
+            ? "引用项，不是书签本体\n\(bookmark.title)\n\(bookmark.url)"
+            : "\(bookmark.title)\n\(bookmark.url)"
         item.image = faviconLoader.image(for: bookmark.url) ?? AppIcon.faviconPlaceholder(size: NSSize(width: 16, height: 16))
+        if isReference {
+            item.attributedTitle = referenceTitle(title)
+        }
         return item
+    }
+
+    private func referenceTitle(_ title: String) -> NSAttributedString {
+        let result = NSMutableAttributedString(
+            string: title,
+            attributes: [.font: NSFont.menuFont(ofSize: 0)]
+        )
+        result.append(NSAttributedString(
+            string: " ↗",
+            attributes: [
+                .font: NSFont.menuFont(ofSize: 0),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+        ))
+        return result
     }
 
     private func truncatedTitle(_ title: String) -> String {

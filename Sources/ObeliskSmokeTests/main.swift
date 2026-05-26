@@ -13,6 +13,8 @@ struct SmokeTests {
         try testLegacyBookmarkStateMigration()
         try testHiddenBookmarkPersistence()
         try testArchivePersistence()
+        try testPinnedBookmarkPersistence()
+        try testPinnedClearedByHiddenAndArchive()
         try testStateCleanupOnDelete()
         try testEmptyBookmarkLoadDoesNotEraseExistingState()
         try testUsageStoreCacheInvalidation()
@@ -226,16 +228,58 @@ struct SmokeTests {
         try expect(state.manualArchivedIds.isEmpty, "expected restore to clear manual archive id")
     }
 
+    private static func testPinnedBookmarkPersistence() throws {
+        let store = BookmarkStore(rootDirectory: try temporaryDirectory())
+        let bookmark = try store.add(title: "Pinned", url: "https://pinned.example")
+
+        try store.setPinned(true, ids: [bookmark.id])
+        var loaded = try store.bookmarks()
+        try expect(loaded.first { $0.id == bookmark.id }?.isPinned == true, "expected pinned state to persist")
+        let raw = try String(contentsOf: store.fileURL, encoding: .utf8)
+        try expect(!raw.contains("isPinned"), "expected bookmark JSON to omit pinned state")
+        var state = BookmarkStateStore(rootDirectory: store.rootDirectory).load()
+        try expect(state.pinnedIds == [bookmark.id], "expected pinned id in bookmark_state")
+
+        try store.setPinned(false, ids: [bookmark.id])
+        loaded = try store.bookmarks()
+        try expect(loaded.first { $0.id == bookmark.id }?.isPinned == false, "expected unpin to clear runtime state")
+        state = BookmarkStateStore(rootDirectory: store.rootDirectory).load()
+        try expect(state.pinnedIds.isEmpty, "expected unpin to clear pinned state")
+    }
+
+    private static func testPinnedClearedByHiddenAndArchive() throws {
+        let store = BookmarkStore(rootDirectory: try temporaryDirectory())
+        var hiddenCandidate = try store.add(title: "Hide Pinned", url: "https://hide-pinned.example")
+        let archiveCandidate = try store.add(title: "Archive Pinned", url: "https://archive-pinned.example")
+
+        try store.setPinned(true, ids: [hiddenCandidate.id, archiveCandidate.id])
+        hiddenCandidate.isHidden = true
+        _ = try store.update(hiddenCandidate)
+        try store.setArchived(true, ids: [archiveCandidate.id])
+
+        let loaded = try store.bookmarks()
+        try expect(loaded.first { $0.id == hiddenCandidate.id }?.isPinned == false, "expected hidden bookmark to clear pinned state")
+        try expect(loaded.first { $0.id == archiveCandidate.id }?.isPinned == false, "expected archived bookmark to clear pinned state")
+        let state = BookmarkStateStore(rootDirectory: store.rootDirectory).load()
+        try expect(!state.pinnedIds.contains(hiddenCandidate.id), "expected hidden bookmark to leave pinned state")
+        try expect(!state.pinnedIds.contains(archiveCandidate.id), "expected archive bookmark to leave pinned state")
+    }
+
     private static func testStateCleanupOnDelete() throws {
         let root = try temporaryDirectory()
         let store = BookmarkStore(rootDirectory: root)
-        let bookmark = try store.add(title: "Delete Me", url: "https://delete-me.example", isHidden: true)
+        let bookmark = try store.add(title: "Delete Me", url: "https://delete-me.example")
 
+        try store.setPinned(true, ids: [bookmark.id])
+        var hiddenBookmark = bookmark
+        hiddenBookmark.isHidden = true
+        _ = try store.update(hiddenBookmark)
         try store.setArchived(true, ids: [bookmark.id])
         _ = try store.applyTitleOptimizations([bookmark.id: "Deleted"])
         var state = BookmarkStateStore(rootDirectory: root).load()
         try expect(state.hiddenIds.contains(bookmark.id), "expected hidden state before delete")
         try expect(state.manualArchivedIds.contains(bookmark.id), "expected archive state before delete")
+        try expect(state.pinnedIds.isEmpty, "expected archive to clear pinned state before delete")
         try expect(state.titleOptimizedIds.contains(bookmark.id), "expected title state before delete")
         try expect(state.createdAtById[bookmark.id] != nil, "expected createdAt state before delete")
 
@@ -243,6 +287,7 @@ struct SmokeTests {
         state = BookmarkStateStore(rootDirectory: root).load()
         try expect(!state.hiddenIds.contains(bookmark.id), "expected delete to clean hidden state")
         try expect(!state.manualArchivedIds.contains(bookmark.id), "expected delete to clean archive state")
+        try expect(!state.pinnedIds.contains(bookmark.id), "expected delete to clean pinned state")
         try expect(!state.titleOptimizedIds.contains(bookmark.id), "expected delete to clean title optimization state")
         try expect(state.createdAtById[bookmark.id] == nil, "expected delete to clean createdAt state")
     }
@@ -266,6 +311,7 @@ struct SmokeTests {
             BookmarkStateDatabase(
                 hiddenIds: [id],
                 manualArchivedIds: [],
+                pinnedIds: [id],
                 createdAtById: [id: Date(timeIntervalSince1970: 100)],
                 titleOptimizedIds: [id]
             )
@@ -275,6 +321,7 @@ struct SmokeTests {
         let state = BookmarkStateStore(rootDirectory: root).load()
         try expect(loaded.isEmpty, "expected empty bookmark file to load as empty")
         try expect(state.hiddenIds == [id], "expected empty bookmark load not to erase hidden state")
+        try expect(state.pinnedIds == [id], "expected empty bookmark load not to erase pinned state")
         try expect(state.createdAtById[id] == Date(timeIntervalSince1970: 100), "expected empty bookmark load not to erase createdAt state")
         try expect(state.titleOptimizedIds == [id], "expected empty bookmark load not to erase title state")
     }
@@ -957,7 +1004,9 @@ struct SmokeTests {
 
         let store = BookmarkStore(rootDirectory: root)
         let bookmark = try store.add(title: "State Private", url: "https://state-private.example", isHidden: true)
+        let pinnedBookmark = try store.add(title: "Pinned Private", url: "https://pinned-private.example")
         try store.setArchived(true, ids: [bookmark.id])
+        try store.setPinned(true, ids: [pinnedBookmark.id])
         _ = try store.applyTitleOptimizations([bookmark.id: "State Private Optimized"])
 
         let stateStore = BookmarkStateStore(rootDirectory: root)
@@ -970,14 +1019,19 @@ struct SmokeTests {
         try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected encrypted state to avoid legacy filename")
         try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted state envelope marker")
         try expect(!rawText.contains(bookmark.id.uuidString), "expected encrypted state to hide bookmark id")
+        try expect(!rawText.contains(pinnedBookmark.id.uuidString), "expected encrypted state to hide pinned bookmark id")
         try expect(!rawText.contains("state-private.example"), "expected encrypted state to hide bookmark URL")
+        try expect(!rawText.contains("pinned-private.example"), "expected encrypted state to hide pinned bookmark URL")
         try expect(!rawText.contains("State Private"), "expected encrypted state to hide bookmark title")
+        try expect(!rawText.contains("Pinned Private"), "expected encrypted state to hide pinned bookmark title")
 
         let state = stateStore.load()
         try expect(state.hiddenIds == [bookmark.id], "expected encrypted state to read hidden id")
         try expect(state.manualArchivedIds == [bookmark.id], "expected encrypted state to read archive id")
+        try expect(state.pinnedIds == [pinnedBookmark.id], "expected encrypted state to read pinned id")
         try expect(state.titleOptimizedIds == [bookmark.id], "expected encrypted state to read title optimized id")
         try expect(state.createdAtById[bookmark.id] != nil, "expected encrypted state to read createdAt")
+        try expect(state.createdAtById[pinnedBookmark.id] != nil, "expected encrypted state to read pinned createdAt")
     }
 
     private static func testEncryptionNormalizationPreservesBookmarksStateAndUsage() throws {
@@ -989,6 +1043,7 @@ struct SmokeTests {
         let store = BookmarkStore(rootDirectory: root)
         let visible = try store.add(title: "Visible Toggle", url: "https://visible-toggle.example")
         let hidden = try store.add(title: "Hidden Toggle", url: "https://hidden-toggle.example", isHidden: true)
+        try store.setPinned(true, ids: [visible.id])
         _ = try store.applyTitleOptimizations([
             visible.id: "Visible",
             hidden.id: "Hidden"
@@ -1005,8 +1060,10 @@ struct SmokeTests {
             let usage = UsageStore(rootDirectory: root).load()
 
             try expect(bookmarks.count == 2, "expected encryption normalization to preserve bookmark count")
+            try expect(bookmarks.first { $0.id == visible.id }?.isPinned == true, "expected encryption normalization to preserve pinned state")
             try expect(bookmarks.first { $0.id == hidden.id }?.isHidden == true, "expected encryption normalization to preserve hidden state")
             try expect(state.createdAtById.count == 2, "expected encryption normalization to preserve createdAt state")
+            try expect(state.pinnedIds == [visible.id], "expected encryption normalization to preserve pinned id")
             try expect(state.titleOptimizedIds == [visible.id, hidden.id], "expected encryption normalization to preserve title state")
             try expect(usage[visible.id]?.count == 2, "expected encryption normalization to preserve usage count")
         }
@@ -1329,7 +1386,7 @@ struct SmokeTests {
     }
 
     private static func expectBookmarkJSONContainsOnlyCoreFields(_ raw: String) throws {
-        for forbidden in ["archivedAt", "isHidden", "titleOptimized", "createdAt"] {
+        for forbidden in ["archivedAt", "isHidden", "isPinned", "titleOptimized", "createdAt"] {
             try expect(!raw.contains(forbidden), "expected bookmark JSON to omit \(forbidden)")
         }
         for required in ["id", "title", "url"] {

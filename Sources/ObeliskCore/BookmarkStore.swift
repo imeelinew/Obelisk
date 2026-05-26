@@ -8,6 +8,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
     public var titleOptimized: Bool
     public var isHidden: Bool
     public var archivedAt: Date?
+    public var isPinned: Bool
     /// Website / source title from `bookmark_state.json`; not stored in `bookmarks.json`.
     public var originalTitle: String?
 
@@ -19,6 +20,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         titleOptimized: Bool = false,
         isHidden: Bool = false,
         archivedAt: Date? = nil,
+        isPinned: Bool = false,
         originalTitle: String? = nil
     ) {
         self.id = id
@@ -28,6 +30,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         self.titleOptimized = titleOptimized
         self.isHidden = isHidden
         self.archivedAt = archivedAt
+        self.isPinned = isPinned
         self.originalTitle = originalTitle
     }
 
@@ -46,6 +49,7 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         titleOptimized = (try? c.decode(Bool.self, forKey: .titleOptimized)) ?? false
         isHidden = (try? c.decode(Bool.self, forKey: .isHidden)) ?? false
         archivedAt = try? c.decodeIfPresent(Date.self, forKey: .archivedAt)
+        isPinned = false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -239,6 +243,7 @@ public final class BookmarkStore {
             try stateStore.update { state in
                 state.hiddenIds.subtract(ids)
                 state.manualArchivedIds.subtract(ids)
+                state.pinnedIds.subtract(ids)
                 state.titleOptimizedIds.subtract(ids)
                 for id in ids {
                     state.createdAtById.removeValue(forKey: id)
@@ -258,6 +263,7 @@ public final class BookmarkStore {
             try stateStore.update { state in
                 if isArchived {
                     state.manualArchivedIds.formUnion(ids)
+                    state.pinnedIds.subtract(ids)
                 } else {
                     state.manualArchivedIds.subtract(ids)
                 }
@@ -267,10 +273,46 @@ public final class BookmarkStore {
                     guard ids.contains(bookmark.id) else { return bookmark }
                     var updated = bookmark
                     updated.archivedAt = isArchived ? Date.distantPast : nil
+                    if isArchived {
+                        updated.isPinned = false
+                    }
                     return updated
                 }
                 self.cachedDatabase = cachedDatabase
             }
+        }
+    }
+
+    public func setPinned(_ isPinned: Bool, ids: Set<UUID>) throws {
+        guard !ids.isEmpty else {
+            return
+        }
+
+        try withFileLock {
+            var database = try load()
+            let validIds = Set(database.bookmarks.map(\.id))
+            let targetIds = ids.intersection(validIds)
+            guard !targetIds.isEmpty else { return }
+
+            try stateStore.update { state in
+                if isPinned {
+                    let eligibleIds = Set(database.bookmarks.filter { bookmark in
+                        targetIds.contains(bookmark.id) && !bookmark.isHidden && bookmark.archivedAt == nil
+                    }.map(\.id))
+                    state.pinnedIds.subtract(targetIds)
+                    state.pinnedIds.formUnion(eligibleIds)
+                } else {
+                    state.pinnedIds.subtract(targetIds)
+                }
+            }
+
+            database.bookmarks = database.bookmarks.map { bookmark in
+                guard targetIds.contains(bookmark.id) else { return bookmark }
+                var updated = bookmark
+                updated.isPinned = isPinned && !bookmark.isHidden && bookmark.archivedAt == nil
+                return updated
+            }
+            cachedDatabase = database
         }
     }
 
@@ -439,13 +481,20 @@ public final class BookmarkStore {
                 }
                 if updated.isHidden {
                     state.hiddenIds.insert(updated.id)
+                    state.pinnedIds.remove(updated.id)
                 } else {
                     state.hiddenIds.remove(updated.id)
                 }
                 if updated.archivedAt != nil {
                     state.manualArchivedIds.insert(updated.id)
+                    state.pinnedIds.remove(updated.id)
                 } else {
                     state.manualArchivedIds.remove(updated.id)
+                }
+                if updated.isPinned && !updated.isHidden && updated.archivedAt == nil {
+                    state.pinnedIds.insert(updated.id)
+                } else {
+                    state.pinnedIds.remove(updated.id)
                 }
             }
             database.bookmarks.sort {
@@ -475,6 +524,7 @@ public final class BookmarkStore {
 
         let hasStoredState = !state.hiddenIds.isEmpty
             || !state.manualArchivedIds.isEmpty
+            || !state.pinnedIds.isEmpty
             || !state.titleOptimizedIds.isEmpty
             || !state.createdAtById.isEmpty
             || !state.originalTitleById.isEmpty
@@ -484,6 +534,7 @@ public final class BookmarkStore {
 
         state.hiddenIds.formIntersection(validIds)
         state.manualArchivedIds.formIntersection(validIds)
+        state.pinnedIds.formIntersection(validIds)
         state.titleOptimizedIds.formIntersection(validIds)
         state.createdAtById = state.createdAtById.filter { validIds.contains($0.key) }
         state.originalTitleById = state.originalTitleById.filter { validIds.contains($0.key) }
@@ -507,6 +558,7 @@ public final class BookmarkStore {
             bookmark.isHidden = state.hiddenIds.contains(bookmark.id)
             bookmark.titleOptimized = state.titleOptimizedIds.contains(bookmark.id)
             bookmark.archivedAt = state.manualArchivedIds.contains(bookmark.id) ? Date.distantPast : nil
+            bookmark.isPinned = state.pinnedIds.contains(bookmark.id) && !bookmark.isHidden && bookmark.archivedAt == nil
             bookmark.originalTitle = state.originalTitleById[bookmark.id]
             return bookmark
         }
@@ -522,6 +574,7 @@ public final class BookmarkStore {
         try stateStore.update { state in
             state.hiddenIds = Set(bookmarks.filter(\.isHidden).map(\.id))
             state.manualArchivedIds = Set(bookmarks.filter { $0.archivedAt != nil }.map(\.id))
+            state.pinnedIds = Set(bookmarks.filter { $0.isPinned && !$0.isHidden && $0.archivedAt == nil }.map(\.id))
             state.titleOptimizedIds = Set(bookmarks.filter(\.titleOptimized).map(\.id))
             for bookmark in bookmarks.filter({ !$0.titleOptimized }) where state.originalTitleById[bookmark.id] == nil {
                 state.originalTitleById[bookmark.id] = bookmark.title
@@ -537,6 +590,7 @@ public final class BookmarkStore {
 
             state.hiddenIds.formIntersection(validIds)
             state.manualArchivedIds.formIntersection(validIds)
+            state.pinnedIds.formIntersection(validIds)
             state.titleOptimizedIds.formIntersection(validIds)
             state.createdAtById = state.createdAtById.filter { validIds.contains($0.key) }
         }

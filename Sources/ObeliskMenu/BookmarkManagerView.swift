@@ -317,11 +317,17 @@ struct BookmarkManagerView: View {
     }
 
     private var bookmarkSections: [BookmarkListSection] {
-        model.visibleUngroupedSections(
+        let pinnedSections = model.pinnedSections(
             searchText: searchText,
             sortMode: bookmarkListSortMode,
             showsSortControl: true
         )
+        let ungroupedSections = model.visibleUngroupedSections(
+            searchText: searchText,
+            sortMode: bookmarkListSortMode,
+            showsSortControl: pinnedSections.isEmpty
+        )
+        return pinnedSections + ungroupedSections
     }
 
     private var collectionBookmarkSections: [BookmarkListSection] {
@@ -434,6 +440,18 @@ struct BookmarkManagerView: View {
         selectedBookmark != nil
     }
 
+    private var selectedBookmarks: [Bookmark] {
+        model.bookmarks.filter { selection.contains($0.id) }
+    }
+
+    private var canTogglePinnedSelection: Bool {
+        !selectedBookmarks.isEmpty
+    }
+
+    private var selectedPinnedTargetState: Bool {
+        selectedBookmarks.isEmpty || !selectedBookmarks.allSatisfy(\.isPinned)
+    }
+
     private var canDeleteCollectionPageSelection: Bool {
         !selection.isEmpty || selectedCollection != nil
     }
@@ -497,6 +515,28 @@ struct BookmarkManagerView: View {
             model.errorMessage = errorMessage
         } else {
             selection.remove(bookmark.id)
+        }
+    }
+
+    private func setPinned(_ isPinned: Bool, for bookmark: Bookmark) {
+        if let errorMessage = model.setPinned(isPinned, for: bookmark.id) {
+            model.errorMessage = errorMessage
+        } else if isPinned {
+            showToast("已置顶")
+        } else {
+            showToast("已取消置顶")
+        }
+    }
+
+    private func togglePinnedSelection() {
+        guard canTogglePinnedSelection else { return }
+        let isPinned = selectedPinnedTargetState
+        if let errorMessage = model.setPinned(isPinned, for: selection) {
+            model.errorMessage = errorMessage
+        } else if isPinned {
+            showToast(selection.count > 1 ? "已置顶 \(selection.count) 个书签" : "已置顶")
+        } else {
+            showToast(selection.count > 1 ? "已取消置顶 \(selection.count) 个书签" : "已取消置顶")
         }
     }
 
@@ -1250,6 +1290,8 @@ struct BookmarkManagerView: View {
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
                     archiveStateActionTitle: autoArchiveEnabled ? "归档" : nil,
                     onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     onSortModeChange: { sortMode in bookmarkListSortMode = sortMode },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
@@ -1302,6 +1344,8 @@ struct BookmarkManagerView: View {
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
                     archiveStateActionTitle: autoArchiveEnabled ? "归档" : nil,
                     onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     onSortModeChange: { sortMode in bookmarkListSortMode = sortMode },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
@@ -1859,6 +1903,14 @@ struct BookmarkManagerView: View {
                     Label("编辑", systemImage: "pencil")
                 }
                 .disabled(!canUseSingleSelectionActions)
+
+                Button {
+                    togglePinnedSelection()
+                } label: {
+                    Label(selectedPinnedTargetState ? "置顶" : "取消置顶", systemImage: "pin")
+                }
+                .disabled(!canTogglePinnedSelection)
+                .help(selectedPinnedTargetState ? "置顶选中的书签" : "取消置顶选中的书签")
             }
 
             if aiFeaturesEnabled {
@@ -1920,6 +1972,14 @@ struct BookmarkManagerView: View {
                 }
                 .disabled(!canEditCollectionPageSelection)
                 .help("重命名选中的分组")
+
+                Button {
+                    togglePinnedSelection()
+                } label: {
+                    Label(selectedPinnedTargetState ? "置顶" : "取消置顶", systemImage: "pin")
+                }
+                .disabled(!canTogglePinnedSelection)
+                .help(selectedPinnedTargetState ? "置顶选中的书签" : "取消置顶选中的书签")
             }
 
             if aiFeaturesEnabled {

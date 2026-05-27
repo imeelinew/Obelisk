@@ -1455,18 +1455,23 @@ struct SmokeTests {
         )
         try expect(
             HotkeyBookmarkResolver.resolve(currentTab: .failure(.automationPermissionRequired)) == .failed(
-                "请允许 Obelisk 控制当前浏览器后重试"
+                message: "请在“隐私与安全性 > 自动化”允许 Obelisk 控制当前浏览器",
+                settingsDestination: .automation
             ),
             "expected browser permission failures not to resolve a fallback URL"
         )
         try expect(
             HotkeyBookmarkResolver.resolve(currentTab: .failure(.unsupportedFrontmostApplication("com.apple.finder"))) == .failed(
-                "请先切到要添加的浏览器标签页"
+                message: "请先切到要添加的浏览器标签页",
+                settingsDestination: nil
             ),
             "expected non-browser frontmost apps not to resolve a fallback URL"
         )
         try expect(
-            HotkeyBookmarkResolver.resolve(currentTab: .failure(.invalidURL)) == .failed("当前浏览器标签无有效网址"),
+            HotkeyBookmarkResolver.resolve(currentTab: .failure(.invalidURL)) == .failed(
+                message: "当前浏览器标签无有效网址",
+                settingsDestination: nil
+            ),
             "expected invalid current tabs not to resolve a fallback URL"
         )
     }

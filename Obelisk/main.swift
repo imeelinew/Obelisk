@@ -139,12 +139,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleGlobalHotkey(isHidden: Bool) {
         let resolved = HotkeyBookmarkResolver.resolve(currentTab: BrowserCurrentTab.fetch())
         guard case let .resolved(url, title) = resolved else {
-            if case let .failed(message) = resolved {
+            if case let .failed(message, settingsDestination) = resolved {
                 notifyUser(
                     title: "无法添加书签",
                     body: message,
                     kind: .error
                 )
+                if let settingsDestination {
+                    PermissionSettingsGuide.open(settingsDestination)
+                }
             }
             return
         }

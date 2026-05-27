@@ -749,9 +749,11 @@ struct BookmarkManagerView: View {
         case .openFailed:
             showToast("无法打开无痕窗口", kind: .error)
         case .automationPermissionRequired(.accessibility):
-            showToast("请在系统设置允许 Obelisk 使用辅助功能后重试", kind: .error)
+            showToast("请在“隐私与安全性 > 辅助功能”允许 Obelisk", kind: .error)
+            PermissionSettingsGuide.open(.accessibility)
         case .automationPermissionRequired(.appleEvents):
-            showToast("请允许 Obelisk 控制 Dia 和系统事件后重试", kind: .error)
+            showToast("请在“隐私与安全性 > 自动化”允许 Obelisk 控制 Dia", kind: .error)
+            PermissionSettingsGuide.open(.automation)
         }
     }
 

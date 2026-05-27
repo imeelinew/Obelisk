@@ -10,38 +10,28 @@
 | 方式 | 说明 |
 |------|------|
 | **Xcode → Product → Run** | 日常开发唯一推荐路径 |
-| `scripts/verify-dev-signing.sh` | 发布或改 Team 后必须通过 |
-| `scripts/build-app.sh` | 打 `.app` 安装包；需本机已有对应 Team 的证书 |
-| `scripts/dev-run.sh` | 次级调试入口；`swift build` + 按固定 Team 签名，真实数据开发优先用 Xcode |
-| 裸 `swift run` / 未签名 `.build/.../Obelisk` | **禁止**（adhoc，Keychain 会分裂） |
+| `xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug build` | 命令行构建入口 |
+| `xcodebuild -project Obelisk.xcodeproj -scheme ObeliskSmokeTests -configuration Debug build` | 构建 smoke-test 工具 |
 
 ## 严格验证（必须通过才算验收）
 
 在仓库根目录：
 
 ```bash
-# 1. 先 Xcode 编一次 Debug
-xcodebuild -scheme Obelisk -configuration Debug build -quiet
-
-# 2. 验证 Team / Bundle / codesign（可传入 .app 路径）
-./scripts/verify-dev-signing.sh
-
-# 3. 可选：两次 clean build 后 designated requirement 必须一致（较慢）
-COMPARE_DR=1 ./scripts/verify-dev-signing.sh
+xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug build -quiet
 ```
 
-**通过标准**（脚本 exit 0）：
+**通过标准**：
 
-- `project.yml` 与 `xcodebuild` 的 `DEVELOPMENT_TEAM` 均为 `5Q5QT76MJU`（Fred Personal Team）
-- `PRODUCT_BUNDLE_IDENTIFIER = local.elidev.Obelisk`
+- Xcode project 的 `DEVELOPMENT_TEAM` 为 `5Q5QT76MJU`（Fred Personal Team）
+- `PRODUCT_BUNDLE_IDENTIFIER = com.eli.Obelisk`
 - 非 adhoc 签名；`TeamIdentifier=5Q5QT76MJU`
-- `COMPARE_DR=1` 时两次 clean build 的 designated requirement 字符串相同
 
 ## Team 与证书
 
-- **真源配置**：[`project.yml`](../project.yml) 中的 `DEVELOPMENT_TEAM`
-- 修改 Team 后执行 `xcodegen generate`，并重新跑 `scripts/verify-dev-signing.sh`
-- 脚本默认 `DEVELOPMENT_TEAM_ID=5Q5QT76MJU`；会按证书 subject 的 `OU` 匹配 Team，**找不到该 Team 证书会直接失败**，不会 fallback 到其他 Apple Development 证书，也不会 ad-hoc 签名
+- **真源配置**：`Obelisk.xcodeproj` target build settings。
+- 修改 Team 后，用 Xcode 构建并重新检查生成 app 的 `Identifier` 与 `TeamIdentifier`。
+- 不再维护 SwiftPM/手写 `.app` 打包脚本，避免开发入口产生不同签名身份。
 
 ## Entitlements
 
@@ -61,7 +51,7 @@ COMPARE_DR=1 ./scripts/verify-dev-signing.sh
 在终端执行（会**备份**加密目录，Obelisk 会以未加密空库启动；旧加密书签无法自动恢复）：
 
 ```bash
-defaults write local.elidev.Obelisk encryptLocalJSONData -bool false
+defaults write com.eli.Obelisk encryptLocalJSONData -bool false
 mv ~/Documents/Obelisk/EncryptedData ~/Documents/Obelisk/EncryptedData.backup-$(date +%Y%m%d)
 mkdir -p ~/Documents/Obelisk/Data
 ```
@@ -72,15 +62,14 @@ mkdir -p ~/Documents/Obelisk/Data
 
 | 项 | Service | 说明 |
 |----|---------|------|
-| 加密主密钥 | `local.elidev.Obelisk.encryption` | 有 `.bin` 且无密钥时不创建；拒绝无法解密样本的覆盖写入 |
-| 远程 LLM API Key | `local.elidev.Obelisk.llm-apikey` · `remote` | 仅存 Keychain |
+| 加密主密钥 | `com.eli.Obelisk.encryption` | 有 `.bin` 且无密钥时不创建；拒绝无法解密样本的覆盖写入 |
+| 远程 LLM API Key | `com.eli.Obelisk.llm-apikey` · `remote` | 仅存 Keychain |
 | 本地 LM Studio Key | `llm.json` | 已从 Keychain 迁出 |
 
 ## 自动化测试
 
 ```bash
-swift build --product ObeliskSmokeTests
-.build/debug/ObeliskSmokeTests
+xcodebuild -project Obelisk.xcodeproj -scheme ObeliskSmokeTests -configuration Debug build
 ```
 
 覆盖：有密文无密钥不创建、拒绝异密钥覆盖、坏 Keychain 状态阻止存储整理、加密切换前备份失败会中止、迁移不碰 encryption service。

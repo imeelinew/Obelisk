@@ -9,7 +9,7 @@ import ObeliskCore
 import os
 import SwiftUI
 
-private let faviconLog = Logger(subsystem: "local.elidev.Obelisk", category: "Favicon")
+private let faviconLog = Logger(subsystem: "com.eli.Obelisk", category: "Favicon")
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -337,8 +337,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func clearLegacySpotlightIndex() {
         CSSearchableIndex.default().deleteSearchableItems(withDomainIdentifiers: [
-            "local.elidev.Obelisk.bookmarks",
-            "local.elidev.UniBookmark.bookmarks"
+            "com.eli.Obelisk.bookmarks",
+            "com.eli.UniBookmark.bookmarks"
         ]) { _ in }
     }
 

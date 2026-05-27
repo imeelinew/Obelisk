@@ -90,38 +90,28 @@ Obelisk 是菜单栏应用。启动后，在 macOS 菜单栏里找 Obelisk 图�
 - macOS 26+
 - 带 macOS 26 SDK 的 Xcode
 - Swift 6
-- 如果要从 `project.yml` 重新生成 Xcode 工程，需要 XcodeGen
 
-构建本地 app：
-
-```bash
-scripts/build-app.sh
-```
-
-本地开发签名与 Keychain 稳定性（改 Team / 证书后必读）：[docs/local-signing.md](docs/local-signing.md)
+日常开发：
 
 ```bash
-# Xcode 编过一次 Debug 后执行
-./scripts/verify-dev-signing.sh
+open Obelisk.xcodeproj
 ```
 
-构建结果会输出到：
+然后在 Xcode 里选择 `Obelisk` scheme 和 `My Mac`，使用 Product → Run / Build。
 
-```text
-.build/dist/Obelisk.app
-```
-
-说明：
-
-- **Xcode** Product → Run / Build 是日常开发唯一推荐入口，不会写入 `.build/dist`
-- **命令行** `scripts/build-app.sh` 只用于生成安装包和 zip，找不到固定 Team 的 Apple Development 证书会失败
-
-本地快速检查：
+命令行构建：
 
 ```bash
-swift build
-swift run ObeliskSmokeTests
+xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug build
 ```
+
+Smoke tests：
+
+```bash
+xcodebuild -project Obelisk.xcodeproj -scheme ObeliskSmokeTests -configuration Debug build
+```
+
+本地开发签名与 Keychain 说明：[docs/local-signing.md](docs/local-signing.md)
 
 ## 存储
 

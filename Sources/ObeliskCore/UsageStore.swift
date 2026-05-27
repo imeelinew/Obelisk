@@ -11,7 +11,7 @@ public struct UsageRecord: Codable, Equatable {
     }
 }
 
-private let usageLog = Logger(subsystem: "local.elidev.Obelisk", category: "UsageStore")
+private let usageLog = Logger(subsystem: "com.eli.Obelisk", category: "UsageStore")
 
 /// Tracks per-bookmark click usage in a sidecar file (`usage.json`).
 ///

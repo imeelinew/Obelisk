@@ -90,25 +90,25 @@ Requirements:
 - macOS 26+
 - Xcode with the macOS 26 SDK
 - Swift 6
-- XcodeGen, if you want to regenerate the Xcode project from `project.yml`
 
-Build a local app bundle:
-
-```bash
-scripts/build-app.sh
-```
-
-The built app is written to:
-
-```text
-.build/dist/Obelisk.app
-```
-
-For a quick local check:
+Daily development:
 
 ```bash
-swift build
-swift run ObeliskSmokeTests
+open Obelisk.xcodeproj
+```
+
+Then select the `Obelisk` scheme and `My Mac` in Xcode, and use Product → Run / Build.
+
+Command-line build:
+
+```bash
+xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug build
+```
+
+Smoke tests:
+
+```bash
+xcodebuild -project Obelisk.xcodeproj -scheme ObeliskSmokeTests -configuration Debug build
 ```
 
 ## Storage

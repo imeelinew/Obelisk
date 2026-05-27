@@ -138,7 +138,7 @@ public enum ObeliskPrivateStorage {
     }
 
     public static func obscuredName(for logicalName: String) -> String {
-        let material = "local.elidev.Obelisk.private-storage.v1:\(logicalName)"
+        let material = "com.eli.Obelisk.private-storage.v1:\(logicalName)"
         let digest = SHA256.hash(data: Data(material.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
@@ -716,7 +716,7 @@ public final class SecureJSONFileCodec {
 }
 
 public enum ObeliskKeychainMigration {
-    private static let apiKeyService = "local.elidev.Obelisk.llm-apikey"
+    private static let apiKeyService = "com.eli.Obelisk.llm-apikey"
     private static let legacyAPIKeyAccounts = ["default", "local", "profiles"]
 
     /// Moves LLM API keys into the signed app's access group. Never touches the encryption master key.
@@ -833,8 +833,8 @@ private enum ObeliskKeychain {
 }
 
 public final class KeychainEncryptionKeyStore {
-    private static let keyLog = Logger(subsystem: "local.elidev.Obelisk", category: "EncryptionKeychain")
-    private static let defaultService = "local.elidev.Obelisk.encryption"
+    private static let keyLog = Logger(subsystem: "com.eli.Obelisk", category: "EncryptionKeychain")
+    private static let defaultService = "com.eli.Obelisk.encryption"
 
     private let service: String
     private let account = "default-v1"
@@ -1045,7 +1045,7 @@ public final class KeychainEncryptionKeyStore {
 }
 
 public final class KeychainAPIKeyStore {
-    private let service = "local.elidev.Obelisk.llm-apikey"
+    private let service = "com.eli.Obelisk.llm-apikey"
     private let account: String
 
     public init(account: String = "default") {

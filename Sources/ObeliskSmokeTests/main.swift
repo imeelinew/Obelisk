@@ -5,6 +5,15 @@ import Security
 
 struct SmokeTests {
     static func main() throws {
+        let isolatedHome = try temporaryDirectory()
+        setenv("UNIBOOKMARK_HOME", isolatedHome.path, 1)
+        LocalJSONEncryption.isEnabled = false
+        defer {
+            unsetenv("UNIBOOKMARK_HOME")
+            LocalJSONEncryption.isEnabled = false
+            try? FileManager.default.removeItem(at: isolatedHome)
+        }
+
         try testDuplicateProtection()
         try testWebURLValidation()
         try testLegacyCreatedAtFallback()
@@ -1335,7 +1344,7 @@ struct SmokeTests {
     }
 
     private static func isolatedEncryptionKeychainService() throws -> String {
-        "local.elidev.Obelisk.encryption.smoke.\(UUID().uuidString)"
+        "com.eli.Obelisk.encryption.smoke.\(UUID().uuidString)"
     }
 
     private static func deleteKeychainItems(service: String) {

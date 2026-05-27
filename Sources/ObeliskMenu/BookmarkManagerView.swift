@@ -208,8 +208,8 @@ struct BookmarkManagerView: View {
         var group: Group {
             switch self {
             case .bookmarks, .collections, .hiddenBookmarks, .archive: return .content
-            case .appearance, .shortcuts, .ai:          return .preferences
-            case .privacy, .developer:                  return .advanced
+            case .appearance, .shortcuts:               return .preferences
+            case .ai, .privacy, .developer:             return .advanced
             }
         }
 
@@ -1540,38 +1540,6 @@ struct BookmarkManagerView: View {
 
     private var appearancePage: some View {
         Form {
-            Section("域名显示") {
-                Toggle(isOn: showsFullURLBinding) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("显示完整网站域名")
-                        Text("开启后书签列表会显示完整 URL。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Section("菜单栏") {
-                LabeledContent {
-                    Button(role: .destructive) {
-                        refreshAllFaviconConfirmation = true
-                    } label: {
-                        Text("刷新")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("刷新全部 favicon")
-                        Text("重新下载所有书签的网站图标，此操作不可撤销。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                menuLimitStepper("最近添加数量", desc: "菜单栏智能置顶「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
-            }
-
             Section("窗口") {
                 Toggle(isOn: $windowTransparencyEnabled) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -1604,6 +1572,21 @@ struct BookmarkManagerView: View {
                         LabeledContent("当前透明度", value: "\(Int(windowSeeThrough * 100))%")
                     }
                 }
+            }
+
+            Section("域名显示") {
+                Toggle(isOn: showsFullURLBinding) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("显示完整网站域名")
+                        Text("开启后书签列表会显示完整 URL。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section("菜单栏") {
+                menuLimitStepper("最近添加数量", desc: "菜单栏智能置顶「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
             }
         }
         .formStyle(.grouped)
@@ -1815,6 +1798,25 @@ struct BookmarkManagerView: View {
                         .disabled(isCreatingPlaintextBackup)
                     } label: {
                         Text("备份明文数据")
+                    }
+                }
+
+                Section("Favicon") {
+                    LabeledContent {
+                        Button(role: .destructive) {
+                            refreshAllFaviconConfirmation = true
+                        } label: {
+                            Text("刷新")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("刷新全部 favicon")
+                            Text("重新下载所有书签的网站图标，此操作不可撤销。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -2609,7 +2611,7 @@ private struct ExtraAlerts: ViewModifier {
                 Text("你确定吗？开启自定义透明度可能会大幅降低可读性。")
             }
             .alert(
-                "开启开发者功能?",
+                "开启开发者选项?",
                 isPresented: enableDeveloperFeaturesAlertBinding
             ) {
                 Button("取消", role: .cancel) {

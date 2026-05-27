@@ -115,7 +115,8 @@ struct BookmarkManagerView: View {
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
     @AppStorage(ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) private var openHiddenBookmarksIncognito = true
     @AppStorage(ObeliskAppDefaults.silentAddEnabledKey) private var silentAddEnabled = true
-    @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
+    @AppStorage(TitleOptimizationPreferences.autoOptimizeNewBookmarksKey) private var autoOptimizeNewBookmarks = false
+    @AppStorage(TitleOptimizationPreferences.optimizeHiddenBookmarksKey) private var optimizeHiddenBookmarks = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
     @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.standard.rawValue
     @AppStorage(TitleOptimizationTranslation.storageKey) private var translateNonChineseTitles = false
@@ -133,6 +134,7 @@ struct BookmarkManagerView: View {
     @State private var renameCollectionName = ""
     @State private var collectionToDelete: BookmarkCollection?
     @State private var isFetchingOriginalTitles = false
+    @State private var pendingAutoOptimizationTask: Task<Void, Never>?
     @State private var isCreatingPlaintextBackup = false
     @State private var restoreAllOriginalTitlesConfirmation = false
     @State private var refetchAllOriginalTitlesConfirmation = false
@@ -840,13 +842,31 @@ struct BookmarkManagerView: View {
     }
 
     private var selectedUnoptimizedTitleCount: Int {
-        model.bookmarks.filter { selection.contains($0.id) && !$0.titleOptimized }.count
+        model.bookmarks.filter {
+            selection.contains($0.id)
+                && !$0.titleOptimized
+                && TitleOptimizationPreferences.allowsOptimization(for: $0)
+        }.count
     }
 
     private func optimizeSelectedTitles() {
         Task {
             let message = await model.optimizeTitles(bookmarkIds: selection)
             showToast(message)
+        }
+    }
+
+    private func autoOptimizeNewBookmarkIfNeeded(_ bookmark: Bookmark) {
+        guard aiFeaturesEnabled,
+              TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark)
+        else {
+            return
+        }
+
+        pendingAutoOptimizationTask?.cancel()
+        pendingAutoOptimizationTask = Task {
+            let message = await model.optimizeTitles(bookmarkIds: [bookmark.id])
+            showToast(message, kind: message.hasPrefix("已优化") ? .success : .error)
         }
     }
 
@@ -1159,7 +1179,10 @@ struct BookmarkManagerView: View {
                     model: model,
                     prefilledURL: prefilledURL,
                     prefilledTitle: prefilledTitle,
-                    prefilledIsHidden: prefilledIsHidden
+                    prefilledIsHidden: prefilledIsHidden,
+                    onBookmarkAdded: { bookmark in
+                        autoOptimizeNewBookmarkIfNeeded(bookmark)
+                    }
                 )
             case .edit(let bookmark):
                 BookmarkEditor(mode: .edit(bookmark), model: model)
@@ -1869,17 +1892,6 @@ struct BookmarkManagerView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-
-                if silentAddEnabled, aiFeaturesEnabled {
-                    Toggle(isOn: $autoOptimizeNewBookmarks) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("自动优化新书签标题")
-                            Text("静默添加后自动使用已配置的模型优化书签标题。")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
             }
         }
         .formStyle(.grouped)
@@ -1926,6 +1938,17 @@ struct BookmarkManagerView: View {
                     } label: {
                         Text("优化程度")
                     }
+
+                    Toggle(isOn: $autoOptimizeNewBookmarks) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("自动优化新书签标题")
+                            Text("开启后将自动使用配置的模型优化新添加的书签标题。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Toggle("优化隐藏书签", isOn: $optimizeHiddenBookmarks)
 
                     Toggle("自动翻译非中文标题", isOn: $translateNonChineseTitles)
                 }
@@ -2340,7 +2363,7 @@ struct BookmarkManagerView: View {
                 .disabled(!canUseSingleSelectionActions)
             }
 
-            if aiFeaturesEnabled {
+            if aiFeaturesEnabled, optimizeHiddenBookmarks {
                 ToolbarSpacer(.fixed)
 
                 ToolbarItem {
@@ -2540,6 +2563,7 @@ private struct BookmarkEditor: View {
     var prefilledURL: String? = nil
     var prefilledTitle: String? = nil
     var prefilledIsHidden: Bool = false
+    var onBookmarkAdded: ((Bookmark) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var title: String = ""
@@ -2658,21 +2682,25 @@ private struct BookmarkEditor: View {
     }
 
     private func commit() {
-        let errorMessage: String?
         switch mode {
         case .add:
-            errorMessage = model.add(title: title, url: url, isHidden: isHidden)
+            switch model.addBookmark(title: title, url: url, isHidden: isHidden) {
+            case .success(let bookmark):
+                onBookmarkAdded?(bookmark)
+                dismiss()
+            case .failure(let error):
+                commitErrorMessage = error.localizedDescription
+            }
         case .edit(let bookmark):
             var updated = bookmark
             updated.title = title
             updated.url = url
             updated.isHidden = isHidden
-            errorMessage = model.update(updated)
-        }
-        if let errorMessage {
-            commitErrorMessage = errorMessage
-        } else {
-            dismiss()
+            if let errorMessage = model.update(updated) {
+                commitErrorMessage = errorMessage
+            } else {
+                dismiss()
+            }
         }
     }
 

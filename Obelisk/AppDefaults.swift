@@ -9,5 +9,6 @@ enum ObeliskAppDefaults {
             silentAddEnabledKey: true,
             openHiddenBookmarksIncognitoKey: true
         ])
+        TitleOptimizationPreferences.register(in: defaults)
     }
 }

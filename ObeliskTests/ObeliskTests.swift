@@ -5,7 +5,8 @@ import Testing
 @testable import Obelisk
 
 struct SmokeTests {
-    static func main() throws {
+    @MainActor
+    static func main() async throws {
         let isolatedHome = try temporaryDirectory()
         setenv("UNIBOOKMARK_HOME", isolatedHome.path, 1)
         LocalJSONEncryption.isEnabled = false
@@ -44,6 +45,8 @@ struct SmokeTests {
         try testHiddenDuplicateProtection()
         try testBatchDelete()
         try testTitleOptimizationPersistence()
+        try testTitleOptimizationPreferences()
+        try await testBookmarksModelFiltersHiddenTitleOptimization()
         try testUsageGroupingFilters()
         try testEncryptedBookmarkStoreRoundTrip()
         try testEncryptedBookmarkStateStoreRoundTrip()
@@ -942,6 +945,83 @@ struct SmokeTests {
         try expect(afterForce.first { $0.id == first.id }?.titleOptimized == false, "expected force apply to clear optimized flag")
     }
 
+    private static func testTitleOptimizationPreferences() throws {
+        let suiteName = "ObeliskTitleOptimizationPreferences-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw SmokeTestError.failure("expected test defaults suite")
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let visible = Bookmark(title: "Visible", url: "https://visible.example")
+        let hidden = Bookmark(title: "Hidden", url: "https://hidden.example", isHidden: true)
+        TitleOptimizationPreferences.register(in: defaults)
+
+        try expect(!TitleOptimizationPreferences.optimizeHiddenBookmarks(in: defaults), "expected hidden title optimization to default off")
+        try expect(TitleOptimizationPreferences.allowsOptimization(for: visible, defaults: defaults), "expected visible bookmarks to be optimizable")
+        try expect(!TitleOptimizationPreferences.allowsOptimization(for: hidden, defaults: defaults), "expected hidden bookmarks to be blocked by default")
+        try expect(!TitleOptimizationPreferences.allowsAutoOptimization(for: visible, defaults: defaults), "expected auto optimization to remain off by default")
+
+        defaults.set(true, forKey: TitleOptimizationPreferences.autoOptimizeNewBookmarksKey)
+        try expect(TitleOptimizationPreferences.allowsAutoOptimization(for: visible, defaults: defaults), "expected auto optimization to allow visible bookmarks")
+        try expect(!TitleOptimizationPreferences.allowsAutoOptimization(for: hidden, defaults: defaults), "expected auto optimization to block hidden bookmarks while hidden optimization is off")
+
+        defaults.set(true, forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey)
+        try expect(TitleOptimizationPreferences.allowsOptimization(for: hidden, defaults: defaults), "expected hidden optimization toggle to allow hidden bookmarks")
+        try expect(TitleOptimizationPreferences.allowsAutoOptimization(for: hidden, defaults: defaults), "expected auto optimization to allow hidden bookmarks once both toggles are on")
+    }
+
+    @MainActor
+    private static func testBookmarksModelFiltersHiddenTitleOptimization() async throws {
+        let defaults = UserDefaults.standard
+        let restoredDefaults = capturedDefaults(
+            keys: [
+                BookmarksModel.aiFeaturesEnabledKey,
+                TitleOptimizationPreferences.optimizeHiddenBookmarksKey
+            ],
+            defaults: defaults
+        )
+        defer {
+            restoreDefaults(restoredDefaults, defaults: defaults)
+        }
+
+        defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
+        defaults.set(false, forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey)
+
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let visible = try store.add(title: "Visible Raw", url: "https://visible-filter.example")
+        let hidden = try store.add(title: "Hidden Raw", url: "https://hidden-filter.example", isHidden: true)
+
+        let firstOptimizer = StubTitleOptimizer(response: [
+            visible.id: "Visible Optimized",
+            hidden.id: "Hidden Optimized"
+        ])
+        let firstModel = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root),
+            titleOptimizer: firstOptimizer
+        )
+        let firstMessage = await firstModel.optimizeTitles(bookmarkIds: [visible.id, hidden.id])
+        try expect(firstMessage == "已优化 1 个标题", "expected only visible bookmark to be optimized")
+        try expect(firstOptimizer.candidateIDs == [visible.id], "expected hidden bookmark to be filtered before optimizer call")
+
+        defaults.set(true, forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey)
+
+        let secondOptimizer = StubTitleOptimizer(response: [
+            hidden.id: "Hidden Optimized"
+        ])
+        let secondModel = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root),
+            titleOptimizer: secondOptimizer
+        )
+        let secondMessage = await secondModel.optimizeTitles(bookmarkIds: [hidden.id])
+        try expect(secondMessage == "已优化 1 个标题", "expected hidden bookmark to optimize after enabling hidden optimization")
+        try expect(secondOptimizer.candidateIDs == [hidden.id], "expected enabled hidden bookmark to reach optimizer")
+    }
+
     private static func testUsageGroupingFilters() throws {
         let root = try temporaryDirectory()
         let usageStore = UsageStore(rootDirectory: root)
@@ -1408,6 +1488,10 @@ struct SmokeTests {
             "expected fresh app defaults not to import legacy Dia window state"
         )
         try expect(
+            freshDefaults.bool(forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey) == false,
+            "expected fresh app defaults to keep hidden title optimization off"
+        )
+        try expect(
             oldDefaults.bool(forKey: ObeliskAppDefaults.silentAddEnabledKey) == false,
             "expected legacy defaults suite to stay isolated"
         )
@@ -1537,6 +1621,28 @@ struct SmokeTests {
         return id
     }
 
+    private static func capturedDefaults(
+        keys: [String],
+        defaults: UserDefaults
+    ) -> [String: Any?] {
+        Dictionary(uniqueKeysWithValues: keys.map { key in
+            (key, defaults.object(forKey: key))
+        })
+    }
+
+    private static func restoreDefaults(
+        _ values: [String: Any?],
+        defaults: UserDefaults
+    ) {
+        for (key, value) in values {
+            if let value {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+    }
+
     private static func writeLegacyPrivateJSON<T: Encodable>(_ value: T, logicalName: String, root: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -1580,8 +1686,24 @@ private enum SmokeTestError: Error, CustomStringConvertible {
         }
     }
 }
+
+private final class StubTitleOptimizer: TitleOptimizing {
+    private let response: [UUID: String]
+    private(set) var candidateIDs: [UUID] = []
+
+    init(response: [UUID: String]) {
+        self.response = response
+    }
+
+    func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String] {
+        candidateIDs = candidates.map(\.id)
+        return response
+    }
+}
+
 @Suite struct ObeliskTests {
-    @Test func smokeSuite() throws {
-        try SmokeTests.main()
+    @MainActor
+    @Test func smokeSuite() async throws {
+        try await SmokeTests.main()
     }
 }

@@ -31,6 +31,33 @@ enum TitleOptimizationTranslation {
     }
 }
 
+enum TitleOptimizationPreferences {
+    static let autoOptimizeNewBookmarksKey = "autoOptimizeNewBookmarks"
+    static let optimizeHiddenBookmarksKey = "optimizeHiddenBookmarks"
+
+    static func register(in defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
+            optimizeHiddenBookmarksKey: false
+        ])
+    }
+
+    static func autoOptimizeNewBookmarks(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: autoOptimizeNewBookmarksKey)
+    }
+
+    static func optimizeHiddenBookmarks(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: optimizeHiddenBookmarksKey)
+    }
+
+    static func allowsOptimization(for bookmark: Bookmark, defaults: UserDefaults = .standard) -> Bool {
+        !bookmark.isHidden || optimizeHiddenBookmarks(in: defaults)
+    }
+
+    static func allowsAutoOptimization(for bookmark: Bookmark, defaults: UserDefaults = .standard) -> Bool {
+        autoOptimizeNewBookmarks(in: defaults) && allowsOptimization(for: bookmark, defaults: defaults)
+    }
+}
+
 enum TitleOptimizerError: LocalizedError {
     case missingConfig(URL)
     case invalidConfig(URL)
@@ -55,6 +82,10 @@ struct TitleOptimizationCandidate: Encodable {
     let id: UUID
     let title: String
     let url: String
+}
+
+protocol TitleOptimizing: AnyObject {
+    func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String]
 }
 
 struct TitleOptimizationBenchmarkResult {
@@ -528,3 +559,5 @@ final class TitleOptimizer {
     - The result does not need to be 100% Chinese; prefer a clear mixed Chinese/English title over an awkward or guessed translation.
     """
 }
+
+extension TitleOptimizer: TitleOptimizing {}

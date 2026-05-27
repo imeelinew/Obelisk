@@ -266,7 +266,7 @@ final class BookmarksModel {
     private let store: BookmarkStore
     private let usageStore: UsageStore
     private let groupStore: BookmarkGroupStore
-    private let titleOptimizer: TitleOptimizer
+    private let titleOptimizer: any TitleOptimizing
     private var recentGroupLimit: Int
     private(set) var isOptimizingTitles = false
 
@@ -308,12 +308,13 @@ final class BookmarksModel {
     init(
         store: BookmarkStore,
         usageStore: UsageStore,
-        recentGroupLimit: Int = 5
+        recentGroupLimit: Int = 5,
+        titleOptimizer: (any TitleOptimizing)? = nil
     ) {
         self.store = store
         self.usageStore = usageStore
         self.groupStore = BookmarkGroupStore(rootDirectory: store.rootDirectory)
-        self.titleOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
+        self.titleOptimizer = titleOptimizer ?? TitleOptimizer(rootDirectory: store.rootDirectory)
         self.recentGroupLimit = recentGroupLimit
         reload()
     }
@@ -721,6 +722,7 @@ final class BookmarksModel {
         let candidates = bookmarks
             .filter { bookmark in
                 bookmarkIds.contains(bookmark.id) && !bookmark.titleOptimized
+                    && TitleOptimizationPreferences.allowsOptimization(for: bookmark)
             }
             .map {
                 TitleOptimizationCandidate(
@@ -738,7 +740,9 @@ final class BookmarksModel {
         defer { isOptimizingTitles = false }
 
         do {
+            let candidateIds = Set(candidates.map(\.id))
             let optimizedTitles = try await titleOptimizer.optimize(candidates)
+                .filter { candidateIds.contains($0.key) }
             let count = try store.applyTitleOptimizations(optimizedTitles)
             reload()
             if count == 0 {

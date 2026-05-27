@@ -113,8 +113,8 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarksModel.archiveAfterDaysKey) private var archiveAfterDays = BookmarksModel.defaultArchiveAfterDays
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
-    @AppStorage("openHiddenBookmarksIncognito") private var openHiddenBookmarksIncognito = false
-    @AppStorage("silentAddEnabled") private var silentAddEnabled = false
+    @AppStorage(ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) private var openHiddenBookmarksIncognito = true
+    @AppStorage(ObeliskAppDefaults.silentAddEnabledKey) private var silentAddEnabled = true
     @AppStorage("autoOptimizeNewBookmarks") private var autoOptimizeNewBookmarks = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
     @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.standard.rawValue
@@ -146,8 +146,6 @@ struct BookmarkManagerView: View {
     @State private var lastMenuBarOrderHapticDate = Date.distantPast
 
     private let menuBarOrderRowHeight: CGFloat = 50
-    private let menuBarOrderCardBackgroundColor = Color(red: 233.0 / 255.0, green: 235.0 / 255.0, blue: 236.0 / 255.0)
-
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
         return 1.0 - min(0.5, max(0.0, windowSeeThrough))
@@ -1774,11 +1772,15 @@ struct BookmarkManagerView: View {
         .frame(height: CGFloat(items.count) * menuBarOrderRowHeight)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(menuBarOrderCardBackgroundColor)
+                .fill(.quaternary.opacity(0.55))
+                .background {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.regularMaterial)
+                }
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.primary.opacity(0.035), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
@@ -1791,12 +1793,13 @@ struct BookmarkManagerView: View {
         HStack(spacing: 12) {
             Text(item.title)
                 .lineLimit(1)
+                .foregroundStyle(.primary)
 
             Spacer(minLength: 16)
 
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 14)
         .frame(height: menuBarOrderRowHeight)

@@ -54,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }()
     private var pendingOptimizationTask: Task<Void, Never>?
     private var silentAddEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "silentAddEnabled")
+        UserDefaults.standard.bool(forKey: ObeliskAppDefaults.silentAddEnabledKey)
     }
     private var autoOptimizeNewBookmarks: Bool {
         UserDefaults.standard.bool(forKey: "autoOptimizeNewBookmarks")
@@ -73,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ObeliskAppDefaults.register()
         let storageRoot = BookmarkStore.defaultRootDirectory()
         if LocalJSONEncryption.isEnabled {
             _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)

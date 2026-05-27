@@ -57,6 +57,7 @@ struct SmokeTests {
         try testStorageTransitionBackupFailureStopsNormalize()
         try testKeychainMigrationSkipsEncryptionService()
         try testPlaintextDataBackup()
+        try testFreshAppDefaultsEnableCoreWorkflows()
     }
 
     private static func testDuplicateProtection() throws {
@@ -1369,6 +1370,48 @@ struct SmokeTests {
         let raw = try String(contentsOf: bookmarksURL, encoding: .utf8)
         try expect(raw.contains("backup-me.example"), "expected backup to contain bookmark URL")
         try expect(!raw.contains("obelisk.encrypted-json.v1"), "expected backup to be plaintext JSON")
+    }
+
+    private static func testFreshAppDefaultsEnableCoreWorkflows() throws {
+        let oldSuiteName = "local.elidev.Obelisk.test.\(UUID().uuidString)"
+        let freshSuiteName = "com.eli.Obelisk.test.\(UUID().uuidString)"
+        guard
+            let oldDefaults = UserDefaults(suiteName: oldSuiteName),
+            let freshDefaults = UserDefaults(suiteName: freshSuiteName)
+        else {
+            throw SmokeTestError.failure("expected test defaults suites")
+        }
+        defer {
+            oldDefaults.removePersistentDomain(forName: oldSuiteName)
+            freshDefaults.removePersistentDomain(forName: freshSuiteName)
+        }
+
+        oldDefaults.set(false, forKey: ObeliskAppDefaults.silentAddEnabledKey)
+        oldDefaults.set(false, forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey)
+        oldDefaults.set("legacy-window-id", forKey: "diaIncognitoWindowID")
+
+        ObeliskAppDefaults.register(in: freshDefaults)
+
+        try expect(
+            freshDefaults.bool(forKey: ObeliskAppDefaults.silentAddEnabledKey),
+            "expected fresh app defaults to enable silent add"
+        )
+        try expect(
+            freshDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey),
+            "expected fresh app defaults to enable incognito hidden bookmarks"
+        )
+        try expect(
+            freshDefaults.string(forKey: "diaIncognitoWindowID") == nil,
+            "expected fresh app defaults not to import legacy Dia window state"
+        )
+        try expect(
+            oldDefaults.bool(forKey: ObeliskAppDefaults.silentAddEnabledKey) == false,
+            "expected legacy defaults suite to stay isolated"
+        )
+        try expect(
+            oldDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) == false,
+            "expected legacy incognito preference to stay isolated"
+        )
     }
 
     private static func testBookmarkCollectionMembership() throws {

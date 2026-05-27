@@ -496,9 +496,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         item.representedObject = bookmark
-        item.toolTip = isReference
-            ? "引用项，不是书签本体\n\(bookmark.title)\n\(bookmark.url)"
-            : "\(bookmark.title)\n\(bookmark.url)"
         item.image = faviconLoader.image(for: bookmark.url) ?? AppIcon.faviconPlaceholder(size: NSSize(width: 16, height: 16))
         if isReference {
             item.attributedTitle = referenceTitle(title)

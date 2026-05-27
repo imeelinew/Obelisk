@@ -123,6 +123,7 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarkListSortMode.bookmarksStorageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage(BookmarkListSortMode.collectionsStorageKey) private var collectionListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage(BookmarkListSortMode.hiddenStorageKey) private var hiddenBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
+    @AppStorage(BookmarkMenuSectionOrder.storageKey) private var menuBarSectionOrderRaw = ""
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
     @AppStorage("customTransparencyEnabled") private var customTransparencyEnabled = false
@@ -139,6 +140,13 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarksModel.developerFeaturesEnabledKey) private var developerFeaturesEnabled = false
     @State private var enableDeveloperFeaturesConfirmation = false
     @State private var resetDeveloperOptionsConfirmation = false
+    @State private var draggingMenuBarSectionID: BookmarkMenuSectionID?
+    @State private var menuBarDragStartIndex: Int?
+    @State private var menuBarDragTargetIndex: Int?
+    @State private var menuBarDragOffsetY: CGFloat = 0
+    @State private var lastMenuBarOrderHapticDate = Date.distantPast
+
+    private let menuBarOrderRowHeight: CGFloat = 50
 
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
@@ -190,6 +198,7 @@ struct BookmarkManagerView: View {
         case hiddenBookmarks
         case archive
         case appearance
+        case menuBar
         case shortcuts
         case ai
         case privacy
@@ -208,7 +217,7 @@ struct BookmarkManagerView: View {
         var group: Group {
             switch self {
             case .bookmarks, .collections, .hiddenBookmarks, .archive: return .content
-            case .appearance, .shortcuts:               return .preferences
+            case .appearance, .menuBar, .shortcuts:     return .preferences
             case .ai, .privacy, .developer:             return .advanced
             }
         }
@@ -220,6 +229,7 @@ struct BookmarkManagerView: View {
             case .hiddenBookmarks: return "隐藏书签"
             case .archive:         return "归档"
             case .appearance:      return "外观"
+            case .menuBar:         return "菜单栏"
             case .shortcuts:       return "快捷键"
             case .ai:              return "Intelligence"
             case .privacy:         return "隐私"
@@ -234,6 +244,7 @@ struct BookmarkManagerView: View {
             case .hiddenBookmarks: return "eye.slash.fill"
             case .archive:         return "archivebox.fill"
             case .appearance:      return "paintpalette.fill"
+            case .menuBar:         return "menubar.rectangle"
             case .shortcuts:       return "command"
             case .ai:              return "apple.intelligence"
             case .privacy:         return "lock.fill"
@@ -281,6 +292,12 @@ struct BookmarkManagerView: View {
             case .appearance:
                 return LinearGradient(
                     colors: [Color(red: 0.46, green: 0.82, blue: 0.50), Color(red: 0.14, green: 0.62, blue: 0.30)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .menuBar:
+                return LinearGradient(
+                    colors: [Color(red: 0.30, green: 0.78, blue: 0.90), Color(red: 0.12, green: 0.48, blue: 0.82)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -364,6 +381,106 @@ struct BookmarkManagerView: View {
         }
         options.append(BookmarkCollectionAssignOption(title: "未分组", collectionId: nil))
         return options
+    }
+
+    private var menuBarOrderItems: [BookmarkMenuOrderItem] {
+        BookmarkMenuSectionOrder.items(
+            collections: model.collections,
+            rawValue: menuBarSectionOrderRaw
+        )
+    }
+
+    private func saveMenuBarSectionOrder(_ ids: [BookmarkMenuSectionID]) {
+        menuBarSectionOrderRaw = BookmarkMenuSectionOrder.encoded(ids)
+        model.notifyMenuPresentationChanged()
+    }
+
+    private func moveMenuBarSection(draggedID: BookmarkMenuSectionID, toIndex targetIndex: Int) {
+        var ids = menuBarOrderItems.map(\.id)
+        guard
+            let sourceIndex = ids.firstIndex(of: draggedID),
+            !ids.isEmpty
+        else {
+            return
+        }
+
+        let destinationIndex = min(max(targetIndex, 0), ids.count - 1)
+        guard sourceIndex != destinationIndex else { return }
+
+        let movedID = ids.remove(at: sourceIndex)
+        ids.insert(movedID, at: destinationIndex)
+        saveMenuBarSectionOrder(ids)
+        performMenuBarOrderHapticIfNeeded()
+    }
+
+    private func menuBarOrderTargetIndex(
+        startIndex: Int,
+        translationY: CGFloat,
+        itemCount: Int
+    ) -> Int {
+        guard itemCount > 0 else { return 0 }
+        let proposedIndex = CGFloat(startIndex) + translationY / menuBarOrderRowHeight
+        return min(max(Int(proposedIndex.rounded()), 0), itemCount - 1)
+    }
+
+    private func stableMenuBarOrderTargetIndex(
+        startIndex: Int,
+        translationY: CGFloat,
+        itemCount: Int
+    ) -> Int {
+        let proposedTargetIndex = menuBarOrderTargetIndex(
+            startIndex: startIndex,
+            translationY: translationY,
+            itemCount: itemCount
+        )
+        let currentTargetIndex = menuBarDragTargetIndex ?? startIndex
+        guard proposedTargetIndex != currentTargetIndex else {
+            return proposedTargetIndex
+        }
+
+        let currentTargetTranslation = CGFloat(currentTargetIndex - startIndex) * menuBarOrderRowHeight
+        let distanceFromCurrentTarget = abs(translationY - currentTargetTranslation)
+        guard distanceFromCurrentTarget >= menuBarOrderRowHeight * 0.62 else {
+            return currentTargetIndex
+        }
+        return proposedTargetIndex
+    }
+
+    private func resetMenuBarOrderDrag() {
+        draggingMenuBarSectionID = nil
+        menuBarDragStartIndex = nil
+        menuBarDragTargetIndex = nil
+        menuBarDragOffsetY = 0
+    }
+
+    private func menuBarOrderRowOffset(for index: Int, itemID: BookmarkMenuSectionID) -> CGFloat {
+        guard
+            let draggingMenuBarSectionID,
+            let targetIndex = menuBarDragTargetIndex,
+            let sourceIndex = menuBarDragStartIndex,
+            draggingMenuBarSectionID != itemID
+        else {
+            return 0
+        }
+
+        if sourceIndex < targetIndex,
+           index > sourceIndex,
+           index <= targetIndex {
+            return -menuBarOrderRowHeight
+        }
+        if targetIndex < sourceIndex,
+           index >= targetIndex,
+           index < sourceIndex {
+            return menuBarOrderRowHeight
+        }
+        return 0
+    }
+
+    private func performMenuBarOrderHapticIfNeeded() {
+        let now = Date()
+        guard now.timeIntervalSince(lastMenuBarOrderHapticDate) >= 0.22 else { return }
+        lastMenuBarOrderHapticDate = now
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
     }
 
     private var hiddenBookmarkSections: [BookmarkListSection] {
@@ -1285,6 +1402,8 @@ struct BookmarkManagerView: View {
                 archivePage
             case .appearance:
                 appearancePage
+            case .menuBar:
+                menuBarPage
             case .shortcuts:
                 shortcutsPage
             case .ai:
@@ -1593,6 +1712,148 @@ struct BookmarkManagerView: View {
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("外观")
+    }
+
+    private var menuBarPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("菜单栏排序")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                menuBarOrderCard
+            }
+            .padding(.top, 20)
+            .padding(.horizontal, 32)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
+        .settingsContentMargins()
+        .animation(.easeInOut(duration: 0.12), value: menuBarOrderItems.map(\.id))
+        .onDisappear(perform: resetMenuBarOrderDrag)
+        .navigationTitle("菜单栏")
+    }
+
+    private var menuBarOrderCard: some View {
+        let items = menuBarOrderItems
+
+        return ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    menuBarOrderRow(
+                        for: item,
+                        isPlaceholder: draggingMenuBarSectionID == item.id,
+                        isDropTarget: menuBarDragTargetIndex == index && draggingMenuBarSectionID != item.id
+                    )
+                    .overlay(alignment: .bottom) {
+                        if index < items.count - 1 {
+                            Divider()
+                                .padding(.leading, 14)
+                        }
+                    }
+                    .offset(y: menuBarOrderRowOffset(for: index, itemID: item.id))
+                    .animation(.easeInOut(duration: 0.12), value: menuBarDragTargetIndex)
+                    .gesture(menuBarOrderDragGesture(for: item, at: index, itemCount: items.count))
+                }
+            }
+
+            if let draggingMenuBarSectionID,
+               let startIndex = menuBarDragStartIndex,
+               let item = items.first(where: { $0.id == draggingMenuBarSectionID }) {
+                menuBarOrderRow(for: item, isPlaceholder: false, isDropTarget: false)
+                    .background {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(.regularMaterial)
+                    }
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                    .offset(y: CGFloat(startIndex) * menuBarOrderRowHeight + menuBarDragOffsetY)
+                    .zIndex(2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(height: CGFloat(items.count) * menuBarOrderRowHeight)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(windowTransparencyEnabled ? 0.055 : 0.045))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.035), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func menuBarOrderRow(
+        for item: BookmarkMenuOrderItem,
+        isPlaceholder: Bool,
+        isDropTarget: Bool
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: item.systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 20)
+
+            Text(item.title)
+                .lineLimit(1)
+
+            Spacer(minLength: 16)
+
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: menuBarOrderRowHeight)
+        .contentShape(Rectangle())
+        .opacity(isPlaceholder ? 0 : 1)
+        .background {
+            if isDropTarget {
+                RoundedRectangle(cornerRadius: 0, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.08))
+            }
+        }
+        .accessibilityLabel(item.title)
+    }
+
+    private func menuBarOrderDragGesture(
+        for item: BookmarkMenuOrderItem,
+        at index: Int,
+        itemCount: Int
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { value in
+                if draggingMenuBarSectionID != item.id {
+                    draggingMenuBarSectionID = item.id
+                    menuBarDragStartIndex = index
+                    menuBarDragTargetIndex = index
+                    menuBarDragOffsetY = 0
+                }
+
+                guard draggingMenuBarSectionID == item.id else { return }
+                let startIndex = menuBarDragStartIndex ?? index
+                let targetIndex = stableMenuBarOrderTargetIndex(
+                    startIndex: startIndex,
+                    translationY: value.translation.height,
+                    itemCount: itemCount
+                )
+                menuBarDragOffsetY = value.translation.height
+
+                if menuBarDragTargetIndex != targetIndex {
+                    menuBarDragTargetIndex = targetIndex
+                    performMenuBarOrderHapticIfNeeded()
+                }
+            }
+            .onEnded { value in
+                defer { resetMenuBarOrderDrag() }
+                guard draggingMenuBarSectionID == item.id else { return }
+                let targetIndex = menuBarDragTargetIndex ?? menuBarOrderTargetIndex(
+                    startIndex: menuBarDragStartIndex ?? index,
+                    translationY: value.translation.height,
+                    itemCount: itemCount
+                )
+                moveMenuBarSection(draggedID: item.id, toIndex: targetIndex)
+            }
     }
 
     private var shortcutsPage: some View {

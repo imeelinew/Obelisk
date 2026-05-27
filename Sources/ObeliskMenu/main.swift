@@ -398,13 +398,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let menuSections = bookmarksModel.menuSections()
+        let renderSections = bookmarksModel.menuRenderSections()
 
         if let error = bookmarksModel.loadErrorMessage {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
-        } else if menuSections.isEmpty {
+        } else if renderSections.isEmpty {
             let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -413,16 +413,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             emptyItem.isEnabled = false
             menu.addItem(emptyItem)
         } else {
-            for section in menuSections.pinned {
-                guard let title = section.title else { continue }
-                appendSection(title: title, bookmarks: section.bookmarks, to: menu)
-            }
-            if !menuSections.recent.isEmpty {
-                appendSection(title: "最近添加 (\(menuSections.recent.count))", bookmarks: menuSections.recent, to: menu, isReference: true)
-            }
-            for section in menuSections.library {
-                guard let title = section.title else { continue }
-                appendBookmarkSubmenu(title: title, bookmarks: section.bookmarks, to: menu)
+            for section in renderSections {
+                switch section.presentation {
+                case .inline:
+                    appendSection(title: section.title, bookmarks: section.bookmarks, to: menu)
+                case .reference:
+                    appendSection(title: section.title, bookmarks: section.bookmarks, to: menu, isReference: true)
+                case .submenu:
+                    appendBookmarkSubmenu(title: section.title, bookmarks: section.bookmarks, to: menu)
+                }
             }
         }
 

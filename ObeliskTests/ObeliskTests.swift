@@ -1,7 +1,8 @@
 import CryptoKit
 import Foundation
-import ObeliskCore
 import Security
+import Testing
+@testable import Obelisk
 
 struct SmokeTests {
     static func main() throws {
@@ -56,7 +57,6 @@ struct SmokeTests {
         try testStorageTransitionBackupFailureStopsNormalize()
         try testKeychainMigrationSkipsEncryptionService()
         try testPlaintextDataBackup()
-        print("Obelisk smoke tests passed")
     }
 
     private static func testDuplicateProtection() throws {
@@ -1460,4 +1460,8 @@ private enum SmokeTestError: Error, CustomStringConvertible {
         }
     }
 }
-try SmokeTests.main()
+@Suite struct ObeliskTests {
+    @Test func smokeSuite() throws {
+        try SmokeTests.main()
+    }
+}

@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import ObeliskCore
 
 enum BookmarkListSortMode: String, CaseIterable, Identifiable {
     case name

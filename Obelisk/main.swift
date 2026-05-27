@@ -5,11 +5,21 @@ import CryptoKit
 import Foundation
 import Network
 import Observation
-import ObeliskCore
 import os
 import SwiftUI
 
 private let faviconLog = Logger(subsystem: "com.eli.Obelisk", category: "Favicon")
+private let isUITesting = CommandLine.arguments.contains("-uiTesting")
+
+private func configureUITestingEnvironmentIfNeeded() {
+    guard isUITesting else { return }
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ObeliskUITests-\(UUID().uuidString)", isDirectory: true)
+    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    setenv("UNIBOOKMARK_HOME", root.path, 1)
+    LocalJSONEncryption.isEnabled = false
+}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -81,6 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerGlobalHotkey()
         rebuildMenu()
         setupNotificationPopover()
+
+        if isUITesting {
+            openManager()
+        }
     }
 
     /// Wave 5: ⌥B from anywhere → fetch the frontmost browser's current
@@ -562,6 +576,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 }
+
+configureUITestingEnvironmentIfNeeded()
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

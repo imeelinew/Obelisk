@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 import Observation
-import ObeliskCore
 
 enum BookmarkMenuSectionID: Hashable, Identifiable {
     case pinned

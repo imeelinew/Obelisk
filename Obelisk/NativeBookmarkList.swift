@@ -1,7 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
 import SwiftUI
-import ObeliskCore
 
 struct BookmarkCollectionAssignOption: Equatable {
     var title: String

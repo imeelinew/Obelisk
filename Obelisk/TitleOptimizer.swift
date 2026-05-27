@@ -1,5 +1,4 @@
 import Foundation
-import ObeliskCore
 
 enum TitleOptimizationIntensity: String, CaseIterable, Identifiable {
     case standard

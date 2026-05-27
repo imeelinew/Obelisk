@@ -1,14 +1,18 @@
-# Swift / SwiftPM build artifacts
-.build/
-.swiftpm/
-Package.resolved
-DerivedData/
-
 # Xcode
+build/
+DerivedData/
 xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
 
 # macOS
 .DS_Store
@@ -32,9 +36,6 @@ usage.json
 favicons/
 *.icns
 
-# Distribution outputs
+# Local build/package outputs
 *.app/
 *.zip
-
-# Local agent reports
-CODE_REVIEW_REPORT.md

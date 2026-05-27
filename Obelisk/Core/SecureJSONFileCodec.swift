@@ -604,7 +604,7 @@ public enum SecureJSONFileCodecError: LocalizedError {
         case .invalidEnvelope:
             return "本地加密文件格式无效"
         case .decryptFailed:
-            return "无法解密本地数据：钥匙串中的加密密钥与磁盘上的加密书签不匹配。若刚切换过签名/Team，旧密钥可能已丢失；可在终端关闭「本地数据加密」并备份 EncryptedData 文件夹后重新打开 Obelisk（详见 docs/local-signing.md）。"
+            return "无法解密本地数据：钥匙串中的加密密钥与磁盘上的加密书签不匹配。若刚切换过签名/Team，旧密钥可能已丢失；请先保留 EncryptedData 备份，再用明文备份恢复数据。"
         case .encryptionKeyMissing:
             return "找不到本地数据加密密钥，无法解密书签。若刚切换过签名/Team，请尝试用 Time Machine 恢复「登录」钥匙串后再打开 Obelisk。"
         case .encryptionKeyWouldOverwrite:

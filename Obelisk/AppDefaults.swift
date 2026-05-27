@@ -10,5 +10,6 @@ enum ObeliskAppDefaults {
             openHiddenBookmarksIncognitoKey: true
         ])
         TitleOptimizationPreferences.register(in: defaults)
+        BookmarkListSortMode.migratePinnedSortModeIfNeeded(in: defaults)
     }
 }

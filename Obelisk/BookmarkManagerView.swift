@@ -7,6 +7,7 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
     case frequency
 
     static let bookmarksStorageKey = "bookmarkListSortMode"
+    static let pinnedStorageKey = "pinnedBookmarkListSortMode"
     static let collectionsStorageKey = "bookmarkCollectionListSortMode"
     static let hiddenStorageKey = "hiddenBookmarkListSortMode"
     static let storageKey = bookmarksStorageKey
@@ -21,10 +22,23 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
         }
     }
 
-    static var stored: BookmarkListSortMode { storedForBookmarks }
-    static var storedForBookmarks: BookmarkListSortMode { stored(for: bookmarksStorageKey) }
+    static var stored: BookmarkListSortMode { storedForUngrouped }
+    static var storedForBookmarks: BookmarkListSortMode { storedForUngrouped }
+    static var storedForUngrouped: BookmarkListSortMode { stored(for: bookmarksStorageKey) }
+    static var storedForPinned: BookmarkListSortMode {
+        migratePinnedSortModeIfNeeded()
+        return stored(for: pinnedStorageKey)
+    }
     static var storedForCollections: BookmarkListSortMode { stored(for: collectionsStorageKey) }
     static var storedForHiddenBookmarks: BookmarkListSortMode { stored(for: hiddenStorageKey) }
+
+    static func migratePinnedSortModeIfNeeded(in defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: pinnedStorageKey) == nil else { return }
+        if let raw = defaults.string(forKey: bookmarksStorageKey),
+           BookmarkListSortMode(rawValue: raw) != nil {
+            defaults.set(raw, forKey: pinnedStorageKey)
+        }
+    }
 
     func sorted(
         _ bookmarks: [Bookmark],
@@ -121,6 +135,7 @@ struct BookmarkManagerView: View {
     @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.standard.rawValue
     @AppStorage(TitleOptimizationTranslation.storageKey) private var translateNonChineseTitles = false
     @AppStorage(BookmarkListSortMode.bookmarksStorageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
+    @AppStorage(BookmarkListSortMode.pinnedStorageKey) private var pinnedBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage(BookmarkListSortMode.collectionsStorageKey) private var collectionListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage(BookmarkListSortMode.hiddenStorageKey) private var hiddenBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage(BookmarkMenuSectionOrder.storageKey) private var menuBarSectionOrderRaw = ""
@@ -355,13 +370,13 @@ struct BookmarkManagerView: View {
     private var bookmarkSections: [BookmarkListSection] {
         let pinnedSections = model.pinnedSections(
             searchText: searchText,
-            sortMode: bookmarkListSortMode,
+            sortMode: pinnedBookmarkListSortMode,
             showsSortControl: true
         )
         let ungroupedSections = model.visibleUngroupedSections(
             searchText: searchText,
             sortMode: bookmarkListSortMode,
-            showsSortControl: pinnedSections.isEmpty
+            showsSortControl: true
         )
         return pinnedSections + ungroupedSections
     }
@@ -516,6 +531,27 @@ struct BookmarkManagerView: View {
         nonmutating set {
             bookmarkListSortModeRaw = newValue.rawValue
             model.notifyMenuPresentationChanged()
+        }
+    }
+
+    private var pinnedBookmarkListSortMode: BookmarkListSortMode {
+        get {
+            BookmarkListSortMode(rawValue: pinnedBookmarkListSortModeRaw) ?? .name
+        }
+        nonmutating set {
+            pinnedBookmarkListSortModeRaw = newValue.rawValue
+            model.notifyMenuPresentationChanged()
+        }
+    }
+
+    private func updateBookmarkListSortMode(_ sortMode: BookmarkListSortMode, scope: BookmarkListSortScope?) {
+        switch scope {
+        case .pinned:
+            pinnedBookmarkListSortMode = sortMode
+        case .ungrouped:
+            bookmarkListSortMode = sortMode
+        case nil:
+            bookmarkListSortMode = sortMode
         }
     }
 
@@ -1484,7 +1520,9 @@ struct BookmarkManagerView: View {
                     onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
                     pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
-                    onSortModeChange: { sortMode in bookmarkListSortMode = sortMode },
+                    onSortModeChange: { sortMode, scope in
+                        updateBookmarkListSortMode(sortMode, scope: scope)
+                    },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
                         assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
@@ -1515,7 +1553,7 @@ struct BookmarkManagerView: View {
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
-                    onSortModeChange: { sortMode in collectionListSortMode = sortMode },
+                    onSortModeChange: { sortMode, _ in collectionListSortMode = sortMode },
                     onRenameCollection: { id in beginRenameCollection(id: id) },
                     onDeleteCollection: { id in beginDeleteCollection(id: id) },
                     onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
@@ -1539,7 +1577,7 @@ struct BookmarkManagerView: View {
                     onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
                     pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
-                    onSortModeChange: { sortMode in collectionListSortMode = sortMode },
+                    onSortModeChange: { sortMode, _ in collectionListSortMode = sortMode },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
                         assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)

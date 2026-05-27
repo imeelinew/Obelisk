@@ -7,10 +7,17 @@ struct BookmarkCollectionAssignOption: Equatable {
     var collectionId: UUID?
 }
 
+enum BookmarkListSortScope: String, Equatable {
+    case pinned
+    case ungrouped
+}
+
 struct BookmarkListSection: Equatable, Identifiable {
     var title: String?
     var bookmarks: [Bookmark]
     var sortMode: BookmarkListSortMode?
+    /// When set, the section header sort control updates only this scope's preference.
+    var sortScope: BookmarkListSortScope? = nil
     /// Set on the collections page so section headers can offer rename/delete.
     var collectionId: UUID?
 
@@ -40,7 +47,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     var onSetArchived: ((Bookmark) -> Void)? = nil
     var pinStateActionTitle: ((Bookmark) -> String)? = nil
     var onSetPinned: ((Bookmark) -> Void)? = nil
-    var onSortModeChange: ((BookmarkListSortMode) -> Void)? = nil
+    var onSortModeChange: ((BookmarkListSortMode, BookmarkListSortScope?) -> Void)? = nil
     var collectionAssignOptions: [BookmarkCollectionAssignOption] = []
     var onAssignCollection: ((Set<Bookmark.ID>, UUID?) -> Void)? = nil
     var onRenameCollection: ((UUID) -> Void)? = nil
@@ -338,7 +345,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row >= 0, row < items.count else { return Self.parentRowHeight }
             switch items[row] {
-            case .header(_, let topSpacing, _, _):
+            case .header(_, let topSpacing, _, _, _):
                 return NativeBookmarkList.headerHeight + topSpacing + NativeBookmarkList.headerBottomSpacing
             case .bookmark:
                 return NativeBookmarkList.rowHeight
@@ -353,7 +360,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard row >= 0, row < items.count else { return nil }
 
             switch items[row] {
-            case .header(let title, let topSpacing, let sortMode, _):
+            case .header(let title, let topSpacing, let sortMode, _, let sortScope):
                 let view = tableView.makeView(
                     withIdentifier: BookmarkHeaderCellView.identifier,
                     owner: self
@@ -362,6 +369,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                     title: title,
                     topSpacing: topSpacing,
                     sortMode: sortMode,
+                    sortScope: sortScope,
                     target: self,
                     action: #selector(changeSortModeFromHeader(_:))
                 )
@@ -494,12 +502,14 @@ struct NativeBookmarkList: NSViewRepresentable {
         }
 
         @objc private func changeSortModeFromHeader(_ sender: NSPopUpButton) {
-            guard let rawValue = sender.selectedItem?.representedObject as? String,
-                  let sortMode = BookmarkListSortMode(rawValue: rawValue)
+            guard
+                let rawValue = sender.selectedItem?.representedObject as? String,
+                let sortMode = BookmarkListSortMode(rawValue: rawValue)
             else {
                 return
             }
-            parent.onSortModeChange?(sortMode)
+            let sortScope = (sender.superview as? BookmarkHeaderCellView)?.sortScope
+            parent.onSortModeChange?(sortMode, sortScope)
         }
 
         func syncSelectionToTable() {
@@ -591,7 +601,13 @@ struct NativeBookmarkList: NSViewRepresentable {
 }
 
 fileprivate enum NativeBookmarkListItem: Equatable {
-    case header(title: String, topSpacing: CGFloat, sortMode: BookmarkListSortMode?, collectionId: UUID?)
+    case header(
+        title: String,
+        topSpacing: CGFloat,
+        sortMode: BookmarkListSortMode?,
+        collectionId: UUID?,
+        sortScope: BookmarkListSortScope?
+    )
     case bookmark(Bookmark)
 
     var isHeader: Bool {
@@ -605,7 +621,12 @@ fileprivate enum NativeBookmarkListItem: Equatable {
     }
 
     var collectionId: UUID? {
-        if case .header(_, _, _, let collectionId) = self { return collectionId }
+        if case .header(_, _, _, let collectionId, _) = self { return collectionId }
+        return nil
+    }
+
+    var sortScope: BookmarkListSortScope? {
+        if case .header(_, _, _, _, let sortScope) = self { return sortScope }
         return nil
     }
 }
@@ -622,7 +643,8 @@ private extension Array where Element == BookmarkListSection {
                         title: title,
                         topSpacing: hasVisibleHeader ? 12 : 0,
                         sortMode: section.sortMode,
-                        collectionId: section.collectionId
+                        collectionId: section.collectionId,
+                        sortScope: section.sortScope
                     )
                 )
                 hasVisibleHeader = true
@@ -773,6 +795,7 @@ private final class BookmarkHeaderCellView: NSTableCellView {
     private let titleField = NSTextField(labelWithString: "")
     private let sortButton = NSPopUpButton(frame: .zero, pullsDown: false)
     private var titleCenterYConstraint: NSLayoutConstraint?
+    fileprivate var sortScope: BookmarkListSortScope?
 
     init() {
         super.init(frame: .zero)
@@ -822,6 +845,7 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         title: String,
         topSpacing: CGFloat,
         sortMode: BookmarkListSortMode?,
+        sortScope: BookmarkListSortScope?,
         target: AnyObject?,
         action: Selector
     ) {
@@ -829,6 +853,7 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         let rowHeight = topSpacing + NativeBookmarkList.headerHeight + NativeBookmarkList.headerBottomSpacing
         titleCenterYConstraint?.constant = rowHeight / 2
         sortButton.isHidden = sortMode == nil
+        self.sortScope = sortScope
         sortButton.target = target
         sortButton.action = action
         if let sortMode {

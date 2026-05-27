@@ -340,7 +340,7 @@ final class BookmarksModel {
                 bookmarkIds: Set(all.map(\.id))
             )
             let visibleBookmarks = visibleBookmarks(from: all, usage: usage)
-            pinned = BookmarkListSortMode.storedForBookmarks.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
+            pinned = BookmarkListSortMode.storedForPinned.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
             recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
             let priorLoadError = loadErrorMessage
             loadErrorMessage = nil
@@ -364,7 +364,7 @@ final class BookmarksModel {
 
         let usage = usageStore.load()
         let visibleBookmarks = visibleBookmarks(from: bookmarks, usage: usage)
-        pinned = BookmarkListSortMode.storedForBookmarks.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
+        pinned = BookmarkListSortMode.storedForPinned.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
         recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
 
         let changed = recent.map(\.id) != priorRecent
@@ -499,7 +499,8 @@ final class BookmarksModel {
             BookmarkListSection(
                 title: "未分组 (\(bookmarks.count))",
                 bookmarks: bookmarks,
-                sortMode: showsSortControl ? sortMode : nil
+                sortMode: showsSortControl ? sortMode : nil,
+                sortScope: showsSortControl ? .ungrouped : nil
             )
         ]
     }
@@ -522,7 +523,8 @@ final class BookmarksModel {
             BookmarkListSection(
                 title: "置顶 (\(bookmarks.count))",
                 bookmarks: bookmarks,
-                sortMode: showsSortControl ? sortMode : nil
+                sortMode: showsSortControl ? sortMode : nil,
+                sortScope: showsSortControl ? .pinned : nil
             )
         ]
     }
@@ -554,23 +556,26 @@ final class BookmarksModel {
     }
 
     func menuSections(
-        bookmarkSortMode: BookmarkListSortMode = .storedForBookmarks,
+        pinnedSortMode: BookmarkListSortMode = .storedForPinned,
+        ungroupedSortMode: BookmarkListSortMode = .storedForUngrouped,
         collectionSortMode: BookmarkListSortMode = .storedForCollections
     ) -> BookmarkMenuSections {
         BookmarkMenuSections(
-            pinned: pinnedSections(sortMode: bookmarkSortMode),
+            pinned: pinnedSections(sortMode: pinnedSortMode),
             recent: recent,
             collections: visibleCollectionSections(sortMode: collectionSortMode),
-            ungrouped: visibleUngroupedSections(sortMode: bookmarkSortMode)
+            ungrouped: visibleUngroupedSections(sortMode: ungroupedSortMode)
         )
     }
 
     func menuRenderSections(
-        bookmarkSortMode: BookmarkListSortMode = .storedForBookmarks,
+        pinnedSortMode: BookmarkListSortMode = .storedForPinned,
+        ungroupedSortMode: BookmarkListSortMode = .storedForUngrouped,
         collectionSortMode: BookmarkListSortMode = .storedForCollections
     ) -> [BookmarkMenuRenderSection] {
         let sections = menuSections(
-            bookmarkSortMode: bookmarkSortMode,
+            pinnedSortMode: pinnedSortMode,
+            ungroupedSortMode: ungroupedSortMode,
             collectionSortMode: collectionSortMode
         )
         return sections.renderSections(order: BookmarkMenuSectionOrder.order(collections: collections))

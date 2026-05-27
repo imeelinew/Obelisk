@@ -2,45 +2,54 @@ import AppKit
 import Foundation
 
 /// Snapshot of the current tab in whatever browser is frontmost.
-struct BrowserTab {
+struct BrowserTab: Equatable {
     let url: String
     let title: String
 }
 
-/// Queries the frontmost browser for its active tab via AppleScript.
-/// Returns nil when:
-///   - the frontmost app isn't a recognized browser
-///   - the user denied automation permission
-///   - the browser has no open windows
-///
-/// Caller (Wave 5 hotkey path) falls back to `ClipboardURL` when fetch fails.
-@MainActor
-enum BrowserCurrentTab {
+enum BrowserCurrentTabFailure: Equatable {
+    case noFrontmostApplication
+    case unsupportedFrontmostApplication(String?)
+    case noBrowserWindow
+    case invalidURL
+    case automationPermissionRequired
+    case scriptFailed(Int?)
+}
 
-    static func fetch() -> BrowserTab? {
+enum BrowserCurrentTabResult: Equatable {
+    case success(BrowserTab)
+    case failure(BrowserCurrentTabFailure)
+}
+
+/// Queries the frontmost browser for its active tab via AppleScript.
+/// Returns a typed result so the hotkey path can fail closed instead of
+/// accidentally falling back to unrelated state such as the pasteboard.
+enum BrowserCurrentTab {
+    static let noWindowSentinel = "__OBELISK_NO_BROWSER_WINDOW__"
+
+    static func fetch() -> BrowserCurrentTabResult {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier
-        else { return nil }
+        else {
+            return .failure(.noFrontmostApplication)
+        }
 
         guard let script = scriptSource(forBundleID: bundleID) else {
-            return nil
+            return .failure(.unsupportedFrontmostApplication(bundleID))
         }
 
-        guard let result = run(script) else {
-            return nil
-        }
-        return result
+        return run(script)
     }
 
     /// Map known browser bundle IDs to their AppleScript dialect. Safari has
     /// its own (`current tab`, `name`); Chromium-family browsers all expose
     /// `active tab` + `title`.
-    private static func scriptSource(forBundleID bundleID: String) -> String? {
+    static func scriptSource(forBundleID bundleID: String) -> String? {
         switch bundleID {
         case "com.apple.Safari", "com.apple.SafariTechnologyPreview":
             return """
             tell application id "\(bundleID)"
-                if (count of windows) is 0 then return ""
+                if (count of windows) is 0 then return "\(noWindowSentinel)"
                 set theURL to URL of current tab of front window
                 set theTitle to name of current tab of front window
                 return theURL & linefeed & theTitle
@@ -61,7 +70,7 @@ enum BrowserCurrentTab {
              "com.operasoftware.Opera":
             return """
             tell application id "\(bundleID)"
-                if (count of windows) is 0 then return ""
+                if (count of windows) is 0 then return "\(noWindowSentinel)"
                 set theURL to URL of active tab of front window
                 set theTitle to title of active tab of front window
                 return theURL & linefeed & theTitle
@@ -74,16 +83,34 @@ enum BrowserCurrentTab {
         }
     }
 
-    private static func run(_ source: String) -> BrowserTab? {
-        guard let script = NSAppleScript(source: source) else { return nil }
+    private static func run(_ source: String) -> BrowserCurrentTabResult {
+        guard let script = NSAppleScript(source: source) else {
+            return .failure(.scriptFailed(nil))
+        }
         var errorInfo: NSDictionary?
         let descriptor = script.executeAndReturnError(&errorInfo)
 
-        if errorInfo != nil {
-            return nil
+        if let errorInfo {
+            NSLog("Obelisk: failed to read current browser tab: \(errorInfo)")
+            return result(forAppleScriptError: errorInfo)
         }
-        guard let combined = descriptor.stringValue, !combined.isEmpty else {
-            return nil
+        return parseScriptOutput(descriptor.stringValue)
+    }
+
+    static func result(forAppleScriptError errorInfo: NSDictionary) -> BrowserCurrentTabResult {
+        let number = appleScriptErrorNumber(from: errorInfo)
+        if number == -1743 {
+            return .failure(.automationPermissionRequired)
+        }
+        return .failure(.scriptFailed(number))
+    }
+
+    static func parseScriptOutput(_ combined: String?) -> BrowserCurrentTabResult {
+        guard let combined, !combined.isEmpty else {
+            return .failure(.noBrowserWindow)
+        }
+        if combined == noWindowSentinel {
+            return .failure(.noBrowserWindow)
         }
 
         // We return "URL\nTITLE" from the script. Splitting on the first
@@ -93,7 +120,9 @@ enum BrowserCurrentTab {
             maxSplits: 1,
             omittingEmptySubsequences: false
         )
-        guard parts.count >= 1 else { return nil }
+        guard parts.count >= 1 else {
+            return .failure(.invalidURL)
+        }
         let url = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
         let title = parts.count == 2
             ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,8 +132,17 @@ enum BrowserCurrentTab {
               let parsed = URL(string: url),
               let scheme = parsed.scheme?.lowercased(),
               ["http", "https"].contains(scheme)
-        else { return nil }
+        else {
+            return .failure(.invalidURL)
+        }
 
-        return BrowserTab(url: url, title: title)
+        return .success(BrowserTab(url: url, title: title))
+    }
+
+    private static func appleScriptErrorNumber(from errorInfo: NSDictionary) -> Int? {
+        if let number = errorInfo["NSAppleScriptErrorNumber"] as? NSNumber {
+            return number.intValue
+        }
+        return errorInfo["NSAppleScriptErrorNumber"] as? Int
     }
 }

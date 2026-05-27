@@ -748,8 +748,10 @@ struct BookmarkManagerView: View {
             showToast("网址格式不正确", kind: .error)
         case .openFailed:
             showToast("无法打开无痕窗口", kind: .error)
-        case .automationPermissionRequired:
-            showToast("请允许 Obelisk 控制电脑后重试", kind: .error)
+        case .automationPermissionRequired(.accessibility):
+            showToast("请在系统设置允许 Obelisk 使用辅助功能后重试", kind: .error)
+        case .automationPermissionRequired(.appleEvents):
+            showToast("请允许 Obelisk 控制 Dia 和系统事件后重试", kind: .error)
         }
     }
 

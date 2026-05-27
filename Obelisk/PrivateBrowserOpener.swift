@@ -2,12 +2,17 @@ import AppKit
 import ApplicationServices
 import Foundation
 
-enum PrivateBrowserOpenResult {
+enum BrowserAutomationPermission: Equatable {
+    case accessibility
+    case appleEvents
+}
+
+enum PrivateBrowserOpenResult: Equatable {
     case opened
     case unsupportedBrowser
     case invalidURL
     case openFailed
-    case automationPermissionRequired
+    case automationPermissionRequired(BrowserAutomationPermission)
 }
 
 enum PrivateBrowserOpener {
@@ -57,7 +62,7 @@ enum PrivateBrowserOpener {
 
     private static func openDiaIncognito(url: URL) -> PrivateBrowserOpenResult {
         guard accessibilityPermissionIsGranted(prompt: true) else {
-            return .automationPermissionRequired
+            return .automationPermissionRequired(.accessibility)
         }
 
         let source = """
@@ -102,7 +107,7 @@ enum PrivateBrowserOpener {
         let output = script.executeAndReturnError(&error)
         if let error {
             NSLog("Obelisk: failed to open Dia incognito window: \(error)")
-            return .openFailed
+            return result(forAppleScriptError: error)
         }
         let windowID = (output.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !windowID.isEmpty {
@@ -111,11 +116,26 @@ enum PrivateBrowserOpener {
         return .opened
     }
 
+    static func result(forAppleScriptError errorInfo: NSDictionary) -> PrivateBrowserOpenResult {
+        let number = appleScriptErrorNumber(from: errorInfo)
+        if number == -1743 {
+            return .automationPermissionRequired(.appleEvents)
+        }
+        return .openFailed
+    }
+
     private static func accessibilityPermissionIsGranted(prompt: Bool) -> Bool {
         let options = [
             "AXTrustedCheckOptionPrompt": prompt
         ] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
+    }
+
+    private static func appleScriptErrorNumber(from errorInfo: NSDictionary) -> Int? {
+        if let number = errorInfo["NSAppleScriptErrorNumber"] as? NSNumber {
+            return number.intValue
+        }
+        return errorInfo["NSAppleScriptErrorNumber"] as? Int
     }
 
     private static func appleScriptEscaped(_ value: String) -> String {

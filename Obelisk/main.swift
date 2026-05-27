@@ -137,24 +137,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleGlobalHotkey(isHidden: Bool) {
-        let resolved = resolveHotkeyBookmark()
+        let resolved = HotkeyBookmarkResolver.resolve(currentTab: BrowserCurrentTab.fetch())
+        guard case let .resolved(url, title) = resolved else {
+            if case let .failed(message) = resolved {
+                notifyUser(
+                    title: "无法添加书签",
+                    body: message,
+                    kind: .error
+                )
+            }
+            return
+        }
+
         if silentAddEnabled {
-            handleSilentAdd(url: resolved.url, title: resolved.title, isHidden: isHidden)
+            handleSilentAdd(url: url, title: title, isHidden: isHidden)
         } else {
-            addRequest.request(url: resolved.url, title: resolved.title, isHidden: isHidden)
+            addRequest.request(url: url, title: title, isHidden: isHidden)
             NSApp.setActivationPolicy(.regular)
             managerWindow.show()
         }
-    }
-
-    private func resolveHotkeyBookmark() -> (url: String, title: String?) {
-        if let tab = BrowserCurrentTab.fetch() {
-            return (tab.url, tab.title)
-        }
-        if let url = ClipboardURL.normalizedHTTPURL() {
-            return (url, nil)
-        }
-        return ("", nil)
     }
 
     private func handleSilentAdd(url: String?, title: String?, isHidden: Bool) {

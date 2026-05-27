@@ -58,6 +58,9 @@ struct SmokeTests {
         try testKeychainMigrationSkipsEncryptionService()
         try testPlaintextDataBackup()
         try testFreshAppDefaultsEnableCoreWorkflows()
+        try testBrowserCurrentTabParsingAndPermissionMapping()
+        try testHotkeyResolverFailsClosed()
+        try testPrivateBrowserOpenerPermissionMapping()
     }
 
     private static func testDuplicateProtection() throws {
@@ -1411,6 +1414,75 @@ struct SmokeTests {
         try expect(
             oldDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) == false,
             "expected legacy incognito preference to stay isolated"
+        )
+    }
+
+    private static func testBrowserCurrentTabParsingAndPermissionMapping() throws {
+        try expect(
+            BrowserCurrentTab.parseScriptOutput("https://example.com/path\nExample") == .success(
+                BrowserTab(url: "https://example.com/path", title: "Example")
+            ),
+            "expected valid browser tab output to parse"
+        )
+        try expect(
+            BrowserCurrentTab.parseScriptOutput(BrowserCurrentTab.noWindowSentinel) == .failure(.noBrowserWindow),
+            "expected no-window sentinel to stay explicit"
+        )
+        try expect(
+            BrowserCurrentTab.parseScriptOutput("not-a-url\nBad") == .failure(.invalidURL),
+            "expected invalid tab URL to fail"
+        )
+        try expect(
+            BrowserCurrentTab.result(forAppleScriptError: [
+                "NSAppleScriptErrorNumber": NSNumber(value: -1743)
+            ]) == .failure(.automationPermissionRequired),
+            "expected Apple Events permission failures to be explicit"
+        )
+        try expect(
+            BrowserCurrentTab.result(forAppleScriptError: [
+                "NSAppleScriptErrorNumber": NSNumber(value: -1728)
+            ]) == .failure(.scriptFailed(-1728)),
+            "expected non-permission AppleScript errors to remain script failures"
+        )
+    }
+
+    private static func testHotkeyResolverFailsClosed() throws {
+        try expect(
+            HotkeyBookmarkResolver.resolve(
+                currentTab: .success(BrowserTab(url: "https://current.example", title: "Current"))
+            ) == .resolved(url: "https://current.example", title: "Current"),
+            "expected hotkey resolver to use the confirmed current tab"
+        )
+        try expect(
+            HotkeyBookmarkResolver.resolve(currentTab: .failure(.automationPermissionRequired)) == .failed(
+                "请允许 Obelisk 控制当前浏览器后重试"
+            ),
+            "expected browser permission failures not to resolve a fallback URL"
+        )
+        try expect(
+            HotkeyBookmarkResolver.resolve(currentTab: .failure(.unsupportedFrontmostApplication("com.apple.finder"))) == .failed(
+                "请先切到要添加的浏览器标签页"
+            ),
+            "expected non-browser frontmost apps not to resolve a fallback URL"
+        )
+        try expect(
+            HotkeyBookmarkResolver.resolve(currentTab: .failure(.invalidURL)) == .failed("当前浏览器标签无有效网址"),
+            "expected invalid current tabs not to resolve a fallback URL"
+        )
+    }
+
+    private static func testPrivateBrowserOpenerPermissionMapping() throws {
+        try expect(
+            PrivateBrowserOpener.result(forAppleScriptError: [
+                "NSAppleScriptErrorNumber": NSNumber(value: -1743)
+            ]) == .automationPermissionRequired(.appleEvents),
+            "expected Dia Apple Events failures to request automation permission"
+        )
+        try expect(
+            PrivateBrowserOpener.result(forAppleScriptError: [
+                "NSAppleScriptErrorNumber": NSNumber(value: -1728)
+            ]) == .openFailed,
+            "expected ordinary Dia AppleScript failures to stay open failures"
         )
     }
 

@@ -147,6 +147,7 @@ struct BookmarkManagerView: View {
     @State private var lastMenuBarOrderHapticDate = Date.distantPast
 
     private let menuBarOrderRowHeight: CGFloat = 50
+    private let menuBarOrderCardBackgroundColor = Color(red: 233.0 / 255.0, green: 235.0 / 255.0, blue: 236.0 / 255.0)
 
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
@@ -1774,7 +1775,7 @@ struct BookmarkManagerView: View {
         .frame(height: CGFloat(items.count) * menuBarOrderRowHeight)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(windowTransparencyEnabled ? 0.055 : 0.045))
+                .fill(menuBarOrderCardBackgroundColor)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -1789,11 +1790,6 @@ struct BookmarkManagerView: View {
         isDropTarget: Bool
     ) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: item.systemImage)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 20)
-
             Text(item.title)
                 .lineLimit(1)
 

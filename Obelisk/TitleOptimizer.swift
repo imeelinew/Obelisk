@@ -168,7 +168,10 @@ final class LLMConfigStore {
     private(set) var rootDirectory: URL
     private let remoteAPIKeyStore = KeychainAPIKeyStore(account: remoteKeychainAccount)
     var configURL: URL {
-        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "llm.json")
+        ObeliskDataStorage.representativeURL(
+            logicalName: "llm.json",
+            rootDirectory: rootDirectory
+        )
     }
 
     init(rootDirectory: URL) {
@@ -176,11 +179,7 @@ final class LLMConfigStore {
     }
 
     func loadProfiles() -> LLMProfilesSettings {
-        let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
-            rootDirectory: rootDirectory,
-            logicalName: "llm.json"
-        )
-        let data = try? SecureJSONFileCodec().readData(from: readableURL)
+        let data = try? ObeliskDataStorage.readLogical("llm.json", rootDirectory: rootDirectory)
 
         var settings: LLMProfilesSettings
         if let data,
@@ -242,14 +241,12 @@ final class LLMConfigStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(fileSettings)
-        try SecureJSONFileCodec().writeData(
+        try ObeliskDataStorage.writeLogical(
             data,
-            to: configURL,
+            logicalName: "llm.json",
+            rootDirectory: rootDirectory,
             encrypted: LocalJSONEncryption.isEnabled
         )
-        for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "llm.json") {
-            try? LocalFileAccess.removeItem(at: staleURL)
-        }
     }
 
     func save(_ config: LLMConfig) throws {

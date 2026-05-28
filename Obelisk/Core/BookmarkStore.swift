@@ -93,18 +93,19 @@ public enum BookmarkStoreError: LocalizedError {
 public final class BookmarkStore {
     public private(set) var rootDirectory: URL
     public var fileURL: URL {
-        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "bookmarks.json")
+        ObeliskDataStorage.representativeURL(
+            logicalName: "bookmarks.json",
+            rootDirectory: rootDirectory
+        )
     }
 
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let secureCodec: SecureJSONFileCodec
     private let stateStore: BookmarkStateStore
     private var cachedDatabase: BookmarkDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
-        self.secureCodec = SecureJSONFileCodec()
         self.stateStore = BookmarkStateStore(rootDirectory: rootDirectory)
 
         self.encoder = JSONEncoder()
@@ -151,11 +152,7 @@ public final class BookmarkStore {
             database = cachedDatabase
         } else {
             try ensureStoreExists()
-            let url = ObeliskPrivateStorage.existingReadableFileURL(
-                rootDirectory: rootDirectory,
-                logicalName: "bookmarks.json"
-            )
-            let data = try secureCodec.readData(from: url)
+            let data = try ObeliskDataStorage.readLogical("bookmarks.json", rootDirectory: rootDirectory)
             database = try decoder.decode(BookmarkDatabase.self, from: data)
             cachedDatabase = database
         }
@@ -174,14 +171,12 @@ public final class BookmarkStore {
 
         try persistState(from: database.bookmarks)
         let data = try encoder.encode(database)
-        try secureCodec.writeData(
+        try ObeliskDataStorage.writeLogical(
             data,
-            to: fileURL,
+            logicalName: "bookmarks.json",
+            rootDirectory: rootDirectory,
             encrypted: LocalJSONEncryption.isEnabled
         )
-        for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmarks.json") {
-            try? LocalFileAccess.removeItem(at: staleURL)
-        }
         cachedDatabase = database
     }
 
@@ -506,6 +501,15 @@ public final class BookmarkStore {
     }
 
     private func ensureStoreExists() throws {
+        if LocalJSONEncryption.isEnabled, VaultStorage.usesVaultV2(in: rootDirectory) {
+            guard (try? VaultDataKeyCache.current()) != nil else { return }
+            if (try? ObeliskDataStorage.readLogical("bookmarks.json", rootDirectory: rootDirectory)) != nil {
+                return
+            }
+            try save(BookmarkDatabase())
+            return
+        }
+
         let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
             rootDirectory: rootDirectory,
             logicalName: "bookmarks.json"

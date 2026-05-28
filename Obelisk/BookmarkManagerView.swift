@@ -1020,13 +1020,37 @@ struct BookmarkManagerView: View {
                     return
                 }
                 await MainActor.run {
-                    applyLocalJSONEncryptionEnabled(false, disabledByAuthenticatedUser: true)
+                    Task {
+                        _ = await VaultSession.shared.unlockIfNeeded(reason: "关闭本地数据加密")
+                        applyLocalJSONEncryptionEnabled(false, disabledByAuthenticatedUser: true)
+                    }
                 }
             }
             return
         }
 
-        applyLocalJSONEncryptionEnabled(true, disabledByAuthenticatedUser: false)
+        Task {
+            guard await VaultSession.shared.unlock(reason: "开启本地数据加密") else {
+                await MainActor.run {
+                    encryptLocalJSONData = false
+                    LocalJSONEncryption.isEnabled = false
+                }
+                return
+            }
+            do {
+                try VaultSession.shared.prepareNewVaultKey(rootDirectory: model.rootDirectory)
+            } catch {
+                await MainActor.run {
+                    encryptLocalJSONData = false
+                    LocalJSONEncryption.isEnabled = false
+                    llmConfigMessage = error.localizedDescription
+                }
+                return
+            }
+            await MainActor.run {
+                applyLocalJSONEncryptionEnabled(true, disabledByAuthenticatedUser: false)
+            }
+        }
     }
 
     private func applyLocalJSONEncryptionEnabled(_ isEnabled: Bool, disabledByAuthenticatedUser: Bool) {
@@ -1052,8 +1076,7 @@ struct BookmarkManagerView: View {
 
     private func migrateLocalPrivateStorage(isEnabled: Bool) throws {
         let root = model.rootDirectory
-        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: isEnabled)
-
+        _ = try ObeliskStorageTransition.backUpThenNormalize(in: root, encrypted: isEnabled)
         faviconLoader.reloadStorage()
     }
 
@@ -2082,12 +2105,12 @@ struct BookmarkManagerView: View {
                 ) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("开启加密功能")
-                        Text("开启后 Obelisk 会使用 AES-GCM 加密您的书签、使用记录、模型配置和 favicon 缓存。")
+                        Text("本地静态加密，防止他人直接打开数据文件夹查看。需 Touch ID 或登录密码解锁；切换时会生成明文备份文件夹。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
-                .help("开启后 Obelisk 会使用 AES-GCM 加密您的书签、使用记录、模型配置和 favicon 缓存。")
+                .help("本地静态加密，防止他人直接打开数据文件夹查看。需 Touch ID 或登录密码解锁。")
             }
 
             Section("隐藏书签") {

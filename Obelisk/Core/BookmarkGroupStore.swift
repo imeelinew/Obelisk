@@ -72,17 +72,18 @@ public final class BookmarkGroupStore {
     public private(set) var rootDirectory: URL
 
     public var fileURL: URL {
-        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "bookmark_groups.json")
+        ObeliskDataStorage.representativeURL(
+            logicalName: "bookmark_groups.json",
+            rootDirectory: rootDirectory
+        )
     }
 
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let secureCodec: SecureJSONFileCodec
     private var cachedDatabase: BookmarkGroupDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
-        self.secureCodec = SecureJSONFileCodec()
 
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -104,12 +105,8 @@ public final class BookmarkGroupStore {
             return cachedDatabase
         }
 
-        let url = ObeliskPrivateStorage.existingReadableFileURL(
-            rootDirectory: rootDirectory,
-            logicalName: "bookmark_groups.json"
-        )
         guard
-            let data = try? secureCodec.readData(from: url),
+            let data = try? ObeliskDataStorage.readLogical("bookmark_groups.json", rootDirectory: rootDirectory),
             let database = try? decoder.decode(BookmarkGroupDatabase.self, from: data)
         else {
             let empty = BookmarkGroupDatabase()
@@ -144,14 +141,12 @@ public final class BookmarkGroupStore {
         )
 
         let data = try encoder.encode(database)
-        try secureCodec.writeData(
+        try ObeliskDataStorage.writeLogical(
             data,
-            to: fileURL,
+            logicalName: "bookmark_groups.json",
+            rootDirectory: rootDirectory,
             encrypted: LocalJSONEncryption.isEnabled
         )
-        for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmark_groups.json") {
-            try? LocalFileAccess.removeItem(at: staleURL)
-        }
         cachedDatabase = database
     }
 

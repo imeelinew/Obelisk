@@ -435,14 +435,17 @@ struct SmokeTests {
         }
         """.write(to: legacyURL, atomically: true, encoding: .utf8)
 
-        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: true, logicalNames: ["bookmarks.json"])
-
-        try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected plaintext source to be removed")
-        try expect(FileManager.default.fileExists(atPath: privateURL.path), "expected encrypted destination to exist")
-        let rawText = try String(contentsOf: privateURL, encoding: .utf8)
-        try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted destination envelope")
-
         LocalJSONEncryption.isEnabled = true
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
+        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: true)
+        try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected plaintext source to be removed")
+        try expect(VaultStorage.usesVaultV2(in: root), "expected encrypted destination to use Vault v2")
+        let rawText = try ObeliskTestVaultSupport.encryptedBlobRawText(
+            logicalName: "bookmarks.json",
+            rootDirectory: root
+        )
+        try expect(rawText.contains("obelisk.vault-blob.v2"), "expected encrypted destination envelope")
         let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
         try expect(loaded.map(\.url) == ["https://normalize.example"], "expected migrated encrypted bookmark to load")
     }
@@ -536,9 +539,10 @@ struct SmokeTests {
             ofItemAtPath: privateURL.path
         )
 
-        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: true, logicalNames: ["bookmarks.json"])
-
         LocalJSONEncryption.isEnabled = true
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
+        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: true)
         try expect(
             try BookmarkStore(rootDirectory: root).bookmarks().map(\.url) == ["https://real-bookmark.example"],
             "expected non-empty bookmarks to survive newer empty duplicate during normalization"
@@ -562,12 +566,13 @@ struct SmokeTests {
         }
         """.write(to: legacyURL, atomically: true, encoding: .utf8)
 
-        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: true, logicalNames: ["bookmarks.json"])
-
         LocalJSONEncryption.isEnabled = true
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
+        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: true)
         try expect(try BookmarkStore(rootDirectory: root).bookmarks().isEmpty, "expected intentional empty database to stay valid")
         try expect(
-            FileManager.default.fileExists(atPath: ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json").path),
+            VaultStorage.usesVaultV2(in: root),
             "expected empty database to migrate to encrypted storage"
         )
     }
@@ -731,14 +736,22 @@ struct SmokeTests {
         try faviconIndexJSON(key: key, fetchedAt: "1970-01-01T00:20:00Z")
             .write(to: plaintextIndexURL, atomically: true, encoding: .utf8)
         try "plain-icon".write(to: plaintextIconURL, atomically: true, encoding: .utf8)
+        LocalJSONEncryption.isEnabled = true
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
         try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: true)
 
-        try expect(FileManager.default.fileExists(atPath: encryptedIndexURL.path), "expected encrypted favicon index")
-        try expect(FileManager.default.fileExists(atPath: encryptedIconURL.path), "expected encrypted favicon icon")
+        try expect(VaultStorage.usesVaultV2(in: root), "expected encrypted favicon storage in Vault v2")
         try expect(!FileManager.default.fileExists(atPath: ObeliskPrivateStorage.dataDirectory(in: root).path), "expected plaintext data directory to be removed after encrypting")
-        let raw = try String(contentsOf: encryptedIconURL, encoding: .utf8)
-        try expect(raw.contains("obelisk.encrypted-json.v1"), "expected encrypted favicon payload envelope")
-        let decrypted = try SecureJSONFileCodec().readData(from: encryptedIconURL)
+        let raw = try ObeliskTestVaultSupport.encryptedBlobRawText(
+            logicalName: VaultPaths.faviconIconLogicalName(key: key),
+            rootDirectory: root
+        )
+        try expect(raw.contains("obelisk.vault-blob.v2"), "expected encrypted favicon payload envelope")
+        let decrypted = try ObeliskDataStorage.readLogical(
+            VaultPaths.faviconIconLogicalName(key: key),
+            rootDirectory: root
+        )
         try expect(String(decoding: decrypted, as: UTF8.self) == "plain-icon", "expected encrypted favicon data to decrypt")
     }
 
@@ -870,16 +883,17 @@ struct SmokeTests {
             .write(to: plaintextIndexURL, atomically: true, encoding: .utf8)
         try "plain-mixed-icon".write(to: plaintextIconURL, atomically: true, encoding: .utf8)
 
-        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: true)
-
-        let encryptedIconURL = ObeliskPrivateStorage.faviconIconURL(rootDirectory: root, key: key, encrypted: true)
-        try expect(FileManager.default.fileExists(atPath: encryptedBookmarkURL.path), "expected encrypted bookmark JSON to remain in EncryptedData")
-        try expect(FileManager.default.fileExists(atPath: encryptedStateURL.path), "expected encrypted state JSON to remain in EncryptedData")
-        try expect(FileManager.default.fileExists(atPath: encryptedUsageURL.path), "expected encrypted usage JSON to remain in EncryptedData")
-        try expect(FileManager.default.fileExists(atPath: encryptedIconURL.path), "expected plaintext favicon to move into encrypted EncryptedData/Favicons")
-        try expect(!FileManager.default.fileExists(atPath: ObeliskPrivateStorage.dataDirectory(in: root).path), "expected no plaintext Data directory after encrypted normalization")
-        let decrypted = try SecureJSONFileCodec().readData(from: encryptedIconURL)
-        try expect(String(decoding: decrypted, as: UTF8.self) == "plain-mixed-icon", "expected encrypted mixed favicon data to decrypt")
+        LocalJSONEncryption.isEnabled = true
+        try withVaultTestKey {
+            try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: true)
+            try expect(VaultStorage.usesVaultV2(in: root), "expected mixed state to migrate into Vault v2")
+            try expect(!FileManager.default.fileExists(atPath: ObeliskPrivateStorage.dataDirectory(in: root).path), "expected no plaintext Data directory after encrypted normalization")
+            let decrypted = try ObeliskDataStorage.readLogical(
+                VaultPaths.faviconIconLogicalName(key: key),
+                rootDirectory: root
+            )
+            try expect(String(decoding: decrypted, as: UTF8.self) == "plain-mixed-icon", "expected encrypted mixed favicon data to decrypt")
+        }
     }
 
     private static func testHiddenDuplicateProtection() throws {
@@ -1148,26 +1162,32 @@ struct SmokeTests {
 
         let root = try temporaryDirectory()
         LocalJSONEncryption.isEnabled = true
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
 
         let store = BookmarkStore(rootDirectory: root)
         let bookmark = try store.add(title: "Private", url: "https://private.example")
-        let raw = try Data(contentsOf: store.fileURL)
-        let rawText = String(decoding: raw, as: UTF8.self)
+        let rawText = try ObeliskTestVaultSupport.encryptedBlobRawText(
+            logicalName: "bookmarks.json",
+            rootDirectory: root
+        )
         let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
 
-        try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted envelope marker")
+        try expect(rawText.contains("obelisk.vault-blob.v2"), "expected encrypted envelope marker")
         try expect(!rawText.contains("private.example"), "expected encrypted file to hide bookmark URL")
-        try expect(store.fileURL.pathExtension == "bin", "expected encrypted bookmark store to use an obscured bin file")
-        try expect(store.fileURL.deletingLastPathComponent().lastPathComponent == "EncryptedData", "expected encrypted bookmark store to use EncryptedData")
+        try expect(VaultStorage.usesVaultV2(in: root), "expected encrypted bookmark store to use Vault v2")
         try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected encrypted bookmark store to avoid legacy filename")
         try expect(try store.bookmarks().map(\.id) == [bookmark.id], "expected encrypted bookmark to read back")
 
+        try withVaultTestKey {
+            try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: false)
+        }
         LocalJSONEncryption.isEnabled = false
         let database = try store.load()
         try store.save(database)
         let plaintext = try String(contentsOf: store.fileURL, encoding: .utf8)
         try expect(plaintext.contains("private.example"), "expected disabled encryption to write plaintext JSON")
-        try expect(!FileManager.default.fileExists(atPath: ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json").path), "expected plaintext save to remove encrypted duplicate")
+        try expect(!VaultStorage.usesVaultV2(in: root), "expected plaintext save to remove Vault storage")
     }
 
     private static func testEncryptedBookmarkStateStoreRoundTrip() throws {
@@ -1176,6 +1196,8 @@ struct SmokeTests {
 
         let root = try temporaryDirectory()
         LocalJSONEncryption.isEnabled = true
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
 
         let store = BookmarkStore(rootDirectory: root)
         let bookmark = try store.add(title: "State Private", url: "https://state-private.example", isHidden: true)
@@ -1185,14 +1207,15 @@ struct SmokeTests {
         _ = try store.applyTitleOptimizations([bookmark.id: "State Private Optimized"])
 
         let stateStore = BookmarkStateStore(rootDirectory: root)
-        let stateURL = stateStore.fileURL
         let legacyURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmark_state.json")
-        let raw = try Data(contentsOf: stateURL)
-        let rawText = String(decoding: raw, as: UTF8.self)
+        let rawText = try ObeliskTestVaultSupport.encryptedBlobRawText(
+            logicalName: "bookmark_state.json",
+            rootDirectory: root
+        )
 
-        try expect(stateURL.pathExtension == "bin", "expected encrypted bookmark state to use an obscured bin file")
+        try expect(VaultStorage.usesVaultV2(in: root), "expected encrypted bookmark state to use Vault v2")
         try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected encrypted state to avoid legacy filename")
-        try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted state envelope marker")
+        try expect(rawText.contains("obelisk.vault-blob.v2"), "expected encrypted state envelope marker")
         try expect(!rawText.contains(bookmark.id.uuidString), "expected encrypted state to hide bookmark id")
         try expect(!rawText.contains(pinnedBookmark.id.uuidString), "expected encrypted state to hide pinned bookmark id")
         try expect(!rawText.contains("state-private.example"), "expected encrypted state to hide bookmark URL")
@@ -1227,10 +1250,12 @@ struct SmokeTests {
         usageStore.record(id: visible.id)
         usageStore.record(id: visible.id)
 
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
         for encrypted in [true, false, true] {
+            LocalJSONEncryption.isEnabled = encrypted
             try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: encrypted)
             try expect(Self.backupDirectories(in: root).isEmpty, "expected encryption normalization not to create backups")
-            LocalJSONEncryption.isEnabled = encrypted
             let bookmarks = try BookmarkStore(rootDirectory: root).bookmarks()
             let state = BookmarkStateStore(rootDirectory: root).load()
             let usage = UsageStore(rootDirectory: root).load()
@@ -1262,9 +1287,11 @@ struct SmokeTests {
             database.membershipByBookmarkId[bookmarkID] = work.id
         }
 
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
         for encrypted in [true, false, true] {
-            try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: encrypted)
             LocalJSONEncryption.isEnabled = encrypted
+            try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: encrypted)
             groupStore.invalidateCache()
 
             let loaded = groupStore.load()
@@ -1272,15 +1299,16 @@ struct SmokeTests {
             try expect(loaded.collections.first?.name == "工作", "expected encryption toggle to preserve collection name")
             try expect(loaded.membershipByBookmarkId[bookmarkID] == workID, "expected encryption toggle to preserve membership")
 
-            let groupsURL = groupStore.fileURL
             if encrypted {
-                try expect(groupsURL.path.contains("EncryptedData"), "expected encrypted groups under EncryptedData")
-                try expect(groupsURL.pathExtension == "bin", "expected encrypted groups to use obscured bin file")
-                let raw = try Data(contentsOf: groupsURL)
-                let rawText = String(decoding: raw, as: UTF8.self)
-                try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted groups envelope marker")
+                try expect(VaultStorage.usesVaultV2(in: root), "expected encrypted groups under Vault v2")
+                let rawText = try ObeliskTestVaultSupport.encryptedBlobRawText(
+                    logicalName: "bookmark_groups.json",
+                    rootDirectory: root
+                )
+                try expect(rawText.contains("obelisk.vault-blob.v2"), "expected encrypted groups envelope marker")
                 try expect(!rawText.contains("工作"), "expected encrypted groups to hide collection name")
             } else {
+                let groupsURL = groupStore.fileURL
                 try expect(
                     groupsURL.path.contains("Data"),
                     "expected plaintext groups under Data"
@@ -1724,6 +1752,12 @@ struct SmokeTests {
 
         try groupStore.removeMembership(for: [bookmarkID])
         try expect(groupStore.load().membershipByBookmarkId[bookmarkID] == nil, "expected membership removal")
+    }
+
+    private static func withVaultTestKey<T>(_ body: () throws -> T) throws -> T {
+        _ = ObeliskTestVaultSupport.installEphemeralKey()
+        defer { ObeliskTestVaultSupport.clearEphemeralKey() }
+        return try body()
     }
 
     private static func temporaryDirectory() throws -> URL {

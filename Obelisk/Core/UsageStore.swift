@@ -21,17 +21,18 @@ private let usageLog = Logger(subsystem: "com.eli.Obelisk", category: "UsageStor
 public final class UsageStore {
     public private(set) var rootDirectory: URL
     public var fileURL: URL {
-        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "usage.json")
+        ObeliskDataStorage.representativeURL(
+            logicalName: "usage.json",
+            rootDirectory: rootDirectory
+        )
     }
 
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let secureCodec: SecureJSONFileCodec
     private var cachedUsage: [UUID: UsageRecord]?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
-        self.secureCodec = SecureJSONFileCodec()
 
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -55,12 +56,8 @@ public final class UsageStore {
             return cachedUsage
         }
 
-        let url = ObeliskPrivateStorage.existingReadableFileURL(
-            rootDirectory: rootDirectory,
-            logicalName: "usage.json"
-        )
         guard
-            let data = try? secureCodec.readData(from: url),
+            let data = try? ObeliskDataStorage.readLogical("usage.json", rootDirectory: rootDirectory),
             let raw = try? decoder.decode([String: UsageRecord].self, from: data)
         else {
             cachedUsage = [:]
@@ -189,14 +186,12 @@ public final class UsageStore {
                     withIntermediateDirectories: true
                 )
                 let data = try encoder.encode(payload)
-                try secureCodec.writeData(
+                try ObeliskDataStorage.writeLogical(
                     data,
-                    to: fileURL,
+                    logicalName: "usage.json",
+                    rootDirectory: rootDirectory,
                     encrypted: LocalJSONEncryption.isEnabled
                 )
-                for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "usage.json") {
-                    try? LocalFileAccess.removeItem(at: staleURL)
-                }
             }
         } catch {
             usageLog.error("Failed to persist usage data: \(error.localizedDescription)")

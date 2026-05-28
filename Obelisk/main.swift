@@ -72,9 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         ObeliskAppDefaults.register(preservesUnauthenticatedDisabledEncryption: isUITesting)
         let storageRoot = BookmarkStore.defaultRootDirectory()
-        if LocalJSONEncryption.isEnabled {
-            _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)
-        }
         ObeliskKeychainMigration.migrateIfNeeded()
         NSApp.setActivationPolicy(.accessory)
         installMainMenu()
@@ -85,13 +82,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.scheduleRebuild()
         }
         startBookmarkWatcher()
-        normalizeActiveStorageRoot()
         registerGlobalHotkey()
-        rebuildMenu()
         setupNotificationPopover()
 
-        if isUITesting {
-            openManager()
+        Task { @MainActor in
+            await self.prepareEncryptedStorageIfNeeded(storageRoot: storageRoot)
+            self.normalizeActiveStorageRoot()
+            self.rebuildMenu()
+            if isUITesting {
+                self.openManager()
+            }
+        }
+    }
+
+    private func prepareEncryptedStorageIfNeeded(storageRoot: URL) async {
+        guard LocalJSONEncryption.isEnabled else { return }
+        _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)
+        guard await VaultSession.shared.unlockIfNeeded(reason: "解锁 Obelisk 加密数据") else {
+            bookmarksModel.errorMessage = VaultSessionError.authenticationFailed.errorDescription
+            return
+        }
+        do {
+            let key = try VaultDataKeyCache.current()
+            try VaultMigrator.migrateToVaultV2IfNeeded(in: storageRoot, key: key)
+        } catch {
+            bookmarksModel.errorMessage = error.localizedDescription
         }
     }
 
@@ -598,7 +613,6 @@ final class FaviconLoader {
     private(set) var version: Int = 0
 
     @ObservationIgnored private var rootDirectory: URL
-    @ObservationIgnored private let secureCodec = SecureJSONFileCodec()
     @ObservationIgnored private var inFlight: Set<String> = []
     @ObservationIgnored private var index: [String: FaviconRecord] = [:]
     @ObservationIgnored private let imageCache = NSCache<NSString, NSImage>()
@@ -669,7 +683,7 @@ final class FaviconLoader {
             return copy
         }
 
-        if let image = imageFromCache(at: fileURL) {
+        if let image = imageFromCache(for: key, fileURL: fileURL) {
             // Copy before mutating size; the underlying NSImage may be cached
             // and shared, and changing size on a shared instance can affect
             // unrelated rendering elsewhere.
@@ -743,11 +757,18 @@ final class FaviconLoader {
     }
 
     func clearStorage() {
+        if VaultStorage.usesVaultV2(in: rootDirectory) {
+            try? LocalFileAccess.removeItem(at: VaultPaths.v2Root(in: rootDirectory))
+        }
         for location in faviconStorageLocations() {
             try? LocalFileAccess.removeItem(at: location.directory)
         }
         ObeliskStorageMigrator.removeEmptyStorageDirectories(in: rootDirectory)
         imageCache.removeAllObjects()
+    }
+
+    private func usesVaultV2Storage() -> Bool {
+        LocalJSONEncryption.isEnabled && VaultStorage.usesVaultV2(in: rootDirectory)
     }
 
     private struct FaviconStorageLocation {
@@ -812,7 +833,7 @@ final class FaviconLoader {
                     at: self.cacheDirectory,
                     withIntermediateDirectories: true
                 )
-                try self.writeCacheData(pngData, to: fileURL)
+                try self.writeIconData(pngData, for: key)
                 image.size = NSSize(width: 16, height: 16)
                 self.imageCache.setObject(image, forKey: key as NSString)
                 self.recordResult(key: key, success: true)
@@ -1061,7 +1082,21 @@ final class FaviconLoader {
     }
 
     private func loadIndex(encrypted: Bool) -> [String: FaviconRecord] {
-        loadIndex(in: FaviconStorageLocation(directory: cacheDirectory(encrypted: encrypted), encrypted: encrypted))
+        if encrypted, usesVaultV2Storage() {
+            guard let data = try? ObeliskDataStorage.readLogical(
+                VaultPaths.faviconIndexLogicalName,
+                rootDirectory: rootDirectory
+            ) else {
+                return [:]
+            }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let decoded = try? decoder.decode([String: FaviconRecord].self, from: data) {
+                return decoded
+            }
+            return [:]
+        }
+        return loadIndex(in: FaviconStorageLocation(directory: cacheDirectory(encrypted: encrypted), encrypted: encrypted))
     }
 
     private func loadIndex(in location: FaviconStorageLocation) -> [String: FaviconRecord] {
@@ -1088,6 +1123,23 @@ final class FaviconLoader {
     }
 
     private func saveIndex(_ index: [String: FaviconRecord], encrypted: Bool) {
+        if encrypted, usesVaultV2Storage() {
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(index)
+                try ObeliskDataStorage.writeLogical(
+                    data,
+                    logicalName: VaultPaths.faviconIndexLogicalName,
+                    rootDirectory: rootDirectory,
+                    encrypted: true,
+                    kind: .json
+                )
+            } catch {
+                faviconLog.error("Failed to persist favicon index: \(error.localizedDescription)")
+            }
+            return
+        }
         saveIndex(index, in: FaviconStorageLocation(directory: cacheDirectory(encrypted: encrypted), encrypted: encrypted))
     }
 
@@ -1106,18 +1158,38 @@ final class FaviconLoader {
         }
     }
 
-    private func imageFromCache(at url: URL) -> NSImage? {
-        guard let data = try? readCacheData(from: url) else { return nil }
+    private func imageFromCache(for key: String, fileURL: URL) -> NSImage? {
+        guard let data = try? readIconData(for: key, fileURL: fileURL) else { return nil }
         return NSImage(data: data)
     }
 
-    private func readCacheData(from url: URL) throws -> Data {
-        try readCacheData(from: url, encrypted: LocalJSONEncryption.isEnabled)
+    private func readIconData(for key: String, fileURL: URL) throws -> Data {
+        if usesVaultV2Storage() {
+            return try ObeliskDataStorage.readLogical(
+                VaultPaths.faviconIconLogicalName(key: key),
+                rootDirectory: rootDirectory
+            )
+        }
+        return try readCacheData(from: fileURL, encrypted: LocalJSONEncryption.isEnabled)
+    }
+
+    private func writeIconData(_ data: Data, for key: String) throws {
+        if usesVaultV2Storage() {
+            try ObeliskDataStorage.writeLogical(
+                data,
+                logicalName: VaultPaths.faviconIconLogicalName(key: key),
+                rootDirectory: rootDirectory,
+                encrypted: true,
+                kind: .binary
+            )
+            return
+        }
+        try writeCacheData(data, to: iconURL(for: key))
     }
 
     private func readCacheData(from url: URL, encrypted: Bool) throws -> Data {
-        if encrypted {
-            return try secureCodec.readData(from: url)
+        if encrypted, !usesVaultV2Storage() {
+            return try ObeliskDataStorage.readData(from: url)
         }
         return try LocalFileAccess.readData(from: url)
     }
@@ -1127,12 +1199,8 @@ final class FaviconLoader {
     }
 
     private func writeCacheData(_ data: Data, to url: URL, encrypted: Bool) throws {
-        if encrypted {
-            try secureCodec.writeData(
-                data,
-                to: url,
-                encrypted: true
-            )
+        if encrypted, !usesVaultV2Storage() {
+            try ObeliskDataStorage.writeData(data, to: url, encrypted: true)
         } else {
             try LocalFileAccess.writeData(data, to: url)
         }

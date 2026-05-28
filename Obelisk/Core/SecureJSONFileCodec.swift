@@ -259,8 +259,16 @@ public enum ObeliskStorageMigrator {
         keyStore: KeychainEncryptionKeyStore = KeychainEncryptionKeyStore()
     ) throws {
         try validateEncryptedPayloadsAreReadable(in: rootDirectory, keyStore: keyStore)
-        try normalizeJSONFiles(in: rootDirectory, encrypted: encrypted)
-        try normalizeFavicons(in: rootDirectory, encrypted: encrypted)
+        if encrypted {
+            let key = try VaultDataKeyCache.current()
+            try VaultMigrator.migrateToVaultV2IfNeeded(in: rootDirectory, key: key)
+        } else if VaultStorage.usesVaultV2(in: rootDirectory) {
+            let key = try VaultDataKeyCache.current()
+            try VaultMigrator.exportVaultV2ToPlaintext(in: rootDirectory, key: key)
+        } else {
+            try normalizeJSONFiles(in: rootDirectory, encrypted: false)
+            try normalizeFavicons(in: rootDirectory, encrypted: false)
+        }
         removeEmptyStorageDirectories(in: rootDirectory)
     }
 
@@ -832,26 +840,6 @@ public enum ObeliskKeychainMigration {
             kSecAttrAccount as String: account
         ]
         _ = SecItemDelete(query as CFDictionary)
-    }
-}
-
-private enum ObeliskKeychain {
-    static var accessGroup: String? {
-        guard let task = SecTaskCreateFromSelf(nil) else { return nil }
-        guard let groups = SecTaskCopyValueForEntitlement(
-            task,
-            "keychain-access-groups" as CFString,
-            nil
-        ) as? [String] else {
-            return nil
-        }
-        return groups.first { !$0.isEmpty }
-    }
-
-    static func applyAccessGroup(to query: inout [String: Any]) {
-        if let accessGroup {
-            query[kSecAttrAccessGroup as String] = accessGroup
-        }
     }
 }
 

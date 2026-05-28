@@ -85,6 +85,12 @@ public enum ObeliskPlaintextDataBackup {
         from rootDirectory: URL,
         codec: SecureJSONFileCodec
     ) throws -> Data? {
+        if LocalJSONEncryption.isEnabled,
+           VaultStorage.usesVaultV2(in: rootDirectory),
+           let data = try? ObeliskDataStorage.readLogical(logicalName, rootDirectory: rootDirectory) {
+            return data
+        }
+
         let candidates = candidateJSONURLs(rootDirectory: rootDirectory, logicalName: logicalName)
         let existing = candidates.filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !existing.isEmpty else { return nil }
@@ -153,6 +159,11 @@ public enum ObeliskPlaintextDataBackup {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: faviconDirectory, withIntermediateDirectories: true)
 
+        if LocalJSONEncryption.isEnabled,
+           VaultStorage.usesVaultV2(in: rootDirectory) {
+            return try exportVaultFavicons(from: rootDirectory, to: faviconDirectory)
+        }
+
         var mergedIndex: [String: FaviconRecord] = [:]
         for location in faviconSourceLocations(in: rootDirectory) {
             let index = loadFaviconIndex(in: location, rootDirectory: rootDirectory, codec: codec)
@@ -188,6 +199,29 @@ public enum ObeliskPlaintextDataBackup {
                 indexData,
                 to: faviconDirectory.appendingPathComponent("index.json")
             )
+        }
+
+        return exportedCount
+    }
+
+    private static func exportVaultFavicons(from rootDirectory: URL, to faviconDirectory: URL) throws -> Int {
+        let storage = VaultStorage(rootDirectory: rootDirectory)
+        let key = try VaultDataKeyCache.current()
+        var exportedCount = 0
+
+        if let indexData = try? storage.readLogical(VaultPaths.faviconIndexLogicalName, key: key) {
+            try LocalFileAccess.writeData(
+                indexData,
+                to: faviconDirectory.appendingPathComponent("index.json")
+            )
+        }
+
+        let manifest = try storage.loadManifest(key: key)
+        for (logicalName, entry) in manifest.entries where logicalName.hasPrefix("favicons/") && entry.kind == .binary {
+            let data = try storage.readLogical(logicalName, key: key)
+            let fileName = logicalName.replacingOccurrences(of: "favicons/", with: "")
+            try LocalFileAccess.writeData(data, to: faviconDirectory.appendingPathComponent(fileName))
+            exportedCount += 1
         }
 
         return exportedCount

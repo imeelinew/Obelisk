@@ -62,6 +62,7 @@ struct SmokeTests {
         try testKeychainMigrationSkipsEncryptionService()
         try testPlaintextDataBackup()
         try testFreshAppDefaultsEnableCoreWorkflows()
+        try testLocalJSONEncryptionDefaultsRequireAuthenticatedDisable()
         try testBrowserCurrentTabParsingAndPermissionMapping()
         try testHotkeyResolverFailsClosed()
         try testPrivateBrowserOpenerPermissionMapping()
@@ -1228,6 +1229,7 @@ struct SmokeTests {
 
         for encrypted in [true, false, true] {
             try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: encrypted)
+            try expect(Self.backupDirectories(in: root).isEmpty, "expected encryption normalization not to create backups")
             LocalJSONEncryption.isEnabled = encrypted
             let bookmarks = try BookmarkStore(rootDirectory: root).bookmarks()
             let state = BookmarkStateStore(rootDirectory: root).load()
@@ -1530,6 +1532,14 @@ struct SmokeTests {
             "expected fresh app defaults to enable incognito hidden bookmarks"
         )
         try expect(
+            freshDefaults.bool(forKey: LocalJSONEncryption.enabledKey),
+            "expected fresh app defaults to enable local JSON encryption"
+        )
+        try expect(
+            freshDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
+            "expected fresh app defaults not to mark encryption as user-disabled"
+        )
+        try expect(
             freshDefaults.string(forKey: "diaIncognitoWindowID") == nil,
             "expected fresh app defaults not to import legacy Dia window state"
         )
@@ -1544,6 +1554,76 @@ struct SmokeTests {
         try expect(
             oldDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) == false,
             "expected legacy incognito preference to stay isolated"
+        )
+    }
+
+    private static func testLocalJSONEncryptionDefaultsRequireAuthenticatedDisable() throws {
+        let legacyFalseSuiteName = "com.eli.Obelisk.legacy-false.test.\(UUID().uuidString)"
+        let authenticatedDisabledSuiteName = "com.eli.Obelisk.auth-disabled.test.\(UUID().uuidString)"
+        let reenabledSuiteName = "com.eli.Obelisk.reenabled.test.\(UUID().uuidString)"
+        let uiTestingSuiteName = "com.eli.Obelisk.ui-testing.test.\(UUID().uuidString)"
+        guard
+            let legacyFalseDefaults = UserDefaults(suiteName: legacyFalseSuiteName),
+            let authenticatedDisabledDefaults = UserDefaults(suiteName: authenticatedDisabledSuiteName),
+            let reenabledDefaults = UserDefaults(suiteName: reenabledSuiteName),
+            let uiTestingDefaults = UserDefaults(suiteName: uiTestingSuiteName)
+        else {
+            throw SmokeTestError.failure("expected encryption defaults test suites")
+        }
+        defer {
+            legacyFalseDefaults.removePersistentDomain(forName: legacyFalseSuiteName)
+            authenticatedDisabledDefaults.removePersistentDomain(forName: authenticatedDisabledSuiteName)
+            reenabledDefaults.removePersistentDomain(forName: reenabledSuiteName)
+            uiTestingDefaults.removePersistentDomain(forName: uiTestingSuiteName)
+        }
+
+        legacyFalseDefaults.set(false, forKey: LocalJSONEncryption.enabledKey)
+        ObeliskAppDefaults.register(in: legacyFalseDefaults)
+        try expect(
+            legacyFalseDefaults.bool(forKey: LocalJSONEncryption.enabledKey),
+            "expected unauthenticated legacy disabled encryption default to be corrected"
+        )
+        try expect(
+            legacyFalseDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
+            "expected corrected legacy default not to mark encryption as user-disabled"
+        )
+
+        authenticatedDisabledDefaults.set(false, forKey: LocalJSONEncryption.enabledKey)
+        authenticatedDisabledDefaults.set(true, forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey)
+        ObeliskAppDefaults.register(in: authenticatedDisabledDefaults)
+        try expect(
+            authenticatedDisabledDefaults.bool(forKey: LocalJSONEncryption.enabledKey) == false,
+            "expected authenticated user-disabled encryption setting to be preserved"
+        )
+        try expect(
+            authenticatedDisabledDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey),
+            "expected authenticated user-disabled marker to be preserved"
+        )
+
+        reenabledDefaults.set(true, forKey: LocalJSONEncryption.enabledKey)
+        reenabledDefaults.set(true, forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey)
+        ObeliskAppDefaults.register(in: reenabledDefaults)
+        try expect(
+            reenabledDefaults.bool(forKey: LocalJSONEncryption.enabledKey),
+            "expected re-enabled encryption setting to stay enabled"
+        )
+        try expect(
+            reenabledDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
+            "expected re-enabled encryption to clear authenticated disable marker"
+        )
+
+        uiTestingDefaults.set(false, forKey: LocalJSONEncryption.enabledKey)
+        ObeliskAppDefaults.register(
+            in: uiTestingDefaults,
+            preservesUnauthenticatedDisabledEncryption: true
+        )
+        try expect(
+            uiTestingDefaults.bool(forKey: LocalJSONEncryption.enabledKey) == false,
+            "expected explicit UI testing override to preserve disabled encryption"
+        )
+        try expect(
+            uiTestingDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
+            "expected UI testing override not to mark encryption as user-disabled"
         )
     }
 
@@ -1652,6 +1732,22 @@ struct SmokeTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private static func backupDirectories(in root: URL) -> [URL] {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        return urls.filter { url in
+            guard url.lastPathComponent.hasPrefix("Backup-") else {
+                return false
+            }
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            return values?.isDirectory == true
+        }
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {

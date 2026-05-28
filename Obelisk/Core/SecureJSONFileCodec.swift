@@ -5,10 +5,33 @@ import Security
 
 public enum LocalJSONEncryption {
     public static let enabledKey = "encryptLocalJSONData"
+    public static let disabledByAuthenticatedUserKey = "encryptLocalJSONDataDisabledByAuthenticatedUser"
 
     public static var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: enabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
+    }
+
+    public static var disabledByAuthenticatedUser: Bool {
+        get { UserDefaults.standard.bool(forKey: disabledByAuthenticatedUserKey) }
+        set { UserDefaults.standard.set(newValue, forKey: disabledByAuthenticatedUserKey) }
+    }
+
+    public static func normalizeDefault(
+        in defaults: UserDefaults = .standard,
+        hadStoredEnabledPreference: Bool,
+        preservesUnauthenticatedDisabledState: Bool = false
+    ) {
+        if !preservesUnauthenticatedDisabledState,
+           hadStoredEnabledPreference,
+           !defaults.bool(forKey: enabledKey),
+           !defaults.bool(forKey: disabledByAuthenticatedUserKey) {
+            defaults.set(true, forKey: enabledKey)
+        }
+
+        if defaults.bool(forKey: enabledKey) {
+            defaults.set(false, forKey: disabledByAuthenticatedUserKey)
+        }
     }
 }
 

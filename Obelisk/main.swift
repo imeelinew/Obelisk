@@ -70,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ObeliskAppDefaults.register()
+        ObeliskAppDefaults.register(preservesUnauthenticatedDisabledEncryption: isUITesting)
         let storageRoot = BookmarkStore.defaultRootDirectory()
         if LocalJSONEncryption.isEnabled {
             _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)

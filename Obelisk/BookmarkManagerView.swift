@@ -126,7 +126,7 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarksModel.autoArchiveEnabledKey) private var autoArchiveEnabled = false
     @AppStorage(BookmarksModel.archiveAfterDaysKey) private var archiveAfterDays = BookmarksModel.defaultArchiveAfterDays
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
-    @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = false
+    @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = true
     @AppStorage(ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) private var openHiddenBookmarksIncognito = true
     @AppStorage(ObeliskAppDefaults.silentAddEnabledKey) private var silentAddEnabled = true
     @AppStorage(TitleOptimizationPreferences.autoOptimizeNewBookmarksKey) private var autoOptimizeNewBookmarks = false
@@ -1015,44 +1015,46 @@ struct BookmarkManagerView: View {
                 guard await AuthenticationGate.authenticate(reason: "关闭本地数据加密") else {
                     await MainActor.run {
                         encryptLocalJSONData = true
+                        LocalJSONEncryption.isEnabled = true
                     }
                     return
                 }
                 await MainActor.run {
-                    applyLocalJSONEncryptionEnabled(false)
+                    applyLocalJSONEncryptionEnabled(false, disabledByAuthenticatedUser: true)
                 }
             }
             return
         }
 
-        applyLocalJSONEncryptionEnabled(true)
+        applyLocalJSONEncryptionEnabled(true, disabledByAuthenticatedUser: false)
     }
 
-    private func applyLocalJSONEncryptionEnabled(_ isEnabled: Bool) {
+    private func applyLocalJSONEncryptionEnabled(_ isEnabled: Bool, disabledByAuthenticatedUser: Bool) {
         let previousValue = encryptLocalJSONData
+        let previousDisabledByAuthenticatedUser = LocalJSONEncryption.disabledByAuthenticatedUser
         encryptLocalJSONData = isEnabled
         LocalJSONEncryption.isEnabled = isEnabled
+        LocalJSONEncryption.disabledByAuthenticatedUser = disabledByAuthenticatedUser
 
         do {
-            let backup = try migrateLocalPrivateStorage(isEnabled: isEnabled)
+            try migrateLocalPrivateStorage(isEnabled: isEnabled)
             onStorageRootChanged(model.rootDirectory)
             model.reload()
             loadLLMConfig()
-            let backupSuffix = backup.map { "，已备份至 \($0.destinationURL.lastPathComponent)" } ?? ""
-            showToast((isEnabled ? "数据加密已开启" : "数据加密已关闭") + backupSuffix)
+            showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
         } catch {
             encryptLocalJSONData = previousValue
             LocalJSONEncryption.isEnabled = previousValue
+            LocalJSONEncryption.disabledByAuthenticatedUser = previousDisabledByAuthenticatedUser
             llmConfigMessage = error.localizedDescription
         }
     }
 
-    private func migrateLocalPrivateStorage(isEnabled: Bool) throws -> ObeliskPlaintextDataBackup.Result? {
+    private func migrateLocalPrivateStorage(isEnabled: Bool) throws {
         let root = model.rootDirectory
-        let backup = try ObeliskStorageTransition.backUpThenNormalize(in: root, encrypted: isEnabled)
+        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: isEnabled)
 
         faviconLoader.reloadStorage()
-        return backup
     }
 
     private var modelErrorAlertBinding: Binding<Bool> {

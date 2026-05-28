@@ -48,6 +48,7 @@ struct SmokeTests {
         try testTitleOptimizationPreferences()
         try testTitleOptimizationTranslationPrompt()
         try await testBookmarksModelFiltersHiddenTitleOptimization()
+        try await testBookmarksModelTitleOptimizationOutcomeIncludesUpdatedTitle()
         try testUsageGroupingFilters()
         try testEncryptedBookmarkStoreRoundTrip()
         try testEncryptedBookmarkStateStoreRoundTrip()
@@ -1067,6 +1068,43 @@ struct SmokeTests {
         let secondMessage = await secondModel.optimizeTitles(bookmarkIds: [hidden.id])
         try expect(secondMessage == "已优化 1 个标题", "expected hidden bookmark to optimize after enabling hidden optimization")
         try expect(secondOptimizer.candidateIDs == [hidden.id], "expected enabled hidden bookmark to reach optimizer")
+    }
+
+    @MainActor
+    private static func testBookmarksModelTitleOptimizationOutcomeIncludesUpdatedTitle() async throws {
+        let defaults = UserDefaults.standard
+        let restoredDefaults = capturedDefaults(
+            keys: [
+                BookmarksModel.aiFeaturesEnabledKey,
+                TitleOptimizationPreferences.optimizeHiddenBookmarksKey
+            ],
+            defaults: defaults
+        )
+        defer {
+            restoreDefaults(restoredDefaults, defaults: defaults)
+        }
+
+        defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
+        defaults.set(false, forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey)
+
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let bookmark = try store.add(title: "Raw Optimizer Title", url: "https://outcome-title.example")
+        let optimizer = StubTitleOptimizer(response: [
+            bookmark.id: "Optimized Outcome Title"
+        ])
+        let model = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root),
+            titleOptimizer: optimizer
+        )
+
+        let outcome = await model.optimizeTitleDetails(bookmarkIds: [bookmark.id])
+        try expect(outcome.message == "已优化 1 个标题", "expected outcome to preserve legacy optimization message")
+        try expect(outcome.optimizedTitles == ["Optimized Outcome Title"], "expected outcome to expose updated title")
+
+        let legacyMessage = await model.optimizeTitles(bookmarkIds: [bookmark.id])
+        try expect(legacyMessage == "没有需要优化的标题", "expected legacy string API to remain available")
     }
 
     private static func testUsageGroupingFilters() throws {

@@ -193,11 +193,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if aiFeaturesEnabled, TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark) {
             pendingOptimizationTask?.cancel()
             pendingOptimizationTask = Task { [weak self] in
-                let message = await self?.bookmarksModel.optimizeTitles(bookmarkIds: [bookmark.id])
-                if let message {
+                let outcome = await self?.bookmarksModel.optimizeTitleDetails(bookmarkIds: [bookmark.id])
+                if let outcome {
                     self?.notifyUser(
                         title: "标题优化完成",
-                        body: message,
+                        body: outcome.optimizedTitles.first ?? outcome.message,
                         kind: .intelligence
                     )
                 }

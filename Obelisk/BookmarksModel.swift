@@ -229,6 +229,11 @@ struct BookmarkMenuSections {
     }
 }
 
+struct TitleOptimizationOutcome: Equatable {
+    var message: String
+    var optimizedTitles: [String]
+}
+
 @MainActor
 @Observable
 final class BookmarksModel {
@@ -716,12 +721,16 @@ final class BookmarksModel {
     }
 
     func optimizeTitles(bookmarkIds: Set<UUID>) async -> String {
+        await optimizeTitleDetails(bookmarkIds: bookmarkIds).message
+    }
+
+    func optimizeTitleDetails(bookmarkIds: Set<UUID>) async -> TitleOptimizationOutcome {
         guard UserDefaults.standard.object(forKey: Self.aiFeaturesEnabledKey) as? Bool ?? true else {
-            return "Intelligence 功能已关闭"
+            return TitleOptimizationOutcome(message: "Intelligence 功能已关闭", optimizedTitles: [])
         }
 
         guard !isOptimizingTitles else {
-            return "标题优化正在进行中"
+            return TitleOptimizationOutcome(message: "标题优化正在进行中", optimizedTitles: [])
         }
 
         let candidates = bookmarks
@@ -738,7 +747,7 @@ final class BookmarksModel {
             }
 
         guard !candidates.isEmpty else {
-            return "没有需要优化的标题"
+            return TitleOptimizationOutcome(message: "没有需要优化的标题", optimizedTitles: [])
         }
 
         isOptimizingTitles = true
@@ -751,11 +760,32 @@ final class BookmarksModel {
             let count = try store.applyTitleOptimizations(optimizedTitles)
             reload()
             if count == 0 {
-                return "没有标题被更新"
+                return TitleOptimizationOutcome(message: "没有标题被更新", optimizedTitles: [])
             }
-            return "已优化 \(count) 个标题"
+            return TitleOptimizationOutcome(
+                message: "已优化 \(count) 个标题",
+                optimizedTitles: optimizedDisplayTitles(for: candidates, optimizedTitles: optimizedTitles)
+            )
         } catch {
-            return error.localizedDescription
+            return TitleOptimizationOutcome(message: error.localizedDescription, optimizedTitles: [])
+        }
+    }
+
+    private func optimizedDisplayTitles(
+        for candidates: [TitleOptimizationCandidate],
+        optimizedTitles: [UUID: String]
+    ) -> [String] {
+        let bookmarksById = Dictionary(uniqueKeysWithValues: bookmarks.map { ($0.id, $0) })
+        return candidates.compactMap { candidate in
+            guard
+                let proposedTitle = optimizedTitles[candidate.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !proposedTitle.isEmpty,
+                let bookmark = bookmarksById[candidate.id],
+                bookmark.titleOptimized
+            else {
+                return nil
+            }
+            return bookmark.title
         }
     }
 

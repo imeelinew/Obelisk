@@ -46,6 +46,7 @@ struct SmokeTests {
         try testBatchDelete()
         try testTitleOptimizationPersistence()
         try testTitleOptimizationPreferences()
+        try testTitleOptimizationTranslationPrompt()
         try await testBookmarksModelFiltersHiddenTitleOptimization()
         try testUsageGroupingFilters()
         try testEncryptedBookmarkStoreRoundTrip()
@@ -970,6 +971,51 @@ struct SmokeTests {
         defaults.set(true, forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey)
         try expect(TitleOptimizationPreferences.allowsOptimization(for: hidden, defaults: defaults), "expected hidden optimization toggle to allow hidden bookmarks")
         try expect(TitleOptimizationPreferences.allowsAutoOptimization(for: hidden, defaults: defaults), "expected auto optimization to allow hidden bookmarks once both toggles are on")
+    }
+
+    @MainActor
+    private static func testTitleOptimizationTranslationPrompt() throws {
+        let translationOffPrompt = TitleOptimizer.systemPrompt(
+            for: .standard,
+            translateNonChineseTitles: false
+        )
+        try expect(
+            translationOffPrompt.contains("Prefer the user's language when obvious from the title or URL."),
+            "expected translation-off prompt to preserve source language preference"
+        )
+        try expect(
+            !translationOffPrompt.contains("TRANSLATE_NON_CHINESE_TO_CHINESE"),
+            "expected translation-off prompt not to force Chinese translation"
+        )
+        try expect(
+            !translationOffPrompt.contains("Do not return an English-only title"),
+            "expected translation-off prompt not to reject English-only titles"
+        )
+
+        let translationOnPrompt = TitleOptimizer.systemPrompt(
+            for: .standard,
+            translateNonChineseTitles: true
+        )
+        try expect(
+            !translationOnPrompt.contains("Prefer the user's language when obvious from the title or URL."),
+            "expected translation-on prompt to remove conflicting source language preference"
+        )
+        try expect(
+            translationOnPrompt.contains("TRANSLATE_NON_CHINESE_TO_CHINESE"),
+            "expected translation-on prompt to set mandatory translation mode"
+        )
+        try expect(
+            translationOnPrompt.contains("MUST contain natural Chinese"),
+            "expected translation-on prompt to require Chinese text"
+        )
+        try expect(
+            translationOnPrompt.contains("Do not return an English-only title"),
+            "expected translation-on prompt to reject English-only titles"
+        )
+        try expect(
+            translationOnPrompt.contains("Preserve proper nouns and identifiers"),
+            "expected translation-on prompt to preserve proper nouns"
+        )
     }
 
     @MainActor

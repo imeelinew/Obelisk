@@ -1787,7 +1787,7 @@ struct BookmarkManagerView: View {
                 Toggle(isOn: $windowTransparencyEnabled) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("启用窗口透明效果")
-                        Text("为设置窗口启用 Liquid Glass 半透明材质。")
+                        Text("为 Obelisk 窗口启用毛玻璃半透明材质。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

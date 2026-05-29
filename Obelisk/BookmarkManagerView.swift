@@ -2171,6 +2171,8 @@ struct BookmarkManagerView: View {
             }
 
             Section("隐藏书签") {
+                Toggle("在侧边栏显示隐藏书签", isOn: $showHiddenBookmarksPage)
+
                 Toggle(isOn: $openHiddenBookmarksIncognito) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("使用无痕窗口打开隐藏书签")

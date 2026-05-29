@@ -118,9 +118,13 @@ struct BookmarkManagerView: View {
     @State private var llmConfigMessage: String?
     @State private var isTestingLLMConfig = false
     @State private var hiddenBookmarksUnlocked = false
+    @AppStorage(SidebarIconTheme.storageKey) private var sidebarIconThemeRaw = SidebarIconTheme.colorful.rawValue
     @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 22
     @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 11
     @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 6
+    @AppStorage("debugProfessionalSidebarIconSize") private var professionalSidebarIconSize: Double = 15
+    @AppStorage("debugProfessionalSidebarLabelSpacing") private var professionalSidebarLabelSpacing: Double = 12
+    @AppStorage("debugProfessionalSidebarLeadingInset") private var professionalSidebarLeadingInset: Double = 6
     @AppStorage("showHiddenBookmarksPage") private var showHiddenBookmarksPage = false
     @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
@@ -286,6 +290,22 @@ struct BookmarkManagerView: View {
             case .privacy:         return "lock.fill"
             case .settings:        return "gearshape.fill"
             case .developer:       return "wrench.fill"
+            }
+        }
+
+        var professionalSymbolName: String {
+            switch self {
+            case .bookmarks:       return "bookmark"
+            case .collections:     return "folder"
+            case .hiddenBookmarks: return "eye.slash"
+            case .archive:         return "archivebox"
+            case .appearance:      return "paintpalette"
+            case .menuBar:         return "menubar.rectangle"
+            case .shortcuts:       return "command"
+            case .ai:              return "apple.intelligence"
+            case .privacy:         return "lock"
+            case .settings:        return "gearshape"
+            case .developer:       return "wrench"
             }
         }
 
@@ -905,6 +925,17 @@ struct BookmarkManagerView: View {
         )
     }
 
+    private var sidebarIconTheme: SidebarIconTheme {
+        SidebarIconTheme(rawValue: sidebarIconThemeRaw) ?? .colorful
+    }
+
+    private var sidebarIconThemeBinding: Binding<SidebarIconTheme> {
+        Binding(
+            get: { sidebarIconTheme },
+            set: { sidebarIconThemeRaw = $0.rawValue }
+        )
+    }
+
     private var selectedUnoptimizedTitleCount: Int {
         model.bookmarks.filter {
             selection.contains($0.id)
@@ -968,6 +999,9 @@ struct BookmarkManagerView: View {
         sidebarIconTileSize = BookmarksModel.defaultDebugSidebarIconTileSize
         sidebarIconSymbolSize = BookmarksModel.defaultDebugSidebarIconSymbolSize
         sidebarIconCornerRadius = BookmarksModel.defaultDebugSidebarIconCornerRadius
+        professionalSidebarIconSize = BookmarksModel.defaultDebugProfessionalSidebarIconSize
+        professionalSidebarLabelSpacing = BookmarksModel.defaultDebugProfessionalSidebarLabelSpacing
+        professionalSidebarLeadingInset = BookmarksModel.defaultDebugProfessionalSidebarLeadingInset
         resetDeveloperOptionsConfirmation = false
         showToast("已恢复开发者选项默认值")
     }
@@ -1237,9 +1271,13 @@ struct BookmarkManagerView: View {
         } detail: {
             settingsDetail
         }
+        .environment(\.sidebarIconTheme, sidebarIconTheme)
         .environment(\.sidebarIconTileSize, sidebarIconTileSize)
         .environment(\.sidebarIconSymbolSize, sidebarIconSymbolSize)
         .environment(\.sidebarIconCornerRadius, sidebarIconCornerRadius)
+        .environment(\.professionalSidebarIconSize, professionalSidebarIconSize)
+        .environment(\.professionalSidebarLabelSpacing, professionalSidebarLabelSpacing)
+        .environment(\.professionalSidebarLeadingInset, professionalSidebarLeadingInset)
         .searchable(text: $searchText, placement: .toolbar, prompt: "搜索书签")
         .toolbar {
             settingsToolbar
@@ -1783,6 +1821,18 @@ struct BookmarkManagerView: View {
 
     private var appearancePage: some View {
         Form {
+            Section("主题") {
+                LabeledContent("主题") {
+                    Picker("主题", selection: sidebarIconThemeBinding) {
+                        ForEach(SidebarIconTheme.allCases) { theme in
+                            Text(theme.displayName).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+            }
+
             Section("窗口") {
                 Toggle(isOn: $windowTransparencyEnabled) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -2238,10 +2288,18 @@ struct BookmarkManagerView: View {
                     }
                 }
 
-                Section("侧栏图标调试") {
-                    centeredValueSlider("背景尺寸", desc: "侧栏图标背景色块的尺寸。", value: $sidebarIconTileSize, range: 16...28)
-                    centeredValueSlider("符号尺寸", desc: "侧栏图标中 SF Symbol 的字体大小。", value: $sidebarIconSymbolSize, range: 6...16)
-                    centeredValueSlider("圆角", desc: "侧栏图标背景色块的圆角半径。", value: $sidebarIconCornerRadius, range: 2...10)
+                if sidebarIconTheme == .colorful {
+                    Section("侧栏图标调试") {
+                        centeredValueSlider("背景尺寸", desc: "侧栏图标背景色块的尺寸。", value: $sidebarIconTileSize, range: 16...28)
+                        centeredValueSlider("符号尺寸", desc: "侧栏图标中 SF Symbol 的字体大小。", value: $sidebarIconSymbolSize, range: 6...16)
+                        centeredValueSlider("圆角", desc: "侧栏图标背景色块的圆角半径。", value: $sidebarIconCornerRadius, range: 2...10)
+                    }
+                } else if sidebarIconTheme == .professional {
+                    Section("侧栏图标调试") {
+                        centeredValueSlider("图标大小", desc: "专业主题侧栏 SF Symbol 的尺寸。", value: $professionalSidebarIconSize, range: 10...20)
+                        centeredValueSlider("图标间距", desc: "专业主题侧栏图标与标题之间的距离。", value: $professionalSidebarLabelSpacing, range: 7...17)
+                        centeredValueSlider("左侧边距", desc: "专业主题选中行蓝色容器内，图标距左边缘的距离。", value: $professionalSidebarLeadingInset, range: 0...12)
+                    }
                 }
 
                 Section("标题") {
@@ -2504,38 +2562,61 @@ struct BookmarkManagerView: View {
 
 private struct SidebarPageLabel: View {
     let page: BookmarkManagerView.SettingsPage
+    @Environment(\.sidebarIconTheme) private var theme
+    @Environment(\.professionalSidebarLabelSpacing) private var professionalLabelSpacing
+    @Environment(\.professionalSidebarLeadingInset) private var professionalLeadingInset
+
+    private var labelSpacing: CGFloat {
+        theme == .professional ? professionalLabelSpacing : 12
+    }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: labelSpacing) {
             SidebarCategoryIcon(page: page)
 
             Text(page.title)
         }
+        .padding(.leading, theme == .professional ? professionalLeadingInset : 0)
     }
 }
 
 private struct SidebarCategoryIcon: View {
     let page: BookmarkManagerView.SettingsPage
+    @Environment(\.sidebarIconTheme) private var theme
     @Environment(\.sidebarIconTileSize) private var tileSize
     @Environment(\.sidebarIconSymbolSize) private var symbolSize
     @Environment(\.sidebarIconCornerRadius) private var cornerRadius
+    @Environment(\.professionalSidebarIconSize) private var professionalIconSize
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(page.iconGradient)
-                .overlay {
-                    if page == .ai {
-                        IntelligenceTileOverlay(cornerRadius: cornerRadius)
-                    }
-                }
+        Group {
+            switch theme {
+            case .professional:
+                Image(systemName: page.professionalSymbolName)
+                    .font(.system(size: professionalIconSize, weight: .semibold))
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(.primary)
+            case .colorful:
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(page.iconGradient)
+                        .overlay {
+                            if page == .ai {
+                                IntelligenceTileOverlay(cornerRadius: cornerRadius)
+                            }
+                        }
 
-            Image(systemName: page.symbolName)
-                .font(.system(size: symbolSize, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.white)
+                    Image(systemName: page.symbolName)
+                        .font(.system(size: symbolSize, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.white)
+                }
+            }
         }
-        .frame(width: tileSize, height: tileSize)
+        .frame(
+            width: theme == .professional ? professionalIconSize : tileSize,
+            height: theme == .professional ? professionalIconSize : tileSize
+        )
     }
 }
 
@@ -2586,6 +2667,10 @@ private struct IntelligenceTileOverlay: View {
     }
 }
 
+private struct SidebarIconThemeKey: EnvironmentKey {
+    static let defaultValue: SidebarIconTheme = .colorful
+}
+
 private struct SidebarIconTileSizeKey: EnvironmentKey {
     static let defaultValue: Double = 32
 }
@@ -2598,7 +2683,24 @@ private struct SidebarIconCornerRadiusKey: EnvironmentKey {
     static let defaultValue: Double = 8
 }
 
+private struct ProfessionalSidebarIconSizeKey: EnvironmentKey {
+    static let defaultValue: Double = 15
+}
+
+private struct ProfessionalSidebarLabelSpacingKey: EnvironmentKey {
+    static let defaultValue: Double = 12
+}
+
+private struct ProfessionalSidebarLeadingInsetKey: EnvironmentKey {
+    static let defaultValue: Double = 6
+}
+
 private extension EnvironmentValues {
+    var sidebarIconTheme: SidebarIconTheme {
+        get { self[SidebarIconThemeKey.self] }
+        set { self[SidebarIconThemeKey.self] = newValue }
+    }
+
     var sidebarIconTileSize: Double {
         get { self[SidebarIconTileSizeKey.self] }
         set { self[SidebarIconTileSizeKey.self] = newValue }
@@ -2612,6 +2714,21 @@ private extension EnvironmentValues {
     var sidebarIconCornerRadius: Double {
         get { self[SidebarIconCornerRadiusKey.self] }
         set { self[SidebarIconCornerRadiusKey.self] = newValue }
+    }
+
+    var professionalSidebarIconSize: Double {
+        get { self[ProfessionalSidebarIconSizeKey.self] }
+        set { self[ProfessionalSidebarIconSizeKey.self] = newValue }
+    }
+
+    var professionalSidebarLabelSpacing: Double {
+        get { self[ProfessionalSidebarLabelSpacingKey.self] }
+        set { self[ProfessionalSidebarLabelSpacingKey.self] = newValue }
+    }
+
+    var professionalSidebarLeadingInset: Double {
+        get { self[ProfessionalSidebarLeadingInsetKey.self] }
+        set { self[ProfessionalSidebarLeadingInsetKey.self] = newValue }
     }
 }
 

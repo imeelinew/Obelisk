@@ -244,6 +244,9 @@ final class BookmarksModel {
     static let defaultDebugSidebarIconTileSize: Double = 22
     static let defaultDebugSidebarIconSymbolSize: Double = 11
     static let defaultDebugSidebarIconCornerRadius: Double = 6
+    static let defaultDebugProfessionalSidebarIconSize: Double = 15
+    static let defaultDebugProfessionalSidebarLabelSpacing: Double = 12
+    static let defaultDebugProfessionalSidebarLeadingInset: Double = 6
     static let minArchiveAfterDays = 3
     static let maxArchiveAfterDays = 30
     static let defaultArchiveAfterDays = 30

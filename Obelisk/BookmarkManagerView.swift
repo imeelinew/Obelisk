@@ -129,7 +129,6 @@ struct BookmarkManagerView: View {
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = true
     @AppStorage(ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) private var openHiddenBookmarksIncognito = true
-    @AppStorage(ObeliskAppDefaults.silentAddEnabledKey) private var silentAddEnabled = true
     @AppStorage(TitleOptimizationPreferences.autoOptimizeNewBookmarksKey) private var autoOptimizeNewBookmarks = false
     @AppStorage(TitleOptimizationPreferences.optimizeHiddenBookmarksKey) private var optimizeHiddenBookmarks = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
@@ -1989,14 +1988,13 @@ struct BookmarkManagerView: View {
     private var shortcutsPage: some View {
         Form {
             Section("快捷键") {
-                Toggle(isOn: $silentAddEnabled) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("静默添加书签")
-                        Text("按 ⌥B / ⌥H 后直接将当前浏览器标签加入书签，不弹出设置窗口，改为菜单栏提醒。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                ShortcutRecorderRow(title: "添加书签", name: .addBookmark)
+                ShortcutRecorderRow(title: "添加隐藏书签", name: .addHiddenBookmark)
+                ShortcutRecorderRow(
+                    title: "撤销添加",
+                    description: "添加书签 5s 内可以撤回。",
+                    name: .undoAdd
+                )
             }
         }
         .formStyle(.grouped)

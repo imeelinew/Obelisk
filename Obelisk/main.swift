@@ -1,6 +1,6 @@
 import AppKit
-import Carbon.HIToolbox
 import CoreSpotlight
+import KeyboardShortcuts
 import CryptoKit
 import Foundation
 import Network
@@ -44,7 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.handleStorageRootChanged(rootDirectory)
         }
     )
-    private var globalHotkeys: GlobalHotkeys?
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
         loader.onIconLoaded = { [weak self] in
@@ -53,9 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return loader
     }()
     private var pendingOptimizationTask: Task<Void, Never>?
-    private var silentAddEnabled: Bool {
-        UserDefaults.standard.bool(forKey: ObeliskAppDefaults.silentAddEnabledKey)
-    }
     private var aiFeaturesEnabled: Bool {
         UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
     }
@@ -86,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         startBookmarkWatcher()
         normalizeActiveStorageRoot()
-        registerGlobalHotkey()
+        installKeyboardShortcutHandlers()
         rebuildMenu()
         setupNotificationPopover()
 
@@ -95,42 +91,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Wave 5: ⌥B from anywhere → fetch the frontmost browser's current
-    /// tab via AppleScript and present the manage window's add sheet
-    /// prefilled with URL + title. Falls back to a clipboard http(s) URL when
-    /// the frontmost app isn't a recognized browser or automation permission
-    /// was denied (silent add uses the same fallback).
-    ///
-    /// Note: ⌥B normally types `∫` in text fields. Carbon's `RegisterEventHotKey`
-    /// intercepts the keystroke at the system level so it never reaches the
-    /// focused app — we get the press, the focused app does not.
-    private func registerGlobalHotkey() {
-        let hotkeys = GlobalHotkeys()
-        hotkeys.register(
-            keyCode: UInt32(kVK_ANSI_B),
-            modifiers: UInt32(optionKey),
-            hotKeyID: 1
-        ) { [weak self] in
+    /// Global shortcuts (user-customizable in Settings) fetch the frontmost
+    /// browser tab via AppleScript, or fall back to a clipboard http(s) URL.
+    private func installKeyboardShortcutHandlers() {
+        KeyboardShortcuts.onKeyUp(for: .addBookmark) { [weak self] in
             self?.handleGlobalHotkey(isHidden: false)
         }
-
-        hotkeys.register(
-            keyCode: UInt32(kVK_ANSI_H),
-            modifiers: UInt32(optionKey),
-            hotKeyID: 2
-        ) { [weak self] in
+        KeyboardShortcuts.onKeyUp(for: .addHiddenBookmark) { [weak self] in
             self?.handleGlobalHotkey(isHidden: true)
         }
-
-        hotkeys.register(
-            keyCode: UInt32(kVK_ANSI_Z),
-            modifiers: UInt32(optionKey),
-            hotKeyID: 3
-        ) { [weak self] in
-            self?.undoLastSilentAdd()
+        KeyboardShortcuts.onKeyUp(for: .undoAdd) { [weak self] in
+            self?.undoLastAdd()
         }
-
-        globalHotkeys = hotkeys
     }
 
     private func handleGlobalHotkey(isHidden: Bool) {
@@ -149,25 +121,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if silentAddEnabled {
-            handleSilentAdd(url: url, title: title, isHidden: isHidden)
-        } else {
-            addRequest.request(url: url, title: title, isHidden: isHidden)
-            NSApp.setActivationPolicy(.regular)
-            managerWindow.show()
-        }
+        handleHotkeyAdd(url: url, title: title, isHidden: isHidden)
     }
 
-    private func handleSilentAdd(url: String?, title: String?, isHidden: Bool) {
-        guard let url, !url.isEmpty else {
-            notifyUser(
-                title: "无法添加书签",
-                body: "当前浏览器标签无有效网址",
-                kind: .error
-            )
-            return
-        }
-
+    private func handleHotkeyAdd(url: String, title: String?, isHidden: Bool) {
         let resolvedTitle = (title?.isEmpty == false) ? title! : url
         let bookmark: Bookmark
         switch bookmarksModel.addBookmark(title: resolvedTitle, url: url, isHidden: isHidden) {
@@ -220,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + undoWindowSeconds, execute: work)
     }
 
-    private func undoLastSilentAdd() {
+    private func undoLastAdd() {
         guard let pendingUndo, Date() <= pendingUndo.expiresAt else {
             self.pendingUndo = nil
             pendingUndoExpirationWorkItem?.cancel()

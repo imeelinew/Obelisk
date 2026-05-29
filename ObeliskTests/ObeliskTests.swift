@@ -1555,16 +1555,11 @@ struct SmokeTests {
             freshDefaults.removePersistentDomain(forName: freshSuiteName)
         }
 
-        oldDefaults.set(false, forKey: ObeliskAppDefaults.silentAddEnabledKey)
         oldDefaults.set(false, forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey)
         oldDefaults.set("legacy-window-id", forKey: "diaIncognitoWindowID")
 
         ObeliskAppDefaults.register(in: freshDefaults)
 
-        try expect(
-            freshDefaults.bool(forKey: ObeliskAppDefaults.silentAddEnabledKey),
-            "expected fresh app defaults to enable silent add"
-        )
         try expect(
             freshDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey),
             "expected fresh app defaults to enable incognito hidden bookmarks"
@@ -1584,10 +1579,6 @@ struct SmokeTests {
         try expect(
             freshDefaults.bool(forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey) == false,
             "expected fresh app defaults to keep hidden title optimization off"
-        )
-        try expect(
-            oldDefaults.bool(forKey: ObeliskAppDefaults.silentAddEnabledKey) == false,
-            "expected legacy defaults suite to stay isolated"
         )
         try expect(
             oldDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) == false,

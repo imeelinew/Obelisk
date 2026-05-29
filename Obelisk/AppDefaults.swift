@@ -1,7 +1,6 @@
 import Foundation
 
 enum ObeliskAppDefaults {
-    static let silentAddEnabledKey = "silentAddEnabled"
     static let openHiddenBookmarksIncognitoKey = "openHiddenBookmarksIncognito"
 
     static func register(
@@ -10,7 +9,6 @@ enum ObeliskAppDefaults {
     ) {
         let hadStoredEncryptionPreference = defaults.object(forKey: LocalJSONEncryption.enabledKey) != nil
         defaults.register(defaults: [
-            silentAddEnabledKey: true,
             openHiddenBookmarksIncognitoKey: true,
             LocalJSONEncryption.enabledKey: true,
             LocalJSONEncryption.disabledByAuthenticatedUserKey: false

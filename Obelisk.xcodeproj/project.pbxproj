@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		C1C0A0012FC4A00000000001 /* Obelisk.icon in Resources */ = {isa = PBXBuildFile; fileRef = C1C0A0022FC4A00000000002 /* Obelisk.icon */; };
+		E1KS00032FC4A00100000003 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = E1KS00022FC4A00100000002 /* KeyboardShortcuts */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E1KS00032FC4A00100000003 /* KeyboardShortcuts in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			);
 			name = Obelisk;
 			packageProductDependencies = (
+				E1KS00022FC4A00100000002 /* KeyboardShortcuts */,
 			);
 			productName = Obelisk;
 			productReference = 45B26F162FC4874D009BAE8A /* Obelisk.app */;
@@ -201,6 +204,9 @@
 			);
 			mainGroup = 45B26F0D2FC4874D009BAE8A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E1KS00012FC4A00100000001 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 45B26F172FC4874D009BAE8A /* Products */;
 			projectDirPath = "";
@@ -582,6 +588,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E1KS00012FC4A00100000001 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/KeyboardShortcuts";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E1KS00022FC4A00100000002 /* KeyboardShortcuts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E1KS00012FC4A00100000001 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
+			productName = KeyboardShortcuts;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 45B26F0E2FC4874D009BAE8A /* Project object */;
 }

@@ -1442,7 +1442,7 @@ struct BookmarkManagerView: View {
             // 顶部：书签 / 隐藏书签 直接铺开，不带分组标题。
             ForEach(visibleSettingsPages.filter { $0.group == .content }) { page in
                 NavigationLink(value: page) {
-                    SidebarPageLabel(page: page)
+                    SidebarPageLabel(page: page, badgeCount: sidebarBadgeCount(for: page))
                 }
             }
 
@@ -1453,7 +1453,7 @@ struct BookmarkManagerView: View {
                     Section(group.rawValue) {
                         ForEach(pages) { page in
                             NavigationLink(value: page) {
-                                SidebarPageLabel(page: page)
+                                SidebarPageLabel(page: page, badgeCount: sidebarBadgeCount(for: page))
                             }
                         }
                     }
@@ -1467,6 +1467,29 @@ struct BookmarkManagerView: View {
     private var visibleSettingsPages: [SettingsPage] {
         SettingsPage.allCases.filter { page in
             page != .hiddenBookmarks || showHiddenBookmarksPage
+        }
+    }
+
+    private func sidebarBadgeCount(for page: SettingsPage) -> Int? {
+        switch page {
+        case .bookmarks:
+            let pinnedCount = model.pinnedSections(
+                searchText: "",
+                sortMode: pinnedBookmarkListSortMode
+            ).reduce(0) { $0 + $1.bookmarks.count }
+            let ungroupedCount = model.visibleUngroupedSections(
+                searchText: "",
+                sortMode: bookmarkListSortMode
+            ).reduce(0) { $0 + $1.bookmarks.count }
+            return pinnedCount + ungroupedCount
+        case .collections:
+            return model.collections.count
+        case .hiddenBookmarks:
+            return hiddenBookmarks.count
+        case .archive:
+            return archivedBookmarks.count
+        default:
+            return nil
         }
     }
 
@@ -2562,6 +2585,7 @@ struct BookmarkManagerView: View {
 
 private struct SidebarPageLabel: View {
     let page: BookmarkManagerView.SettingsPage
+    var badgeCount: Int?
     @Environment(\.sidebarIconTheme) private var theme
     @Environment(\.professionalSidebarLabelSpacing) private var professionalLabelSpacing
     @Environment(\.professionalSidebarLeadingInset) private var professionalLeadingInset
@@ -2575,6 +2599,15 @@ private struct SidebarPageLabel: View {
             SidebarCategoryIcon(page: page)
 
             Text(page.title)
+
+            Spacer(minLength: 8)
+
+            if let badgeCount {
+                Text("\(badgeCount)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 6)
+            }
         }
         .padding(.leading, theme == .professional ? professionalLeadingInset : 0)
     }

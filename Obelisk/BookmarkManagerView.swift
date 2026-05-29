@@ -1485,6 +1485,7 @@ struct BookmarkManagerView: View {
         case .collections:
             return model.collections.count
         case .hiddenBookmarks:
+            guard hiddenBookmarksUnlocked else { return nil }
             return hiddenBookmarks.count
         case .archive:
             return archivedBookmarks.count

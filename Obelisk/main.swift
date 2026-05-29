@@ -281,7 +281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "About Obelisk", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "退出 Obelisk", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        let quitMenuItem = NSMenuItem(title: "退出 Obelisk", action: #selector(quit), keyEquivalent: "q")
+        quitMenuItem.target = self
+        appMenu.addItem(quitMenuItem)
         appMenuItem.submenu = appMenu
 
         let editMenuItem = NSMenuItem()
@@ -517,7 +519,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() {
+        guard presentQuitConfirmation() else { return }
         NSApp.terminate(nil)
+    }
+
+    private func presentQuitConfirmation() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "退出 Obelisk？"
+        alert.informativeText = "退出 Obelisk 将一并关闭应用和菜单栏。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "退出")
+        alert.addButton(withTitle: "取消")
+        if let quitButton = alert.buttons.first {
+            quitButton.contentTintColor = .systemRed
+        }
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {

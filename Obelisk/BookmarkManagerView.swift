@@ -161,6 +161,7 @@ struct BookmarkManagerView: View {
     @State private var menuBarDragTargetIndex: Int?
     @State private var menuBarDragOffsetY: CGFloat = 0
     @State private var lastMenuBarOrderHapticDate = Date.distantPast
+    @State private var launchAtLoginEnabled = LoginItemController.isEnabled
 
     private let menuBarOrderRowHeight: CGFloat = 50
     private var effectiveBlurAlpha: Double {
@@ -217,6 +218,7 @@ struct BookmarkManagerView: View {
         case shortcuts
         case ai
         case privacy
+        case settings
         case developer
 
         var id: String { rawValue }
@@ -233,7 +235,7 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks, .collections, .hiddenBookmarks, .archive: return .content
             case .appearance, .menuBar, .shortcuts:     return .preferences
-            case .ai, .privacy, .developer:             return .advanced
+            case .ai, .privacy, .settings, .developer:  return .advanced
             }
         }
 
@@ -248,6 +250,7 @@ struct BookmarkManagerView: View {
             case .shortcuts:       return "快捷键"
             case .ai:              return "Intelligence"
             case .privacy:         return "隐私"
+            case .settings:        return "设置"
             case .developer:       return "开发者选项"
             }
         }
@@ -263,6 +266,7 @@ struct BookmarkManagerView: View {
             case .shortcuts:       return "command"
             case .ai:              return "apple.intelligence"
             case .privacy:         return "lock.fill"
+            case .settings:        return "gearshape.fill"
             case .developer:       return "wrench.fill"
             }
         }
@@ -325,6 +329,12 @@ struct BookmarkManagerView: View {
             case .privacy:
                 return LinearGradient(
                     colors: [Color(red: 0.72, green: 0.52, blue: 1.0), Color(red: 0.42, green: 0.24, blue: 0.86)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .settings:
+                return LinearGradient(
+                    colors: [Color(red: 0.52, green: 0.64, blue: 0.78), Color(red: 0.28, green: 0.38, blue: 0.52)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -1009,6 +1019,35 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLoginEnabled },
+            set: { setLaunchAtLoginEnabled($0) }
+        )
+    }
+
+    private func refreshLaunchAtLoginState() {
+        launchAtLoginEnabled = LoginItemController.isEnabled
+    }
+
+    private func setLaunchAtLoginEnabled(_ isEnabled: Bool) {
+        let previousValue = launchAtLoginEnabled
+        launchAtLoginEnabled = isEnabled
+
+        do {
+            try LoginItemController.setEnabled(isEnabled)
+            refreshLaunchAtLoginState()
+            if launchAtLoginEnabled == isEnabled {
+                showToast(isEnabled ? "已开启登录时启动" : "已关闭登录时启动")
+            } else {
+                showToast("请在系统设置中允许 Obelisk 登录时启动", kind: .error)
+            }
+        } catch {
+            launchAtLoginEnabled = previousValue
+            showToast(error.localizedDescription, kind: .error)
+        }
+    }
+
     private func setLocalJSONEncryptionEnabled(_ isEnabled: Bool) {
         if !isEnabled {
             Task {
@@ -1473,6 +1512,8 @@ struct BookmarkManagerView: View {
                 aiOptimizationPage
             case .privacy:
                 privacyPage
+            case .settings:
+                appSettingsPage
             case .developer:
                 developerOptionsPage
             }
@@ -2069,6 +2110,21 @@ struct BookmarkManagerView: View {
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("Intelligence")
+    }
+
+    private var appSettingsPage: some View {
+        Form {
+            Section("启动") {
+                Toggle("在登录时启动 Obelisk", isOn: launchAtLoginBinding)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
+        .settingsContentMargins()
+        .navigationTitle("设置")
+        .onAppear {
+            refreshLaunchAtLoginState()
+        }
     }
 
     private var privacyPage: some View {

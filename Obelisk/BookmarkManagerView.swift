@@ -101,6 +101,7 @@ private struct CompactBorderedMenuPicker<Option: Hashable>: View {
 }
 
 struct BookmarkManagerView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Bindable var model: BookmarksModel
     let faviconLoader: FaviconLoader
     let addRequest: AddBookmarkRequest
@@ -164,6 +165,24 @@ struct BookmarkManagerView: View {
     @State private var launchAtLoginEnabled = LoginItemController.isEnabled
 
     private let menuBarOrderRowHeight: CGFloat = 50
+    private var menuBarOrderBackgroundColor: Color {
+        switch colorScheme {
+        case .dark:
+            return Color(red: 39 / 255, green: 41 / 255, blue: 54 / 255)
+        default:
+            return Color(red: 247 / 255, green: 247 / 255, blue: 247 / 255)
+        }
+    }
+
+    private var menuBarOrderTransparentBackgroundColor: Color {
+        switch colorScheme {
+        case .dark:
+            return Color.white.opacity(0.04)
+        default:
+            return Color.black.opacity(0.04)
+        }
+    }
+
     private var effectiveBlurAlpha: Double {
         guard windowTransparencyEnabled else { return 1.0 }
         return 1.0 - min(0.5, max(0.0, windowSeeThrough))
@@ -1868,8 +1887,7 @@ struct BookmarkManagerView: View {
                let item = items.first(where: { $0.id == draggingMenuBarSectionID }) {
                 menuBarOrderRow(for: item, isPlaceholder: false, isDropTarget: false)
                     .background {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(.regularMaterial)
+                        menuBarOrderBackground(cornerRadius: 9)
                     }
                     .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
                     .offset(y: CGFloat(startIndex) * menuBarOrderRowHeight + menuBarDragOffsetY)
@@ -1879,18 +1897,24 @@ struct BookmarkManagerView: View {
         }
         .frame(height: CGFloat(items.count) * menuBarOrderRowHeight)
         .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.quaternary.opacity(0.55))
-                .background {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(.regularMaterial)
-                }
+            menuBarOrderBackground(cornerRadius: 10)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func menuBarOrderBackground(cornerRadius: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        if windowTransparencyEnabled {
+            shape.fill(menuBarOrderTransparentBackgroundColor)
+        } else {
+            shape.fill(menuBarOrderBackgroundColor)
+        }
     }
 
     private func menuBarOrderRow(

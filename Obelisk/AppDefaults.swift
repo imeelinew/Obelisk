@@ -33,6 +33,7 @@ enum ObeliskAppDefaults {
             preservesUnauthenticatedDisabledState: preservesUnauthenticatedDisabledEncryption
         )
         TitleOptimizationPreferences.register(in: defaults)
+        BookmarkAutoGroupingPreferences.register(in: defaults)
         BookmarkListSortMode.migratePinnedSortModeIfNeeded(in: defaults)
     }
 

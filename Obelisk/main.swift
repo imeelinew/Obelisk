@@ -56,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var aiFeaturesEnabled: Bool {
         UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
     }
+    private var autoGroupNewBookmarks: Bool {
+        BookmarkAutoGroupingPreferences.autoGroupNewBookmarks()
+    }
     private var notificationPopover: NSPopover?
     private var notificationDismissWorkItem: DispatchWorkItem?
     private var pendingUndo: PendingBookmarkUndo?
@@ -148,17 +151,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             kind: isHidden ? .hidden : .success
         )
 
-        if aiFeaturesEnabled, TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark) {
-            pendingOptimizationTask?.cancel()
-            pendingOptimizationTask = Task { [weak self] in
-                let outcome = await self?.bookmarksModel.optimizeTitleDetails(bookmarkIds: [bookmark.id])
-                if let outcome {
-                    self?.notifyUser(
-                        title: "标题优化完成",
-                        body: outcome.optimizedTitles.first ?? outcome.message,
-                        kind: .intelligence
-                    )
-                }
+        guard aiFeaturesEnabled else { return }
+
+        let shouldOptimizeTitle = TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark)
+        let shouldAutoGroup = autoGroupNewBookmarks && !bookmark.isHidden
+        guard shouldOptimizeTitle || shouldAutoGroup else { return }
+
+        pendingOptimizationTask?.cancel()
+        pendingOptimizationTask = Task { [weak self] in
+            if shouldOptimizeTitle,
+               let titleOutcome = await self?.bookmarksModel.optimizeTitleDetails(bookmarkIds: [bookmark.id]) {
+                self?.notifyUser(
+                    title: "标题优化完成",
+                    body: titleOutcome.optimizedTitles.first ?? titleOutcome.message,
+                    kind: titleOutcome.message.hasPrefix("已优化") ? .intelligence : .error
+                )
+            }
+
+            if shouldAutoGroup,
+               let groupingOutcome = await self?.bookmarksModel.autoGroupBookmarks(bookmarkIds: [bookmark.id]),
+               groupingOutcome.groupedCount > 0 || !shouldOptimizeTitle {
+                self?.notifyUser(
+                    title: groupingOutcome.groupedCount > 0 ? "自动分组完成" : "自动分组失败",
+                    body: groupingOutcome.singleBookmarkDescription ?? groupingOutcome.message,
+                    kind: groupingOutcome.groupedCount > 0 ? .autoGrouping : .error
+                )
             }
         }
     }
@@ -213,16 +230,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         body: String,
         kind: BookmarkAddedNotificationView.Kind
     ) {
-        notificationDismissWorkItem?.cancel()
-        notificationPopover?.close()
+        dismissNotificationPopover()
         showMenuBarPopover(title: title, subtitle: body, kind: kind)
+    }
+
+    private func dismissNotificationPopover() {
+        notificationDismissWorkItem?.cancel()
+        notificationDismissWorkItem = nil
+        notificationPopover?.performClose(nil)
+        notificationPopover?.close()
+        notificationPopover = nil
     }
 
     // MARK: - Menu bar popover notification
 
     private func setupNotificationPopover() {
         let popover = NSPopover()
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.animates = true
         notificationPopover = popover
     }
@@ -249,22 +273,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let fitted = hosting.view.fittingSize
 
         let popover = NSPopover()
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.animates = true
         popover.contentViewController = hosting
         popover.contentSize = NSSize(width: 280, height: fitted.height)
         notificationPopover = popover
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        // Give the popover window a moment to appear so .makeKey() resolves
-        // against a real window.
-        DispatchQueue.main.async {
-            popover.contentViewController?.view.window?.makeKey()
-        }
 
         // Keep success messages visible for the whole undo window.
         let work = DispatchWorkItem { [weak self] in
-            self?.notificationPopover?.close()
+            self?.dismissNotificationPopover()
         }
         notificationDismissWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + undoWindowSeconds, execute: work)
@@ -465,6 +484,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        dismissNotificationPopover()
+    }
+
     private func applyDestructiveMenuItemStyle(to item: NSMenuItem, highlighted: Bool) {
         item.attributedTitle = NSAttributedString(
             string: item.title,
@@ -527,6 +550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openManager() {
+        dismissNotificationPopover()
         NSApp.setActivationPolicy(.regular)
         managerWindow.show()
     }

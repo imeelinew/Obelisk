@@ -49,6 +49,9 @@ struct SmokeTests {
         try testTitleOptimizationTranslationPrompt()
         try await testBookmarksModelFiltersHiddenTitleOptimization()
         try await testBookmarksModelTitleOptimizationOutcomeIncludesUpdatedTitle()
+        try await testBookmarksModelAutoGroupsUngroupedBookmarks()
+        try await testBookmarksModelAutoGroupingSkipsGroupedPinnedAndHiddenBookmarks()
+        try testBookmarkAutoGroupingSingleDescription()
         try testUsageGroupingFilters()
         try testEncryptedBookmarkStoreRoundTrip()
         try testEncryptedBookmarkStateStoreRoundTrip()
@@ -1107,6 +1110,114 @@ struct SmokeTests {
         try expect(legacyMessage == "没有需要优化的标题", "expected legacy string API to remain available")
     }
 
+    @MainActor
+    private static func testBookmarksModelAutoGroupsUngroupedBookmarks() async throws {
+        let defaults = UserDefaults.standard
+        let restoredDefaults = capturedDefaults(
+            keys: [
+                BookmarksModel.aiFeaturesEnabledKey
+            ],
+            defaults: defaults
+        )
+        defer {
+            restoreDefaults(restoredDefaults, defaults: defaults)
+        }
+
+        defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
+
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let docs = try store.add(title: "Swift Concurrency Guide", url: "https://developer.apple.com/documentation/swift/concurrency")
+        let recipe = try store.add(title: "Sourdough Starter Notes", url: "https://example.com/sourdough")
+        let groupOptimizer = StubBookmarkGroupOptimizer(response: [
+            docs.id: "开发",
+            recipe.id: "食谱"
+        ])
+        let model = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root),
+            titleOptimizer: StubTitleOptimizer(response: [:]),
+            groupOptimizer: groupOptimizer
+        )
+        try expect(model.createCollection(name: "开发") == nil, "expected existing collection setup")
+
+        let outcome = await model.autoGroupBookmarks()
+        try expect(outcome.groupedCount == 1, "expected only bookmark with an existing suggested group to be assigned")
+        try expect(outcome.message == "已自动分组 1 个书签", "expected grouping summary")
+        let placementById = Dictionary(uniqueKeysWithValues: outcome.placements.map { ($0.bookmarkId, $0) })
+        try expect(placementById[docs.id]?.groupName == "开发", "expected existing group name in outcome")
+        try expect(placementById[recipe.id] == nil, "expected non-existing group suggestion to be ignored")
+        try expect(groupOptimizer.existingCollectionNames == ["开发"], "expected existing groups to be sent to optimizer")
+
+        let collectionByName = Dictionary(uniqueKeysWithValues: model.collections.map { ($0.name, $0.id) })
+        try expect(model.collectionId(for: docs.id) == collectionByName["开发"], "expected existing collection to be reused")
+        try expect(collectionByName["食谱"] == nil, "expected auto grouping not to create a new collection")
+        try expect(model.collectionId(for: recipe.id) == nil, "expected bookmark with non-existing group suggestion to remain ungrouped")
+    }
+
+    @MainActor
+    private static func testBookmarksModelAutoGroupingSkipsGroupedPinnedAndHiddenBookmarks() async throws {
+        let defaults = UserDefaults.standard
+        let restoredDefaults = capturedDefaults(
+            keys: [
+                BookmarksModel.aiFeaturesEnabledKey
+            ],
+            defaults: defaults
+        )
+        defer {
+            restoreDefaults(restoredDefaults, defaults: defaults)
+        }
+
+        defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
+
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let grouped = try store.add(title: "Grouped", url: "https://grouped.example")
+        let pinned = try store.add(title: "Pinned", url: "https://pinned.example")
+        let hidden = try store.add(title: "Hidden", url: "https://hidden.example", isHidden: true)
+        let ungrouped = try store.add(title: "Ungrouped", url: "https://ungrouped.example")
+        try store.setPinned(true, ids: [pinned.id])
+
+        let groupOptimizer = StubBookmarkGroupOptimizer(response: [
+            grouped.id: "工作",
+            pinned.id: "置顶",
+            hidden.id: "隐藏",
+            ungrouped.id: "阅读"
+        ])
+        let model = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root),
+            titleOptimizer: StubTitleOptimizer(response: [:]),
+            groupOptimizer: groupOptimizer
+        )
+        try expect(model.createCollection(name: "工作") == nil, "expected collection setup")
+        try expect(model.createCollection(name: "阅读") == nil, "expected target collection setup")
+        let workId = model.collections.first { $0.name == "工作" }?.id
+        try expect(workId != nil, "expected work collection")
+        try expect(model.setBookmarkCollection(bookmarkIds: [grouped.id], collectionId: workId) == nil, "expected manual grouping setup")
+
+        let outcome = await model.autoGroupBookmarks()
+        try expect(outcome.groupedCount == 1, "expected only visible unpinned ungrouped bookmark to be assigned")
+        try expect(outcome.singleBookmarkDescription == "已归入「阅读」", "expected single existing-group formatter")
+        try expect(groupOptimizer.candidateIDs == [ungrouped.id], "expected grouped, pinned, and hidden bookmarks to be skipped")
+        try expect(model.collectionId(for: grouped.id) == workId, "expected existing membership to be preserved")
+        try expect(model.collectionId(for: pinned.id) == nil, "expected pinned bookmark to remain outside collections")
+        try expect(model.collectionId(for: hidden.id) == nil, "expected hidden bookmark to remain outside collections")
+        try expect(model.collectionId(for: ungrouped.id) != nil, "expected ungrouped bookmark to receive a collection")
+    }
+
+    private static func testBookmarkAutoGroupingSingleDescription() throws {
+        let id = UUID()
+        let reused = BookmarkAutoGroupingOutcome(
+            message: "已自动分组 1 个书签",
+            groupedCount: 1,
+            placements: [
+                AutoGroupedBookmarkPlacement(bookmarkId: id, groupName: "开发")
+            ]
+        )
+        try expect(reused.singleBookmarkDescription == "已归入「开发」", "expected existing group popover copy")
+    }
+
     private static func testUsageGroupingFilters() throws {
         let root = try temporaryDirectory()
         let usageStore = UsageStore(rootDirectory: root)
@@ -1581,6 +1692,10 @@ struct SmokeTests {
             "expected fresh app defaults to keep hidden title optimization off"
         )
         try expect(
+            freshDefaults.bool(forKey: BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey) == false,
+            "expected fresh app defaults to keep new-bookmark auto grouping off"
+        )
+        try expect(
             oldDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) == false,
             "expected legacy incognito preference to stay isolated"
         )
@@ -1868,6 +1983,25 @@ private final class StubTitleOptimizer: TitleOptimizing {
 
     func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String] {
         candidateIDs = candidates.map(\.id)
+        return response
+    }
+}
+
+private final class StubBookmarkGroupOptimizer: BookmarkGroupingOptimizing {
+    private let response: [UUID: String]
+    private(set) var candidateIDs: [UUID] = []
+    private(set) var existingCollectionNames: [String] = []
+
+    init(response: [UUID: String]) {
+        self.response = response
+    }
+
+    func suggestGroups(
+        for candidates: [BookmarkGroupingCandidate],
+        existingCollections: [BookmarkGroupingExistingCollection]
+    ) async throws -> [UUID: String] {
+        candidateIDs = candidates.map(\.id)
+        existingCollectionNames = existingCollections.map(\.name)
         return response
     }
 }

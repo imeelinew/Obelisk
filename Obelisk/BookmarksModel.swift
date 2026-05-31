@@ -234,6 +234,24 @@ struct TitleOptimizationOutcome: Equatable {
     var optimizedTitles: [String]
 }
 
+struct AutoGroupedBookmarkPlacement: Equatable {
+    var bookmarkId: UUID
+    var groupName: String
+}
+
+struct BookmarkAutoGroupingOutcome: Equatable {
+    var message: String
+    var groupedCount: Int
+    var placements: [AutoGroupedBookmarkPlacement]
+
+    var singleBookmarkDescription: String? {
+        guard placements.count == 1, let placement = placements.first else {
+            return nil
+        }
+        return "已归入「\(placement.groupName)」"
+    }
+}
+
 @MainActor
 @Observable
 final class BookmarksModel {
@@ -275,8 +293,10 @@ final class BookmarksModel {
     private let usageStore: UsageStore
     private let groupStore: BookmarkGroupStore
     private let titleOptimizer: any TitleOptimizing
+    private let groupOptimizer: any BookmarkGroupingOptimizing
     private var recentGroupLimit: Int
     private(set) var isOptimizingTitles = false
+    private(set) var isAutoGroupingBookmarks = false
 
     var rootDirectory: URL {
         store.rootDirectory
@@ -317,12 +337,15 @@ final class BookmarksModel {
         store: BookmarkStore,
         usageStore: UsageStore,
         recentGroupLimit: Int = 5,
-        titleOptimizer: (any TitleOptimizing)? = nil
+        titleOptimizer: (any TitleOptimizing)? = nil,
+        groupOptimizer: (any BookmarkGroupingOptimizing)? = nil
     ) {
         self.store = store
         self.usageStore = usageStore
         self.groupStore = BookmarkGroupStore(rootDirectory: store.rootDirectory)
-        self.titleOptimizer = titleOptimizer ?? TitleOptimizer(rootDirectory: store.rootDirectory)
+        let defaultOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
+        self.titleOptimizer = titleOptimizer ?? defaultOptimizer
+        self.groupOptimizer = groupOptimizer ?? defaultOptimizer
         self.recentGroupLimit = recentGroupLimit
         reload()
     }
@@ -721,6 +744,164 @@ final class BookmarksModel {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    func autoGroupBookmarks(bookmarkIds: Set<UUID> = []) async -> BookmarkAutoGroupingOutcome {
+        guard UserDefaults.standard.object(forKey: Self.aiFeaturesEnabledKey) as? Bool ?? true else {
+            return Self.emptyAutoGroupingOutcome(message: "Intelligence 功能已关闭")
+        }
+
+        guard !isAutoGroupingBookmarks else {
+            return Self.emptyAutoGroupingOutcome(message: "自动分组正在进行中")
+        }
+
+        let candidates = autoGroupingCandidates(scopedTo: bookmarkIds)
+        guard !candidates.isEmpty else {
+            return Self.emptyAutoGroupingOutcome(message: "没有需要自动分组的书签")
+        }
+        guard !collections.isEmpty else {
+            return Self.emptyAutoGroupingOutcome(message: "还没有可用分组")
+        }
+
+        isAutoGroupingBookmarks = true
+        defer { isAutoGroupingBookmarks = false }
+
+        do {
+            let suggestions = try await groupOptimizer.suggestGroups(
+                for: candidates.map {
+                    BookmarkGroupingCandidate(
+                        id: $0.id,
+                        title: $0.title,
+                        url: $0.url
+                    )
+                },
+                existingCollections: collections.map {
+                    BookmarkGroupingExistingCollection(id: $0.id, name: $0.name)
+                }
+            )
+            let currentCandidates = autoGroupingCandidates(scopedTo: Set(candidates.map(\.id)))
+            guard !currentCandidates.isEmpty else {
+                return Self.emptyAutoGroupingOutcome(message: "没有需要自动分组的书签")
+            }
+            let result = try applyAutoGroupingSuggestions(suggestions, to: currentCandidates)
+            reload()
+            return BookmarkAutoGroupingOutcome(
+                message: Self.autoGroupingMessage(groupedCount: result.groupedCount),
+                groupedCount: result.groupedCount,
+                placements: result.placements
+            )
+        } catch {
+            return Self.emptyAutoGroupingOutcome(message: error.localizedDescription)
+        }
+    }
+
+    private func autoGroupingCandidates(scopedTo bookmarkIds: Set<UUID>) -> [Bookmark] {
+        let scope = bookmarkIds.isEmpty ? nil : bookmarkIds
+        let usage = usageStore.load()
+        return visibleBookmarks(from: bookmarks, usage: usage)
+            .filter { bookmark in
+                if let scope, !scope.contains(bookmark.id) {
+                    return false
+                }
+                return !bookmark.isPinned && membershipByBookmarkId[bookmark.id] == nil
+            }
+            .sorted {
+                if $0.createdAt != $1.createdAt {
+                    return $0.createdAt < $1.createdAt
+                }
+                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+    }
+
+    private func applyAutoGroupingSuggestions(
+        _ suggestions: [UUID: String],
+        to candidates: [Bookmark]
+    ) throws -> (groupedCount: Int, placements: [AutoGroupedBookmarkPlacement]) {
+        guard !suggestions.isEmpty else {
+            return (0, [])
+        }
+
+        var groupedCount = 0
+        var placements: [AutoGroupedBookmarkPlacement] = []
+
+        try groupStore.update { database in
+            var collectionIdByName: [String: UUID] = [:]
+            var collectionNameById: [UUID: String] = [:]
+            for collection in database.collections {
+                collectionIdByName[Self.normalizedCollectionName(collection.name)] = collection.id
+                collectionNameById[collection.id] = collection.name
+            }
+
+            for bookmark in candidates {
+                guard
+                    let rawGroupName = suggestions[bookmark.id],
+                    let groupName = Self.cleanedAutoGroupName(rawGroupName)
+                else {
+                    continue
+                }
+
+                let normalizedName = Self.normalizedCollectionName(groupName)
+                guard let collectionId = collectionIdByName[normalizedName] else {
+                    continue
+                }
+                let finalGroupName = collectionNameById[collectionId] ?? groupName
+
+                guard database.membershipByBookmarkId[bookmark.id] != collectionId else {
+                    continue
+                }
+                database.membershipByBookmarkId[bookmark.id] = collectionId
+                groupedCount += 1
+                placements.append(
+                    AutoGroupedBookmarkPlacement(
+                        bookmarkId: bookmark.id,
+                        groupName: finalGroupName
+                    )
+                )
+            }
+        }
+
+        return (groupedCount, placements)
+    }
+
+    private static func cleanedAutoGroupName(_ rawName: String) -> String? {
+        let trimmed = rawName
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'`")))
+        guard !trimmed.isEmpty else { return nil }
+
+        let normalized = normalizedCollectionName(trimmed)
+        guard !["未分组", "ungrouped", "none", "null", "misc", "other"].contains(normalized) else {
+            return nil
+        }
+
+        let maxLength = 24
+        if trimmed.count > maxLength {
+            return String(trimmed.prefix(maxLength))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
+    private static func normalizedCollectionName(_ name: String) -> String {
+        name
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private static func autoGroupingMessage(groupedCount: Int) -> String {
+        guard groupedCount > 0 else {
+            return "没有书签被移动"
+        }
+        return "已自动分组 \(groupedCount) 个书签"
+    }
+
+    private static func emptyAutoGroupingOutcome(message: String) -> BookmarkAutoGroupingOutcome {
+        BookmarkAutoGroupingOutcome(
+            message: message,
+            groupedCount: 0,
+            placements: []
+        )
     }
 
     func optimizeTitles(bookmarkIds: Set<UUID>) async -> String {

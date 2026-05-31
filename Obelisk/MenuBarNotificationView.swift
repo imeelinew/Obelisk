@@ -3,12 +3,13 @@ import SwiftUI
 
 /// Menu bar popover notification shown after a silent bookmark add.
 ///
-/// Four visual styles, all sharing the same layout — distinction is purely
+/// Visual styles all share the same layout; distinction is purely
 /// through the left-hand icon and its restrained gradient colour:
 /// - **Success** (normal bookmark): green gradient checkmark
 /// - **Hidden** (hidden bookmark): muted gray eye-slash
 /// - **Undo** (reverted add): blue-purple undo arrow
 /// - **Intelligence** (automatic title optimization): Intelligence gradient icon
+/// - **Auto Grouping** (automatic grouping): Intelligence gradient sparkles
 /// - **Error** (duplicate / no URL / etc.): red gradient x-mark
 @MainActor
 struct BookmarkAddedNotificationView: View {
@@ -21,6 +22,7 @@ struct BookmarkAddedNotificationView: View {
         case hidden
         case undo
         case intelligence
+        case autoGrouping
         case error
     }
 
@@ -30,6 +32,7 @@ struct BookmarkAddedNotificationView: View {
         case .hidden:  "eye.slash.circle.fill"
         case .undo:    "arrow.uturn.backward.circle.fill"
         case .intelligence: "apple.intelligence"
+        case .autoGrouping: "sparkles"
         case .error:   "xmark.circle.fill"
         }
     }
@@ -65,7 +68,7 @@ struct BookmarkAddedNotificationView: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-        case .intelligence:
+        case .intelligence, .autoGrouping:
             LinearGradient(
                 colors: [
                     Color(red: 1.0, green: 0.78, blue: 0.25),
@@ -111,7 +114,7 @@ struct BookmarkAddedNotificationView: View {
 
     @ViewBuilder
     private var iconView: some View {
-        if kind == .intelligence {
+        if kind == .intelligence || kind == .autoGrouping {
             ZStack {
                 Circle()
                     .fill(iconGradient)

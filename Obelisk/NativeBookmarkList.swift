@@ -16,6 +16,7 @@ struct BookmarkListSection: Equatable, Identifiable {
     var title: String?
     var bookmarks: [Bookmark]
     var sortMode: BookmarkListSortMode?
+    var referenceIndicatorSystemImage: String? = nil
     /// When set, the section header sort control updates only this scope's preference.
     var sortScope: BookmarkListSortScope? = nil
     /// Set on the collections page so section headers can offer rename/delete.
@@ -58,6 +59,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     fileprivate static let headerHeight: CGFloat = 24
     fileprivate static let headerBottomSpacing: CGFloat = 10
     fileprivate static let headerSortControlHeight: CGFloat = 24
+    fileprivate static let referenceIndicatorTrailingInset: CGFloat = 30
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -405,7 +407,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             switch items[row] {
             case .header(_, let topSpacing, _, _, _):
                 return NativeBookmarkList.headerHeight + topSpacing + NativeBookmarkList.headerBottomSpacing
-            case .bookmark:
+            case .bookmark(_, _):
                 return NativeBookmarkList.rowHeight
             }
         }
@@ -433,7 +435,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                 )
                 return view
 
-            case .bookmark(let bookmark):
+            case .bookmark(let bookmark, let referenceIndicatorSystemImage):
                 let view = tableView.makeView(
                     withIdentifier: BookmarkTableCellView.identifier,
                     owner: self
@@ -441,7 +443,8 @@ struct NativeBookmarkList: NSViewRepresentable {
                 view.configure(
                     bookmark: bookmark,
                     showsURLHostOnly: parent.showsURLHostOnly,
-                    favicon: parent.faviconLoader.image(for: bookmark.url)
+                    favicon: parent.faviconLoader.image(for: bookmark.url),
+                    referenceIndicatorSystemImage: referenceIndicatorSystemImage
                 )
                 return view
             }
@@ -744,7 +747,7 @@ fileprivate enum NativeBookmarkListItem: Equatable {
         collectionId: UUID?,
         sortScope: BookmarkListSortScope?
     )
-    case bookmark(Bookmark)
+    case bookmark(Bookmark, referenceIndicatorSystemImage: String?)
 
     var isHeader: Bool {
         if case .header = self { return true }
@@ -752,7 +755,7 @@ fileprivate enum NativeBookmarkListItem: Equatable {
     }
 
     var bookmark: Bookmark? {
-        if case .bookmark(let bookmark) = self { return bookmark }
+        if case .bookmark(let bookmark, _) = self { return bookmark }
         return nil
     }
 
@@ -785,7 +788,14 @@ private extension Array where Element == BookmarkListSection {
                 )
                 hasVisibleHeader = true
             }
-            items.append(contentsOf: section.bookmarks.map(NativeBookmarkListItem.bookmark))
+            items.append(
+                contentsOf: section.bookmarks.map {
+                    NativeBookmarkListItem.bookmark(
+                        $0,
+                        referenceIndicatorSystemImage: section.referenceIndicatorSystemImage
+                    )
+                }
+            )
         }
 
         return items
@@ -1004,6 +1014,9 @@ private final class BookmarkTableCellView: NSTableCellView {
     private let faviconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let urlField = NSTextField(labelWithString: "")
+    private let referenceIndicatorView = NSImageView()
+    private var referenceIndicatorWidthConstraint: NSLayoutConstraint?
+    private var textTrailingToReferenceIndicatorConstraint: NSLayoutConstraint?
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
@@ -1032,7 +1045,18 @@ private final class BookmarkTableCellView: NSTableCellView {
         urlField.usesSingleLineMode = true
         urlField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        [faviconView, titleField, urlField].forEach(addSubview)
+        referenceIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        referenceIndicatorView.imageScaling = .scaleProportionallyUpOrDown
+        referenceIndicatorView.contentTintColor = .secondaryLabelColor
+        referenceIndicatorView.setContentHuggingPriority(.required, for: .horizontal)
+        referenceIndicatorView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        [faviconView, titleField, urlField, referenceIndicatorView].forEach(addSubview)
+
+        referenceIndicatorWidthConstraint = referenceIndicatorView.widthAnchor.constraint(equalToConstant: 0)
+        textTrailingToReferenceIndicatorConstraint = titleField.trailingAnchor.constraint(
+            equalTo: referenceIndicatorView.leadingAnchor
+        )
 
         NSLayoutConstraint.activate([
             faviconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
@@ -1042,7 +1066,12 @@ private final class BookmarkTableCellView: NSTableCellView {
 
             titleField.leadingAnchor.constraint(equalTo: faviconView.trailingAnchor, constant: 12),
             titleField.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            titleField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -NativeBookmarkList.contentInset),
+            textTrailingToReferenceIndicatorConstraint!,
+
+            referenceIndicatorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -NativeBookmarkList.referenceIndicatorTrailingInset),
+            referenceIndicatorView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            referenceIndicatorWidthConstraint!,
+            referenceIndicatorView.heightAnchor.constraint(equalToConstant: 14),
 
             urlField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
             urlField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 2),
@@ -1055,7 +1084,12 @@ private final class BookmarkTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(bookmark: Bookmark, showsURLHostOnly: Bool, favicon: NSImage?) {
+    func configure(
+        bookmark: Bookmark,
+        showsURLHostOnly: Bool,
+        favicon: NSImage?,
+        referenceIndicatorSystemImage: String?
+    ) {
         if let favicon {
             faviconView.image = favicon
             faviconView.contentTintColor = nil
@@ -1065,7 +1099,34 @@ private final class BookmarkTableCellView: NSTableCellView {
         }
         titleField.stringValue = bookmark.title
         urlField.stringValue = displayURL(for: bookmark.url, showsHostOnly: showsURLHostOnly)
+        configureReferenceIndicator(referenceIndicatorSystemImage)
         applyNativeTextColors()
+    }
+
+    private func configureReferenceIndicator(_ systemImage: String?) {
+        guard let systemImage else {
+            referenceIndicatorView.image = nil
+            referenceIndicatorView.isHidden = true
+            referenceIndicatorWidthConstraint?.constant = 0
+            textTrailingToReferenceIndicatorConstraint?.constant = 0
+            return
+        }
+
+        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        guard let image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration)
+        else {
+            referenceIndicatorView.image = nil
+            referenceIndicatorView.isHidden = true
+            referenceIndicatorWidthConstraint?.constant = 0
+            textTrailingToReferenceIndicatorConstraint?.constant = 0
+            return
+        }
+
+        referenceIndicatorView.image = image
+        referenceIndicatorView.isHidden = false
+        referenceIndicatorWidthConstraint?.constant = 14
+        textTrailingToReferenceIndicatorConstraint?.constant = -6
     }
 
     private func displayURL(for urlString: String, showsHostOnly: Bool) -> String {
@@ -1079,5 +1140,6 @@ private final class BookmarkTableCellView: NSTableCellView {
         let selected = backgroundStyle == .emphasized
         titleField.textColor = selected ? .alternateSelectedControlTextColor : .labelColor
         urlField.textColor = selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
+        referenceIndicatorView.contentTintColor = selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
     }
 }

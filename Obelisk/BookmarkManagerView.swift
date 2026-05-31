@@ -135,6 +135,7 @@ struct BookmarkManagerView: View {
     @AppStorage(ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) private var openHiddenBookmarksIncognito = true
     @AppStorage(TitleOptimizationPreferences.autoOptimizeNewBookmarksKey) private var autoOptimizeNewBookmarks = false
     @AppStorage(TitleOptimizationPreferences.optimizeHiddenBookmarksKey) private var optimizeHiddenBookmarks = false
+    @AppStorage(BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey) private var autoGroupNewBookmarks = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
     @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.standard.rawValue
     @AppStorage(TitleOptimizationTranslation.storageKey) private var translateNonChineseTitles = false
@@ -153,7 +154,7 @@ struct BookmarkManagerView: View {
     @State private var renameCollectionName = ""
     @State private var collectionToDelete: BookmarkCollection?
     @State private var isFetchingOriginalTitles = false
-    @State private var pendingAutoOptimizationTask: Task<Void, Never>?
+    @State private var pendingAutoIntelligenceTask: Task<Void, Never>?
     @State private var isCreatingPlaintextBackup = false
     @State private var restoreAllOriginalTitlesConfirmation = false
     @State private var refetchAllOriginalTitlesConfirmation = false
@@ -421,12 +422,20 @@ struct BookmarkManagerView: View {
             sortMode: pinnedBookmarkListSortMode,
             showsSortControl: true
         )
+        let recentBookmarks = filtered(model.recent)
+        let recentSections = recentBookmarks.isEmpty ? [] : [
+            BookmarkListSection(
+                title: "最近添加 (\(recentBookmarks.count))",
+                bookmarks: recentBookmarks,
+                referenceIndicatorSystemImage: "arrow.up.forward"
+            )
+        ]
         let ungroupedSections = model.visibleUngroupedSections(
             searchText: searchText,
             sortMode: bookmarkListSortMode,
             showsSortControl: true
         )
-        return pinnedSections + ungroupedSections
+        return pinnedSections + recentSections + ungroupedSections
     }
 
     private var collectionBookmarkSections: [BookmarkListSection] {
@@ -944,6 +953,19 @@ struct BookmarkManagerView: View {
         }.count
     }
 
+    private var autoGroupableBookmarkCountInScope: Int {
+        let scope = selection.isEmpty ? nil : selection
+        return model.bookmarks.filter { bookmark in
+            if let scope, !scope.contains(bookmark.id) {
+                return false
+            }
+            return !bookmark.isHidden
+                && !bookmark.isPinned
+                && !model.isEffectivelyArchived(bookmark)
+                && model.collectionId(for: bookmark.id) == nil
+        }.count
+    }
+
     private func optimizeSelectedTitles() {
         Task {
             let message = await model.optimizeTitles(bookmarkIds: selection)
@@ -951,17 +973,36 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private func autoOptimizeNewBookmarkIfNeeded(_ bookmark: Bookmark) {
-        guard aiFeaturesEnabled,
-              TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark)
-        else {
-            return
+    private func autoGroupBookmarks() {
+        Task {
+            let outcome = await model.autoGroupBookmarks(bookmarkIds: selection)
+            showToast(outcome.message, kind: outcome.groupedCount > 0 ? .success : .error)
         }
+    }
 
-        pendingAutoOptimizationTask?.cancel()
-        pendingAutoOptimizationTask = Task {
-            let message = await model.optimizeTitles(bookmarkIds: [bookmark.id])
-            showToast(message, kind: message.hasPrefix("已优化") ? .success : .error)
+    private func runAutoIntelligenceForNewBookmark(_ bookmark: Bookmark) {
+        guard aiFeaturesEnabled else { return }
+
+        let shouldOptimizeTitle = TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark)
+        let shouldAutoGroup = autoGroupNewBookmarks && !bookmark.isHidden
+        guard shouldOptimizeTitle || shouldAutoGroup else { return }
+
+        pendingAutoIntelligenceTask?.cancel()
+        pendingAutoIntelligenceTask = Task {
+            if shouldOptimizeTitle {
+                let outcome = await model.optimizeTitleDetails(bookmarkIds: [bookmark.id])
+                showToast(
+                    outcome.optimizedTitles.first ?? outcome.message,
+                    kind: outcome.message.hasPrefix("已优化") ? .success : .error
+                )
+            }
+
+            if shouldAutoGroup {
+                let outcome = await model.autoGroupBookmarks(bookmarkIds: [bookmark.id])
+                if outcome.groupedCount > 0 || !shouldOptimizeTitle {
+                    showToast(outcome.message, kind: outcome.groupedCount > 0 ? .success : .error)
+                }
+            }
         }
     }
 
@@ -1314,7 +1355,7 @@ struct BookmarkManagerView: View {
                     prefilledTitle: prefilledTitle,
                     prefilledIsHidden: prefilledIsHidden,
                     onBookmarkAdded: { bookmark in
-                        autoOptimizeNewBookmarkIfNeeded(bookmark)
+                        runAutoIntelligenceForNewBookmark(bookmark)
                     }
                 )
             case .edit(let bookmark):
@@ -1903,7 +1944,7 @@ struct BookmarkManagerView: View {
             }
 
             Section("菜单栏") {
-                menuLimitStepper("最近添加数量", desc: "菜单栏智能置顶「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
+                menuLimitStepper("最近添加数量", desc: "Obelisk「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
             }
         }
         .formStyle(.grouped)
@@ -2128,6 +2169,17 @@ struct BookmarkManagerView: View {
                     Toggle("优化隐藏书签", isOn: $optimizeHiddenBookmarks)
 
                     Toggle("自动翻译非中文标题", isOn: $translateNonChineseTitles)
+                }
+
+                Section("Intelligence 自动分组") {
+                    Toggle(isOn: $autoGroupNewBookmarks) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("自动分组新书签")
+                            Text("开启后将自动使用配置的模型把新添加的可见书签归入合适分组。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 Section("模型配置") {
@@ -2460,6 +2512,19 @@ struct BookmarkManagerView: View {
 
                 ToolbarItem {
                     Button {
+                        autoGroupBookmarks()
+                    } label: {
+                        Label(
+                            model.isAutoGroupingBookmarks ? "分组中" : "自动分组",
+                            systemImage: "sparkles"
+                        )
+                    }
+                    .disabled(model.isAutoGroupingBookmarks || autoGroupableBookmarkCountInScope == 0)
+                    .help(selection.isEmpty ? "自动分组所有未分组书签" : "自动分组选中的未分组书签")
+                }
+
+                ToolbarItem {
+                    Button {
                         optimizeSelectedTitles()
                     } label: {
                         Label(
@@ -2530,6 +2595,19 @@ struct BookmarkManagerView: View {
 
             if aiFeaturesEnabled {
                 ToolbarSpacer(.fixed)
+
+                ToolbarItem {
+                    Button {
+                        autoGroupBookmarks()
+                    } label: {
+                        Label(
+                            model.isAutoGroupingBookmarks ? "分组中" : "自动分组",
+                            systemImage: "sparkles"
+                        )
+                    }
+                    .disabled(model.isAutoGroupingBookmarks || autoGroupableBookmarkCountInScope == 0)
+                    .help(selection.isEmpty ? "自动分组所有未分组书签" : "自动分组选中的未分组书签")
+                }
 
                 ToolbarItem {
                     Button {

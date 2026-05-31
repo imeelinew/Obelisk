@@ -2,13 +2,28 @@ import AppKit
 
 enum AppIcon {
     static func menuBarImage() -> NSImage {
-        let symbol = resourceImage(name: "PyramidSymbol", extension: "svg")
-            ?? image(size: NSSize(width: 18, height: 18))
+        let iconSize = NSSize(width: 16, height: 16)
+        let verticalNudge: CGFloat = 2
 
-        let copy = symbol.copy() as? NSImage ?? symbol
-        copy.size = NSSize(width: 18, height: 18)
-        copy.isTemplate = true
-        return copy
+        let symbol = resourceImage(name: "PyramidSymbol", extension: "svg")
+            ?? image(size: iconSize)
+        let icon = symbol.copy() as? NSImage ?? symbol
+        icon.size = iconSize
+        icon.isTemplate = true
+
+        let canvasSize = NSSize(width: iconSize.width, height: iconSize.height + verticalNudge)
+        let canvas = NSImage(size: canvasSize)
+        canvas.lockFocus()
+        icon.draw(
+            at: NSPoint(x: 0, y: verticalNudge),
+            from: NSRect(origin: .zero, size: iconSize),
+            operation: .sourceOver,
+            fraction: 1
+        )
+        canvas.unlockFocus()
+        canvas.size = canvasSize
+        canvas.isTemplate = true
+        return canvas
     }
 
     static func image(size: NSSize? = nil) -> NSImage {

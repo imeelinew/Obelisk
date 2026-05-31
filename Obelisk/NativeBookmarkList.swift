@@ -118,7 +118,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("BookmarkColumn")
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
         var parent: NativeBookmarkList
         fileprivate var items: [NativeBookmarkListItem] = []
         weak var scrollView: NSScrollView?
@@ -224,6 +224,7 @@ struct NativeBookmarkList: NSViewRepresentable {
 
             if let collectionId = items[row].collectionId {
                 let menu = NSMenu()
+                menu.delegate = self
                 if parent.onRenameCollection != nil {
                     menu.addItem(collectionMenuItem(
                         "重命名分组",
@@ -251,6 +252,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             }
 
             let menu = NSMenu()
+            menu.delegate = self
 
             if parent.onOpen != nil {
                 menu.addItem(menuItem(
@@ -586,13 +588,25 @@ struct NativeBookmarkList: NSViewRepresentable {
             isSyncingSelection = false
         }
 
-        private static func menuSymbolImage(_ symbolName: String) -> NSImage? {
+        private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
+
+        func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+            for menuItem in menu.items where menuItem.identifier == Self.destructiveMenuItemIdentifier {
+                applyDestructiveMenuItemStyle(to: menuItem, highlighted: menuItem === item)
+            }
+        }
+
+        private static func menuSymbolImage(_ symbolName: String, color: NSColor? = nil) -> NSImage? {
             guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
                 return nil
             }
-            return image.withSymbolConfiguration(
-                NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-            )
+
+            var configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+            if let color {
+                configuration = configuration.applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+            }
+
+            return image.withSymbolConfiguration(configuration)
         }
 
         private func pinStateSymbolName(for bookmark: Bookmark) -> String {
@@ -686,12 +700,25 @@ struct NativeBookmarkList: NSViewRepresentable {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = representedObject
-            item.view = DestructiveMenuItemView(
-                title: title,
-                systemSymbolName: systemSymbolName,
-                menuItem: item
-            )
+            item.identifier = Self.destructiveMenuItemIdentifier
+            applyDestructiveMenuItemStyle(to: item, systemSymbolName: systemSymbolName, highlighted: false)
             return item
+        }
+
+        private func applyDestructiveMenuItemStyle(
+            to item: NSMenuItem,
+            systemSymbolName: String = "trash",
+            highlighted: Bool
+        ) {
+            let color: NSColor = highlighted ? .white : .systemRed
+            item.attributedTitle = NSAttributedString(
+                string: item.title,
+                attributes: [
+                    .font: NSFont.menuFont(ofSize: 0),
+                    .foregroundColor: color
+                ]
+            )
+            item.image = Self.menuSymbolImage(systemSymbolName, color: color)
         }
 
         private func singleSelectedBookmark(in tableView: NSTableView) -> Bookmark? {
@@ -762,169 +789,6 @@ private extension Array where Element == BookmarkListSection {
         }
 
         return items
-    }
-}
-
-private final class DestructiveMenuItemView: NSView {
-    private enum Metrics {
-        static let height: CGFloat = 26
-        static let horizontalPadding: CGFloat = 14
-        static let iconSize: CGFloat = 15
-        static let iconSlotWidth: CGFloat = 26
-        static let highlightInsetX: CGFloat = 5
-        static let highlightInsetY: CGFloat = 2
-        static let highlightRadius: CGFloat = 6
-    }
-
-    private weak var menuItem: NSMenuItem?
-    private let imageView: NSImageView?
-    private let titleField: NSTextField
-    private var trackingArea: NSTrackingArea?
-    private var isPointerInside = false
-
-    init(title: String, systemSymbolName: String?, menuItem: NSMenuItem) {
-        self.menuItem = menuItem
-        self.titleField = NSTextField(labelWithString: title)
-
-        if let systemSymbolName,
-           let image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: nil) {
-            image.isTemplate = true
-            let configuredImage = image.withSymbolConfiguration(
-                NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-            ) ?? image
-            configuredImage.isTemplate = true
-            let imageView = NSImageView(image: configuredImage)
-            imageView.imageScaling = .scaleProportionallyDown
-            self.imageView = imageView
-        } else {
-            self.imageView = nil
-        }
-
-        super.init(frame: .zero)
-
-        titleField.font = .menuFont(ofSize: 0)
-        titleField.lineBreakMode = .byTruncatingTail
-        titleField.textColor = .systemRed
-        addSubview(titleField)
-
-        if let imageView {
-            imageView.contentTintColor = .systemRed
-            addSubview(imageView)
-        }
-
-        setFrameSize(intrinsicContentSize)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var intrinsicContentSize: NSSize {
-        let titleWidth = ceil(titleField.intrinsicContentSize.width)
-        let iconWidth = imageView == nil ? 0 : Metrics.iconSlotWidth
-        return NSSize(
-            width: Metrics.horizontalPadding * 2 + iconWidth + titleWidth,
-            height: Metrics.height
-        )
-    }
-
-    override func layout() {
-        super.layout()
-
-        let centerY = bounds.midY
-        var titleX = Metrics.horizontalPadding
-
-        if let imageView {
-            imageView.frame = NSRect(
-                x: Metrics.horizontalPadding,
-                y: centerY - Metrics.iconSize / 2,
-                width: Metrics.iconSize,
-                height: Metrics.iconSize
-            )
-            titleX += Metrics.iconSlotWidth
-        }
-
-        let titleHeight = titleField.intrinsicContentSize.height
-        titleField.frame = NSRect(
-            x: titleX,
-            y: centerY - titleHeight / 2,
-            width: max(0, bounds.width - titleX - Metrics.horizontalPadding),
-            height: titleHeight
-        )
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        )
-        trackingArea = area
-        addTrackingArea(area)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        guard isHighlighted else { return }
-
-        NSColor.selectedContentBackgroundColor.setFill()
-        NSBezierPath(
-            roundedRect: bounds.insetBy(dx: Metrics.highlightInsetX, dy: Metrics.highlightInsetY),
-            xRadius: Metrics.highlightRadius,
-            yRadius: Metrics.highlightRadius
-        ).fill()
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isPointerInside = true
-        updateAppearance()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isPointerInside = false
-        updateAppearance()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        isPointerInside = true
-        updateAppearance()
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        defer {
-            isPointerInside = false
-            updateAppearance()
-        }
-
-        guard bounds.contains(convert(event.locationInWindow, from: nil)),
-              let item = menuItem,
-              let action = item.action
-        else {
-            return
-        }
-
-        item.menu?.cancelTracking()
-        NSApp.sendAction(action, to: item.target, from: item)
-    }
-
-    private var isHighlighted: Bool {
-        isPointerInside || menuItem?.isHighlighted == true
-    }
-
-    private func updateAppearance() {
-        let color: NSColor = isHighlighted ? .white : .systemRed
-        titleField.textColor = color
-        imageView?.contentTintColor = color
-        needsDisplay = true
     }
 }
 

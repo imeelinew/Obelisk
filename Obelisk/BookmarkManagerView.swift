@@ -2444,7 +2444,7 @@ struct BookmarkManagerView: View {
             }
 
             ToolbarItem {
-                Button {
+                Button(role: .destructive) {
                     requestDelete(ids: selection)
                 } label: {
                     Label("删除", systemImage: "trash")
@@ -2517,7 +2517,7 @@ struct BookmarkManagerView: View {
             }
 
             ToolbarItem {
-                Button {
+                Button(role: .destructive) {
                     requestDeleteCollectionPageSelection()
                 } label: {
                     Label("删除", systemImage: "trash")
@@ -2566,7 +2566,7 @@ struct BookmarkManagerView: View {
             }
 
             ToolbarItem {
-                Button {
+                Button(role: .destructive) {
                     requestDelete(ids: selection)
                 } label: {
                     Label("删除", systemImage: "trash")

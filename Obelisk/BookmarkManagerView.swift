@@ -2426,14 +2426,6 @@ struct BookmarkManagerView: View {
                 .help("添加书签")
 
                 Button {
-                    requestDelete(ids: selection)
-                } label: {
-                    Label("删除", systemImage: "minus")
-                }
-                .disabled(!canDeleteSelection)
-                .help("删除选中的书签")
-
-                Button {
                     if let bookmark = selectedBookmark {
                         presentation = .edit(bookmark)
                     }
@@ -2449,6 +2441,18 @@ struct BookmarkManagerView: View {
                 }
                 .disabled(!canTogglePinnedSelection)
                 .help(selectedPinnedTargetState ? "置顶选中的书签" : "取消置顶选中的书签")
+            }
+
+            ToolbarItem {
+                Button {
+                    requestDelete(ids: selection)
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+                .disabled(!canDeleteSelection)
+                .help("删除选中的书签")
+                .foregroundStyle(.red)
+                .tint(.red)
             }
 
             if aiFeaturesEnabled {
@@ -2496,14 +2500,6 @@ struct BookmarkManagerView: View {
                 .help("新建分组")
 
                 Button {
-                    requestDeleteCollectionPageSelection()
-                } label: {
-                    Label("删除", systemImage: "minus")
-                }
-                .disabled(!canDeleteCollectionPageSelection)
-                .help("删除选中的分组")
-
-                Button {
                     requestEditCollectionPageSelection()
                 } label: {
                     Label("重命名", systemImage: "pencil")
@@ -2518,6 +2514,18 @@ struct BookmarkManagerView: View {
                 }
                 .disabled(!canTogglePinnedSelection)
                 .help(selectedPinnedTargetState ? "置顶选中的书签" : "取消置顶选中的书签")
+            }
+
+            ToolbarItem {
+                Button {
+                    requestDeleteCollectionPageSelection()
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+                .disabled(!canDeleteCollectionPageSelection)
+                .help("删除选中的分组")
+                .foregroundStyle(.red)
+                .tint(.red)
             }
 
             if aiFeaturesEnabled {
@@ -2548,14 +2556,6 @@ struct BookmarkManagerView: View {
                 .help("添加隐藏书签")
 
                 Button {
-                    requestDelete(ids: selection)
-                } label: {
-                    Label("删除", systemImage: "minus")
-                }
-                .disabled(!canDeleteSelection)
-                .help("删除选中的隐藏书签")
-
-                Button {
                     if let bookmark = selectedBookmark {
                         presentation = .edit(bookmark)
                     }
@@ -2563,6 +2563,18 @@ struct BookmarkManagerView: View {
                     Label("编辑", systemImage: "pencil")
                 }
                 .disabled(!canUseSingleSelectionActions)
+            }
+
+            ToolbarItem {
+                Button {
+                    requestDelete(ids: selection)
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+                .disabled(!canDeleteSelection)
+                .help("删除选中的隐藏书签")
+                .foregroundStyle(.red)
+                .tint(.red)
             }
 
             if aiFeaturesEnabled, optimizeHiddenBookmarks {

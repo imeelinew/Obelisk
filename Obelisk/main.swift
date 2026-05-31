@@ -408,13 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = [.command]
         quitItem.target = self
-        quitItem.attributedTitle = NSAttributedString(
-            string: "退出",
-            attributes: [
-                .font: NSFont.menuFont(ofSize: 0),
-                .foregroundColor: NSColor.systemRed
-            ]
-        )
+        quitItem.view = MenuBarDestructiveMenuItemView(title: "退出", menuItem: quitItem)
         menu.addItem(quitItem)
 
         statusItem.menu = menu
@@ -519,21 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() {
-        guard presentQuitConfirmation() else { return }
         NSApp.terminate(nil)
-    }
-
-    private func presentQuitConfirmation() -> Bool {
-        let alert = NSAlert()
-        alert.messageText = "退出 Obelisk？"
-        alert.informativeText = "退出 Obelisk 将一并关闭应用和菜单栏。"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "退出")
-        alert.addButton(withTitle: "取消")
-        if let quitButton = alert.buttons.first {
-            quitButton.contentTintColor = .systemRed
-        }
-        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
@@ -546,6 +526,187 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         false
+    }
+}
+
+private final class MenuBarDestructiveMenuItemView: NSView {
+    private enum Metrics {
+        static let height: CGFloat = 26
+        static let horizontalPadding: CGFloat = 14
+        static let shortcutSpacing: CGFloat = 24
+        static let minimumWidth: CGFloat = 96
+        static let highlightInsetX: CGFloat = 5
+        static let highlightInsetY: CGFloat = 2
+        static let highlightRadius: CGFloat = 6
+    }
+
+    private weak var menuItem: NSMenuItem?
+    private let titleField: NSTextField
+    private let shortcutField: NSTextField?
+    private var trackingArea: NSTrackingArea?
+    private var isPointerInside = false
+
+    init(title: String, menuItem: NSMenuItem) {
+        self.menuItem = menuItem
+        self.titleField = NSTextField(labelWithString: title)
+
+        if let shortcut = Self.shortcutText(for: menuItem) {
+            self.shortcutField = NSTextField(labelWithString: shortcut)
+        } else {
+            self.shortcutField = nil
+        }
+
+        super.init(frame: .zero)
+
+        titleField.font = .menuFont(ofSize: 0)
+        titleField.textColor = .systemRed
+        addSubview(titleField)
+
+        if let shortcutField {
+            shortcutField.font = .menuFont(ofSize: 0)
+            shortcutField.textColor = .systemRed
+            shortcutField.alignment = .right
+            addSubview(shortcutField)
+        }
+
+        setFrameSize(intrinsicContentSize)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let titleWidth = ceil(titleField.intrinsicContentSize.width)
+        let shortcutWidth = ceil(shortcutField?.intrinsicContentSize.width ?? 0)
+        let shortcutSpacing = shortcutField == nil ? 0 : Metrics.shortcutSpacing
+        return NSSize(
+            width: max(
+                Metrics.minimumWidth,
+                Metrics.horizontalPadding * 2 + titleWidth + shortcutSpacing + shortcutWidth
+            ),
+            height: Metrics.height
+        )
+    }
+
+    override func layout() {
+        super.layout()
+
+        let centerY = bounds.midY
+        let titleHeight = titleField.intrinsicContentSize.height
+        let shortcutWidth = ceil(shortcutField?.intrinsicContentSize.width ?? 0)
+
+        titleField.frame = NSRect(
+            x: Metrics.horizontalPadding,
+            y: centerY - titleHeight / 2,
+            width: max(0, bounds.width - Metrics.horizontalPadding * 2 - shortcutWidth - Metrics.shortcutSpacing),
+            height: titleHeight
+        )
+
+        if let shortcutField {
+            let shortcutHeight = shortcutField.intrinsicContentSize.height
+            shortcutField.frame = NSRect(
+                x: bounds.width - Metrics.horizontalPadding - shortcutWidth,
+                y: centerY - shortcutHeight / 2,
+                width: shortcutWidth,
+                height: shortcutHeight
+            )
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        trackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard isHighlighted else { return }
+
+        NSColor.selectedContentBackgroundColor.setFill()
+        NSBezierPath(
+            roundedRect: bounds.insetBy(dx: Metrics.highlightInsetX, dy: Metrics.highlightInsetY),
+            xRadius: Metrics.highlightRadius,
+            yRadius: Metrics.highlightRadius
+        ).fill()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isPointerInside = true
+        updateAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isPointerInside = false
+        updateAppearance()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isPointerInside = true
+        updateAppearance()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            isPointerInside = false
+            updateAppearance()
+        }
+
+        guard bounds.contains(convert(event.locationInWindow, from: nil)),
+              let item = menuItem,
+              let action = item.action
+        else {
+            return
+        }
+
+        item.menu?.cancelTracking()
+        NSApp.sendAction(action, to: item.target, from: item)
+    }
+
+    private var isHighlighted: Bool {
+        isPointerInside || menuItem?.isHighlighted == true
+    }
+
+    private func updateAppearance() {
+        let color: NSColor = isHighlighted ? .white : .systemRed
+        titleField.textColor = color
+        shortcutField?.textColor = color
+        needsDisplay = true
+    }
+
+    private static func shortcutText(for item: NSMenuItem) -> String? {
+        guard !item.keyEquivalent.isEmpty else { return nil }
+
+        var result = ""
+        let modifiers = item.keyEquivalentModifierMask
+        if modifiers.contains(.command) {
+            result += "⌘"
+        }
+        if modifiers.contains(.option) {
+            result += "⌥"
+        }
+        if modifiers.contains(.shift) {
+            result += "⇧"
+        }
+        if modifiers.contains(.control) {
+            result += "⌃"
+        }
+        result += item.keyEquivalent.uppercased()
+        return result
     }
 }
 

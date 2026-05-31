@@ -225,13 +225,23 @@ struct NativeBookmarkList: NSViewRepresentable {
             if let collectionId = items[row].collectionId {
                 let menu = NSMenu()
                 if parent.onRenameCollection != nil {
-                    menu.addItem(collectionMenuItem("重命名分组", action: #selector(renameCollectionFromMenu(_:)), collectionId: collectionId))
+                    menu.addItem(collectionMenuItem(
+                        "重命名分组",
+                        systemSymbolName: "pencil",
+                        action: #selector(renameCollectionFromMenu(_:)),
+                        collectionId: collectionId
+                    ))
                 }
                 if parent.onDeleteCollection != nil {
                     if !menu.items.isEmpty {
                         menu.addItem(NSMenuItem.separator())
                     }
-                    menu.addItem(destructiveCollectionMenuItem("删除分组", action: #selector(deleteCollectionFromMenu(_:)), collectionId: collectionId))
+                    menu.addItem(destructiveCollectionMenuItem(
+                        "删除分组",
+                        systemSymbolName: "trash",
+                        action: #selector(deleteCollectionFromMenu(_:)),
+                        collectionId: collectionId
+                    ))
                 }
                 return menu.items.isEmpty ? nil : menu
             }
@@ -243,24 +253,54 @@ struct NativeBookmarkList: NSViewRepresentable {
             let menu = NSMenu()
 
             if parent.onOpen != nil {
-                menu.addItem(menuItem("打开", action: #selector(openFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(menuItem(
+                    "打开",
+                    systemSymbolName: "arrow.up.forward.square",
+                    action: #selector(openFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
             if parent.onCopyURL != nil {
-                menu.addItem(menuItem("复制 URL", action: #selector(copyURLFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(menuItem(
+                    "复制 URL",
+                    systemSymbolName: "doc.on.doc",
+                    action: #selector(copyURLFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
             if parent.onRefreshFavicon != nil {
-                menu.addItem(menuItem("刷新 favicon", action: #selector(refreshFaviconFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(menuItem(
+                    "刷新 favicon",
+                    systemSymbolName: "arrow.clockwise",
+                    action: #selector(refreshFaviconFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
             if parent.onEdit != nil {
-                menu.addItem(menuItem("编辑", action: #selector(editFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(menuItem(
+                    "编辑",
+                    systemSymbolName: "pencil",
+                    action: #selector(editFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
             if parent.onRevertTitleOptimization != nil,
                selectionHasRevertableTitleOptimization(contextBookmark: bookmark) {
-                menu.addItem(menuItem("恢复原标题", action: #selector(revertTitleFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(menuItem(
+                    "恢复原标题",
+                    systemSymbolName: "arrow.uturn.backward",
+                    action: #selector(revertTitleFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
             if let pinStateActionTitle = parent.pinStateActionTitle, parent.onSetPinned != nil {
                 menu.addItem(NSMenuItem.separator())
-                menu.addItem(menuItem(pinStateActionTitle(bookmark), action: #selector(setPinnedFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(menuItem(
+                    pinStateActionTitle(bookmark),
+                    systemSymbolName: pinStateSymbolName(for: bookmark),
+                    action: #selector(setPinnedFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
             if !parent.collectionAssignOptions.isEmpty, parent.onAssignCollection != nil {
                 menu.addItem(NSMenuItem.separator())
@@ -275,20 +315,36 @@ struct NativeBookmarkList: NSViewRepresentable {
                     submenu.addItem(item)
                 }
                 let moveItem = NSMenuItem(title: "移到分组", action: nil, keyEquivalent: "")
+                moveItem.image = Self.menuSymbolImage("folder")
                 moveItem.submenu = submenu
                 menu.addItem(moveItem)
             }
             if let hiddenStateActionTitle = parent.hiddenStateActionTitle, parent.onSetHidden != nil {
                 menu.addItem(NSMenuItem.separator())
-                menu.addItem(menuItem(hiddenStateActionTitle, action: #selector(setHiddenFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(menuItem(
+                    hiddenStateActionTitle,
+                    systemSymbolName: restoreBookmarkSymbolName(for: hiddenStateActionTitle, defaultSymbolName: "eye.slash"),
+                    action: #selector(setHiddenFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
             if let archiveStateActionTitle = parent.archiveStateActionTitle, parent.onSetArchived != nil {
                 menu.addItem(NSMenuItem.separator())
-                menu.addItem(menuItem(archiveStateActionTitle, action: #selector(setArchivedFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(menuItem(
+                    archiveStateActionTitle,
+                    systemSymbolName: restoreBookmarkSymbolName(for: archiveStateActionTitle, defaultSymbolName: "archivebox"),
+                    action: #selector(setArchivedFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
             if parent.onDelete != nil {
                 menu.addItem(NSMenuItem.separator())
-                menu.addItem(destructiveMenuItem("删除", action: #selector(deleteFromMenu(_:)), bookmark: bookmark))
+                menu.addItem(destructiveMenuItem(
+                    "删除",
+                    systemSymbolName: "trash",
+                    action: #selector(deleteFromMenu(_:)),
+                    bookmark: bookmark
+                ))
             }
 
             return menu.items.isEmpty ? nil : menu
@@ -530,10 +586,33 @@ struct NativeBookmarkList: NSViewRepresentable {
             isSyncingSelection = false
         }
 
-        private func menuItem(_ title: String, action: Selector, bookmark: Bookmark) -> NSMenuItem {
+        private static func menuSymbolImage(_ symbolName: String) -> NSImage? {
+            guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
+                return nil
+            }
+            return image.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+            )
+        }
+
+        private func pinStateSymbolName(for bookmark: Bookmark) -> String {
+            bookmark.isPinned ? "pin.slash" : "pin"
+        }
+
+        private func restoreBookmarkSymbolName(for title: String, defaultSymbolName: String) -> String {
+            title == "恢复到书签" ? "bookmark" : defaultSymbolName
+        }
+
+        private func menuItem(
+            _ title: String,
+            systemSymbolName: String,
+            action: Selector,
+            bookmark: Bookmark
+        ) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = bookmark
+            item.image = Self.menuSymbolImage(systemSymbolName)
             return item
         }
 
@@ -547,10 +626,16 @@ struct NativeBookmarkList: NSViewRepresentable {
             }
         }
 
-        private func collectionMenuItem(_ title: String, action: Selector, collectionId: UUID) -> NSMenuItem {
+        private func collectionMenuItem(
+            _ title: String,
+            systemSymbolName: String,
+            action: Selector,
+            collectionId: UUID
+        ) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = collectionId
+            item.image = Self.menuSymbolImage(systemSymbolName)
             return item
         }
 
@@ -564,23 +649,47 @@ struct NativeBookmarkList: NSViewRepresentable {
             return items[row].collectionId
         }
 
-        private func destructiveCollectionMenuItem(_ title: String, action: Selector, collectionId: UUID) -> NSMenuItem {
-            let item = collectionMenuItem(title, action: action, collectionId: collectionId)
-            item.attributedTitle = NSAttributedString(
-                string: title,
-                attributes: [.foregroundColor: NSColor.systemRed]
+        private func destructiveCollectionMenuItem(
+            _ title: String,
+            systemSymbolName: String,
+            action: Selector,
+            collectionId: UUID
+        ) -> NSMenuItem {
+            destructiveMenuItem(
+                title,
+                systemSymbolName: systemSymbolName,
+                action: action,
+                representedObject: collectionId
             )
-            return item
         }
 
-        private func destructiveMenuItem(_ title: String, action: Selector, bookmark: Bookmark) -> NSMenuItem {
-            let item = menuItem(title, action: action, bookmark: bookmark)
-            item.attributedTitle = NSAttributedString(
-                string: title,
-                attributes: [
-                    .font: NSFont.menuFont(ofSize: 0),
-                    .foregroundColor: NSColor.systemRed
-                ]
+        private func destructiveMenuItem(
+            _ title: String,
+            systemSymbolName: String,
+            action: Selector,
+            bookmark: Bookmark
+        ) -> NSMenuItem {
+            destructiveMenuItem(
+                title,
+                systemSymbolName: systemSymbolName,
+                action: action,
+                representedObject: bookmark
+            )
+        }
+
+        private func destructiveMenuItem(
+            _ title: String,
+            systemSymbolName: String,
+            action: Selector,
+            representedObject: Any
+        ) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = representedObject
+            item.view = DestructiveMenuItemView(
+                title: title,
+                systemSymbolName: systemSymbolName,
+                menuItem: item
             )
             return item
         }
@@ -653,6 +762,169 @@ private extension Array where Element == BookmarkListSection {
         }
 
         return items
+    }
+}
+
+private final class DestructiveMenuItemView: NSView {
+    private enum Metrics {
+        static let height: CGFloat = 26
+        static let horizontalPadding: CGFloat = 14
+        static let iconSize: CGFloat = 15
+        static let iconSlotWidth: CGFloat = 26
+        static let highlightInsetX: CGFloat = 5
+        static let highlightInsetY: CGFloat = 2
+        static let highlightRadius: CGFloat = 6
+    }
+
+    private weak var menuItem: NSMenuItem?
+    private let imageView: NSImageView?
+    private let titleField: NSTextField
+    private var trackingArea: NSTrackingArea?
+    private var isPointerInside = false
+
+    init(title: String, systemSymbolName: String?, menuItem: NSMenuItem) {
+        self.menuItem = menuItem
+        self.titleField = NSTextField(labelWithString: title)
+
+        if let systemSymbolName,
+           let image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: nil) {
+            image.isTemplate = true
+            let configuredImage = image.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+            ) ?? image
+            configuredImage.isTemplate = true
+            let imageView = NSImageView(image: configuredImage)
+            imageView.imageScaling = .scaleProportionallyDown
+            self.imageView = imageView
+        } else {
+            self.imageView = nil
+        }
+
+        super.init(frame: .zero)
+
+        titleField.font = .menuFont(ofSize: 0)
+        titleField.lineBreakMode = .byTruncatingTail
+        titleField.textColor = .systemRed
+        addSubview(titleField)
+
+        if let imageView {
+            imageView.contentTintColor = .systemRed
+            addSubview(imageView)
+        }
+
+        setFrameSize(intrinsicContentSize)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let titleWidth = ceil(titleField.intrinsicContentSize.width)
+        let iconWidth = imageView == nil ? 0 : Metrics.iconSlotWidth
+        return NSSize(
+            width: Metrics.horizontalPadding * 2 + iconWidth + titleWidth,
+            height: Metrics.height
+        )
+    }
+
+    override func layout() {
+        super.layout()
+
+        let centerY = bounds.midY
+        var titleX = Metrics.horizontalPadding
+
+        if let imageView {
+            imageView.frame = NSRect(
+                x: Metrics.horizontalPadding,
+                y: centerY - Metrics.iconSize / 2,
+                width: Metrics.iconSize,
+                height: Metrics.iconSize
+            )
+            titleX += Metrics.iconSlotWidth
+        }
+
+        let titleHeight = titleField.intrinsicContentSize.height
+        titleField.frame = NSRect(
+            x: titleX,
+            y: centerY - titleHeight / 2,
+            width: max(0, bounds.width - titleX - Metrics.horizontalPadding),
+            height: titleHeight
+        )
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        trackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard isHighlighted else { return }
+
+        NSColor.selectedContentBackgroundColor.setFill()
+        NSBezierPath(
+            roundedRect: bounds.insetBy(dx: Metrics.highlightInsetX, dy: Metrics.highlightInsetY),
+            xRadius: Metrics.highlightRadius,
+            yRadius: Metrics.highlightRadius
+        ).fill()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isPointerInside = true
+        updateAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isPointerInside = false
+        updateAppearance()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isPointerInside = true
+        updateAppearance()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            isPointerInside = false
+            updateAppearance()
+        }
+
+        guard bounds.contains(convert(event.locationInWindow, from: nil)),
+              let item = menuItem,
+              let action = item.action
+        else {
+            return
+        }
+
+        item.menu?.cancelTracking()
+        NSApp.sendAction(action, to: item.target, from: item)
+    }
+
+    private var isHighlighted: Bool {
+        isPointerInside || menuItem?.isHighlighted == true
+    }
+
+    private func updateAppearance() {
+        let color: NSColor = isHighlighted ? .white : .systemRed
+        titleField.textColor = color
+        imageView?.contentTintColor = color
+        needsDisplay = true
     }
 }
 

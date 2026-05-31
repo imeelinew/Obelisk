@@ -143,12 +143,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
-        let bookmarkType = isHidden ? "隐藏书签" : "书签"
+        let bookmarkType = bookmark.isHidden ? "隐藏书签" : "书签"
         armUndo(for: bookmark)
         notifyUser(
             title: "已添加\(bookmarkType)",
             body: resolvedTitle,
-            kind: isHidden ? .hidden : .success
+            kind: bookmark.isHidden ? .hidden : .success
         )
 
         guard aiFeaturesEnabled else { return }

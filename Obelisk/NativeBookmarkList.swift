@@ -59,7 +59,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     fileprivate static let headerHeight: CGFloat = 24
     fileprivate static let headerBottomSpacing: CGFloat = 10
     fileprivate static let headerSortControlHeight: CGFloat = 24
-    fileprivate static let referenceIndicatorTrailingInset: CGFloat = 30
+    fileprivate static let referenceIndicatorTrailingInset: CGFloat = 36
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -126,6 +126,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         weak var scrollView: NSScrollView?
         weak var tableView: HoverTableView?
         private var isSyncingSelection = false
+        private var selectedRowKeys: Set<NativeBookmarkRowSelectionKey> = []
         private var hoveredRow: Int = -1
         fileprivate var cachedFaviconVersion: Int = -1
 
@@ -407,7 +408,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             switch items[row] {
             case .header(_, let topSpacing, _, _, _):
                 return NativeBookmarkList.headerHeight + topSpacing + NativeBookmarkList.headerBottomSpacing
-            case .bookmark(_, _):
+            case .bookmark(_, _, _, _):
                 return NativeBookmarkList.rowHeight
             }
         }
@@ -435,7 +436,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                 )
                 return view
 
-            case .bookmark(let bookmark, let referenceIndicatorSystemImage):
+            case .bookmark(let bookmark, let referenceIndicatorSystemImage, _, _):
                 let view = tableView.makeView(
                     withIdentifier: BookmarkTableCellView.identifier,
                     owner: self
@@ -452,22 +453,17 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let tableView else { return }
-            var selectedIDs: Set<Bookmark.ID> = []
-            var selectedCollectionId: UUID?
+            let resolvedSelection = NativeBookmarkSelectionResolver.selection(
+                from: tableView.selectedRowIndexes,
+                in: items,
+                allowsCollectionSelection: parent.selectedCollectionId != nil
+            )
 
-            for row in tableView.selectedRowIndexes {
-                guard row >= 0, row < items.count else {
-                    continue
-                }
-                if let bookmark = items[row].bookmark {
-                    selectedIDs.insert(bookmark.id)
-                } else if tableView.selectedRowIndexes.count == 1 {
-                    selectedCollectionId = self.selectedCollectionId(for: row)
-                }
-            }
-
-            parent.selection = selectedIDs
-            parent.selectedCollectionId?.wrappedValue = selectedIDs.isEmpty ? selectedCollectionId : nil
+            selectedRowKeys = resolvedSelection.rowKeys
+            parent.selection = resolvedSelection.bookmarkIDs
+            parent.selectedCollectionId?.wrappedValue = resolvedSelection.bookmarkIDs.isEmpty
+                ? resolvedSelection.collectionId
+                : nil
         }
 
         @objc func handleDoubleClick(_ sender: NSTableView) {
@@ -575,16 +571,16 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         func syncSelectionToTable() {
             guard let tableView else { return }
-            var rowIndexes = IndexSet()
-            for (row, item) in items.enumerated() {
-                if let bookmark = item.bookmark, parent.selection.contains(bookmark.id) {
-                    rowIndexes.insert(row)
-                } else if parent.selection.isEmpty,
-                          let selectedCollectionId = parent.selectedCollectionId?.wrappedValue,
-                          item.collectionId == selectedCollectionId {
-                    rowIndexes.insert(row)
-                }
-            }
+            let rowIndexes = NativeBookmarkSelectionResolver.rowIndexes(
+                for: parent.selection,
+                selectedRowKeys: selectedRowKeys,
+                selectedCollectionId: parent.selectedCollectionId?.wrappedValue,
+                in: items
+            )
+            selectedRowKeys = Set(rowIndexes.compactMap { row in
+                guard row >= 0, row < items.count else { return nil }
+                return items[row].selectionKey
+            })
 
             isSyncingSelection = true
             tableView.selectRowIndexes(rowIndexes, byExtendingSelection: false)
@@ -739,7 +735,103 @@ struct NativeBookmarkList: NSViewRepresentable {
     }
 }
 
-fileprivate enum NativeBookmarkListItem: Equatable {
+struct NativeBookmarkRowSelectionKey: Hashable, Equatable {
+    var sectionOccurrence: Int
+    var bookmarkId: Bookmark.ID
+    var bookmarkOccurrence: Int
+}
+
+struct NativeBookmarkSelectionState: Equatable {
+    var bookmarkIDs: Set<Bookmark.ID>
+    var rowKeys: Set<NativeBookmarkRowSelectionKey>
+    var collectionId: UUID?
+}
+
+enum NativeBookmarkSelectionResolver {
+    static func selection(
+        from selectedRows: IndexSet,
+        in items: [NativeBookmarkListItem],
+        allowsCollectionSelection: Bool
+    ) -> NativeBookmarkSelectionState {
+        var bookmarkIDs: Set<Bookmark.ID> = []
+        var rowKeys: Set<NativeBookmarkRowSelectionKey> = []
+        var collectionId: UUID?
+
+        for row in selectedRows {
+            guard row >= 0, row < items.count else { continue }
+            let item = items[row]
+            if let bookmark = item.bookmark {
+                bookmarkIDs.insert(bookmark.id)
+                if let selectionKey = item.selectionKey {
+                    rowKeys.insert(selectionKey)
+                }
+            } else if allowsCollectionSelection,
+                      selectedRows.count == 1 {
+                collectionId = item.collectionId
+            }
+        }
+
+        return NativeBookmarkSelectionState(
+            bookmarkIDs: bookmarkIDs,
+            rowKeys: rowKeys,
+            collectionId: collectionId
+        )
+    }
+
+    static func rowIndexes(
+        for bookmarkIDs: Set<Bookmark.ID>,
+        selectedRowKeys: Set<NativeBookmarkRowSelectionKey>,
+        selectedCollectionId: UUID?,
+        in items: [NativeBookmarkListItem]
+    ) -> IndexSet {
+        guard !bookmarkIDs.isEmpty else {
+            guard let selectedCollectionId else { return [] }
+            let collectionRows = items.enumerated().compactMap { row, item -> Int? in
+                item.collectionId == selectedCollectionId ? row : nil
+            }
+            return IndexSet(collectionRows)
+        }
+
+        let keyedRows = items.enumerated().compactMap { row, item -> (row: Int, bookmarkId: Bookmark.ID)? in
+            guard
+                let bookmark = item.bookmark,
+                let selectionKey = item.selectionKey,
+                bookmarkIDs.contains(bookmark.id),
+                selectedRowKeys.contains(selectionKey)
+            else {
+                return nil
+            }
+            return (row, bookmark.id)
+        }
+
+        if Set(keyedRows.map(\.bookmarkId)) == bookmarkIDs {
+            return IndexSet(keyedRows.map(\.row))
+        }
+
+        var chosenRowsByBookmarkId: [Bookmark.ID: (row: Int, isReference: Bool)] = [:]
+        for (row, item) in items.enumerated() {
+            guard
+                let bookmark = item.bookmark,
+                bookmarkIDs.contains(bookmark.id)
+            else {
+                continue
+            }
+
+            let candidate = (row: row, isReference: item.isReference)
+            if let current = chosenRowsByBookmarkId[bookmark.id] {
+                if current.isReference && !candidate.isReference {
+                    chosenRowsByBookmarkId[bookmark.id] = candidate
+                }
+            } else {
+                chosenRowsByBookmarkId[bookmark.id] = candidate
+            }
+        }
+
+        return IndexSet(chosenRowsByBookmarkId.values.map(\.row))
+    }
+}
+
+enum NativeBookmarkListItem: Equatable {
     case header(
         title: String,
         topSpacing: CGFloat,
@@ -747,7 +839,12 @@ fileprivate enum NativeBookmarkListItem: Equatable {
         collectionId: UUID?,
         sortScope: BookmarkListSortScope?
     )
-    case bookmark(Bookmark, referenceIndicatorSystemImage: String?)
+    case bookmark(
+        Bookmark,
+        referenceIndicatorSystemImage: String?,
+        selectionKey: NativeBookmarkRowSelectionKey,
+        isReference: Bool
+    )
 
     var isHeader: Bool {
         if case .header = self { return true }
@@ -755,8 +852,18 @@ fileprivate enum NativeBookmarkListItem: Equatable {
     }
 
     var bookmark: Bookmark? {
-        if case .bookmark(let bookmark, _) = self { return bookmark }
+        if case .bookmark(let bookmark, _, _, _) = self { return bookmark }
         return nil
+    }
+
+    var selectionKey: NativeBookmarkRowSelectionKey? {
+        if case .bookmark(_, _, let selectionKey, _) = self { return selectionKey }
+        return nil
+    }
+
+    var isReference: Bool {
+        if case .bookmark(_, _, _, let isReference) = self { return isReference }
+        return false
     }
 
     var collectionId: UUID? {
@@ -770,12 +877,12 @@ fileprivate enum NativeBookmarkListItem: Equatable {
     }
 }
 
-private extension Array where Element == BookmarkListSection {
+extension Array where Element == BookmarkListSection {
     var flattenedItems: [NativeBookmarkListItem] {
         var items: [NativeBookmarkListItem] = []
         var hasVisibleHeader = false
 
-        for section in self {
+        for (sectionIndex, section) in enumerated() {
             if let title = section.title {
                 items.append(
                     .header(
@@ -788,11 +895,26 @@ private extension Array where Element == BookmarkListSection {
                 )
                 hasVisibleHeader = true
             }
+            let bookmarkOccurrenceById = Dictionary(
+                grouping: section.bookmarks.indices,
+                by: { section.bookmarks[$0].id }
+            ).mapValues { indices in
+                Dictionary(uniqueKeysWithValues: indices.enumerated().map { pair in
+                    (pair.element, pair.offset)
+                })
+            }
             items.append(
-                contentsOf: section.bookmarks.map {
-                    NativeBookmarkListItem.bookmark(
-                        $0,
-                        referenceIndicatorSystemImage: section.referenceIndicatorSystemImage
+                contentsOf: section.bookmarks.indices.map { bookmarkIndex in
+                    let bookmark = section.bookmarks[bookmarkIndex]
+                    return NativeBookmarkListItem.bookmark(
+                        bookmark,
+                        referenceIndicatorSystemImage: section.referenceIndicatorSystemImage,
+                        selectionKey: NativeBookmarkRowSelectionKey(
+                            sectionOccurrence: sectionIndex,
+                            bookmarkId: bookmark.id,
+                            bookmarkOccurrence: bookmarkOccurrenceById[bookmark.id]?[bookmarkIndex] ?? 0
+                        ),
+                        isReference: section.referenceIndicatorSystemImage != nil
                     )
                 }
             )

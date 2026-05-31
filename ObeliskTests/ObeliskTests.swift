@@ -23,6 +23,8 @@ struct SmokeTests {
         try testLegacyArchiveFallback()
         try testLegacyBookmarkStateMigration()
         try testHiddenBookmarkPersistence()
+        try testHiddenBookmarkKeywordExclusion()
+        try testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate()
         try testArchivePersistence()
         try testPinnedBookmarkPersistence()
         try testPinnedClearedByHiddenAndArchive()
@@ -228,6 +230,140 @@ struct SmokeTests {
         let loaded = try store.bookmarks()
         try expect(loaded.first { $0.id == hidden.id }?.isHidden == true, "expected hidden bookmark flag to persist")
         try expect(loaded.first { $0.id == visible.id }?.isHidden == false, "expected visible bookmark flag to default false")
+    }
+
+    @MainActor
+    private static func testHiddenBookmarkKeywordExclusion() throws {
+        let standardDefaults = UserDefaults.standard
+        let restoredDefaults = capturedDefaults(
+            keys: [
+                HiddenBookmarkKeywordExclusion.storageKey
+            ],
+            defaults: standardDefaults
+        )
+        defer {
+            restoreDefaults(restoredDefaults, defaults: standardDefaults)
+        }
+
+        let suiteName = "ObeliskHiddenBookmarkKeywordExclusion-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw SmokeTestError.failure("expected test defaults suite")
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("private\nPRIVATE\n  token  \n\n", forKey: HiddenBookmarkKeywordExclusion.storageKey)
+        try expect(
+            HiddenBookmarkKeywordExclusion.keywords(in: defaults) == ["private", "token"],
+            "expected keyword parsing to trim and deduplicate"
+        )
+        try expect(
+            HiddenBookmarkKeywordExclusion.matches(url: "https://example.com/path?access_token=1", defaults: defaults),
+            "expected keyword match inside URL"
+        )
+
+        standardDefaults.set("private", forKey: HiddenBookmarkKeywordExclusion.storageKey)
+        let root = try temporaryDirectory()
+        let model = BookmarksModel(store: BookmarkStore(rootDirectory: root), usageStore: UsageStore(rootDirectory: root))
+        let blockedResult = model.addBookmark(title: "Private", url: "https://example.com/private/page", isHidden: false)
+        guard case .failure(let blockedError) = blockedResult else {
+            throw SmokeTestError.failure("expected keyword-matched ordinary add to fail")
+        }
+        try expect(
+            blockedError.localizedDescription == HiddenBookmarkKeywordExclusion.blockedBookmarkMessage,
+            "expected keyword-matched ordinary add to use generic failure message"
+        )
+
+        let hiddenResult = model.addBookmark(title: "Private", url: "https://example.com/private/page", isHidden: true)
+        guard case .success(let hiddenBookmark) = hiddenResult else {
+            throw SmokeTestError.failure("expected keyword-matched hidden add to succeed")
+        }
+        try expect(hiddenBookmark.isHidden, "expected keyword-matched hidden add to stay hidden")
+        try expect(
+            model.setHidden(false, for: hiddenBookmark.id) == HiddenBookmarkKeywordExclusion.blockedBookmarkMessage,
+            "expected keyword-matched hidden bookmark not to move back to ordinary bookmarks"
+        )
+
+        let visibleResult = model.addBookmark(title: "Visible", url: "https://example.com/public", isHidden: false)
+        guard case .success(let visibleBookmark) = visibleResult else {
+            throw SmokeTestError.failure("expected non-matching bookmark add to succeed")
+        }
+        try expect(!visibleBookmark.isHidden, "expected non-matching ordinary add to stay visible")
+
+        var updatedVisibleBookmark = visibleBookmark
+        updatedVisibleBookmark.url = "https://example.com/private/updated"
+        try expect(
+            model.update(updatedVisibleBookmark) == HiddenBookmarkKeywordExclusion.blockedBookmarkMessage,
+            "expected keyword-matched visible update to fail"
+        )
+    }
+
+    private static func testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate() throws {
+        let bookmark = Bookmark(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000111")!,
+            title: "Duplicate",
+            url: "https://duplicate.example"
+        )
+        let items = [
+            BookmarkListSection(
+                title: "最近添加 (1)",
+                bookmarks: [bookmark],
+                referenceIndicatorSystemImage: "arrow.up.forward"
+            ),
+            BookmarkListSection(
+                title: "未分组 (1)",
+                bookmarks: [bookmark]
+            )
+        ].flattenedItems
+
+        try expect(items.count == 4, "expected two headers and two bookmark rows")
+        try expect(items[1].isReference, "expected recent bookmark row to be marked as reference")
+        try expect(!items[3].isReference, "expected ungrouped bookmark row to be marked as primary")
+
+        let recentSelection = NativeBookmarkSelectionResolver.selection(
+            from: IndexSet(integer: 1),
+            in: items,
+            allowsCollectionSelection: false
+        )
+        try expect(
+            recentSelection.bookmarkIDs == Set([bookmark.id]),
+            "expected recent row selection to keep bookmark action id"
+        )
+        try expect(
+            NativeBookmarkSelectionResolver.rowIndexes(
+                for: recentSelection.bookmarkIDs,
+                selectedRowKeys: recentSelection.rowKeys,
+                selectedCollectionId: nil,
+                in: items
+            ) == IndexSet(integer: 1),
+            "expected recent row selection to sync only the recent row"
+        )
+
+        let ungroupedSelection = NativeBookmarkSelectionResolver.selection(
+            from: IndexSet(integer: 3),
+            in: items,
+            allowsCollectionSelection: false
+        )
+        try expect(
+            NativeBookmarkSelectionResolver.rowIndexes(
+                for: ungroupedSelection.bookmarkIDs,
+                selectedRowKeys: ungroupedSelection.rowKeys,
+                selectedCollectionId: nil,
+                in: items
+            ) == IndexSet(integer: 3),
+            "expected ungrouped row selection to sync only the ungrouped row"
+        )
+
+        try expect(
+            NativeBookmarkSelectionResolver.rowIndexes(
+                for: Set([bookmark.id]),
+                selectedRowKeys: [],
+                selectedCollectionId: nil,
+                in: items
+            ) == IndexSet(integer: 3),
+            "expected bookmark-id fallback to prefer the non-reference row"
+        )
     }
 
     private static func testArchivePersistence() throws {
@@ -1694,6 +1830,10 @@ struct SmokeTests {
         try expect(
             freshDefaults.bool(forKey: BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey) == false,
             "expected fresh app defaults to keep new-bookmark auto grouping off"
+        )
+        try expect(
+            HiddenBookmarkKeywordExclusion.keywords(in: freshDefaults).isEmpty,
+            "expected fresh app defaults to start with no hidden bookmark exclusion keywords"
         )
         try expect(
             oldDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) == false,

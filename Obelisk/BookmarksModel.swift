@@ -252,6 +252,14 @@ struct BookmarkAutoGroupingOutcome: Equatable {
     }
 }
 
+private struct BookmarkValidationError: LocalizedError {
+    var message: String
+
+    var errorDescription: String? {
+        message
+    }
+}
+
 @MainActor
 @Observable
 final class BookmarksModel {
@@ -424,6 +432,9 @@ final class BookmarksModel {
 
     func addBookmark(title: String, url: String, isHidden: Bool = false) -> Result<Bookmark, Error> {
         do {
+            guard isHidden || !HiddenBookmarkKeywordExclusion.matches(url: url) else {
+                return .failure(BookmarkValidationError(message: HiddenBookmarkKeywordExclusion.blockedBookmarkMessage))
+            }
             let bookmark = try store.add(title: title, url: url, isHidden: isHidden)
             reload()
             return .success(bookmark)
@@ -434,6 +445,9 @@ final class BookmarksModel {
 
     func update(_ bookmark: Bookmark) -> String? {
         do {
+            if !bookmark.isHidden, HiddenBookmarkKeywordExclusion.matches(url: bookmark.url) {
+                return HiddenBookmarkKeywordExclusion.blockedBookmarkMessage
+            }
             try store.update(bookmark)
             reload()
             return nil
@@ -448,6 +462,9 @@ final class BookmarksModel {
         }
         guard bookmark.isHidden != isHidden else {
             return nil
+        }
+        if !isHidden, HiddenBookmarkKeywordExclusion.matches(url: bookmark.url) {
+            return HiddenBookmarkKeywordExclusion.blockedBookmarkMessage
         }
         bookmark.isHidden = isHidden
         return update(bookmark)

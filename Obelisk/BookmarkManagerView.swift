@@ -133,6 +133,7 @@ struct BookmarkManagerView: View {
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
     @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = true
     @AppStorage(ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) private var openHiddenBookmarksIncognito = true
+    @AppStorage(HiddenBookmarkKeywordExclusion.storageKey) private var hiddenBookmarkExcludedURLKeywordsRaw = ""
     @AppStorage(TitleOptimizationPreferences.autoOptimizeNewBookmarksKey) private var autoOptimizeNewBookmarks = false
     @AppStorage(TitleOptimizationPreferences.optimizeHiddenBookmarksKey) private var optimizeHiddenBookmarks = false
     @AppStorage(BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey) private var autoGroupNewBookmarks = false
@@ -153,6 +154,7 @@ struct BookmarkManagerView: View {
     @State private var collectionToRename: BookmarkCollection?
     @State private var renameCollectionName = ""
     @State private var collectionToDelete: BookmarkCollection?
+    @State private var newHiddenBookmarkExcludedURLKeyword = ""
     @State private var isFetchingOriginalTitles = false
     @State private var pendingAutoIntelligenceTask: Task<Void, Never>?
     @State private var isCreatingPlaintextBackup = false
@@ -703,6 +705,14 @@ struct BookmarkManagerView: View {
         selectedBookmarks.isEmpty || !selectedBookmarks.allSatisfy(\.isPinned)
     }
 
+    private var selectedPinnedSystemImage: String {
+        selectedPinnedTargetState ? "pin" : "pin.slash"
+    }
+
+    private var hiddenBookmarkExcludedURLKeywords: [String] {
+        HiddenBookmarkKeywordExclusion.keywords(from: hiddenBookmarkExcludedURLKeywordsRaw)
+    }
+
     private var canDeleteCollectionPageSelection: Bool {
         !selection.isEmpty || selectedCollection != nil
     }
@@ -911,6 +921,27 @@ struct BookmarkManagerView: View {
     private func beginDeleteCollection(id: UUID) {
         guard let collection = model.collections.first(where: { $0.id == id }) else { return }
         collectionToDelete = collection
+    }
+
+    private func addHiddenBookmarkExcludedURLKeyword() {
+        let keyword = newHiddenBookmarkExcludedURLKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return }
+
+        var keywords = hiddenBookmarkExcludedURLKeywords
+        guard !keywords.contains(where: { $0.caseInsensitiveCompare(keyword) == .orderedSame }) else {
+            newHiddenBookmarkExcludedURLKeyword = ""
+            return
+        }
+        keywords.append(keyword)
+        hiddenBookmarkExcludedURLKeywordsRaw = HiddenBookmarkKeywordExclusion.encoded(keywords)
+        newHiddenBookmarkExcludedURLKeyword = ""
+    }
+
+    private func removeHiddenBookmarkExcludedURLKeyword(_ keyword: String) {
+        let keywords = hiddenBookmarkExcludedURLKeywords.filter {
+            $0.caseInsensitiveCompare(keyword) != .orderedSame
+        }
+        hiddenBookmarkExcludedURLKeywordsRaw = HiddenBookmarkKeywordExclusion.encoded(keywords)
     }
 
     private var showsFullURLBinding: Binding<Bool> {
@@ -2305,6 +2336,46 @@ struct BookmarkManagerView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("排除关键词")
+
+                    HStack(spacing: 8) {
+                        TextField("", text: $newHiddenBookmarkExcludedURLKeyword)
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(addHiddenBookmarkExcludedURLKeyword)
+
+                        Button {
+                            addHiddenBookmarkExcludedURLKeyword()
+                        } label: {
+                            Text("添加")
+                        }
+                        .disabled(newHiddenBookmarkExcludedURLKeyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    ForEach(hiddenBookmarkExcludedURLKeywords, id: \.self) { keyword in
+                        HStack(spacing: 8) {
+                            Text(keyword)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Spacer(minLength: 0)
+
+                            Button(role: .destructive) {
+                                removeHiddenBookmarkExcludedURLKeyword(keyword)
+                            } label: {
+                                Label("删除", systemImage: "minus.circle")
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    Text("包含关键字的 URL 只能添加到「隐藏书签」。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
@@ -2489,7 +2560,7 @@ struct BookmarkManagerView: View {
                 Button {
                     togglePinnedSelection()
                 } label: {
-                    Label(selectedPinnedTargetState ? "置顶" : "取消置顶", systemImage: "pin")
+                    Label(selectedPinnedTargetState ? "置顶" : "取消置顶", systemImage: selectedPinnedSystemImage)
                 }
                 .disabled(!canTogglePinnedSelection)
                 .help(selectedPinnedTargetState ? "置顶选中的书签" : "取消置顶选中的书签")
@@ -2575,7 +2646,7 @@ struct BookmarkManagerView: View {
                 Button {
                     togglePinnedSelection()
                 } label: {
-                    Label(selectedPinnedTargetState ? "置顶" : "取消置顶", systemImage: "pin")
+                    Label(selectedPinnedTargetState ? "置顶" : "取消置顶", systemImage: selectedPinnedSystemImage)
                 }
                 .disabled(!canTogglePinnedSelection)
                 .help(selectedPinnedTargetState ? "置顶选中的书签" : "取消置顶选中的书签")

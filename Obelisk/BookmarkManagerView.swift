@@ -429,7 +429,7 @@ struct BookmarkManagerView: View {
             BookmarkListSection(
                 title: "最近添加 (\(recentBookmarks.count))",
                 bookmarks: recentBookmarks,
-                referenceIndicatorSystemImage: "arrow.up.forward"
+                referenceIndicatorSystemImage: FaviconReferenceBadge.systemImageName
             )
         ]
         let ungroupedSections = model.visibleUngroupedSections(

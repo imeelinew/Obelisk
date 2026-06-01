@@ -1698,7 +1698,7 @@ struct BookmarkManagerView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             } else {
-                NativeBookmarkList(
+                BookmarkListView(
                     sections: bookmarkSections,
                     selection: $selection,
                     faviconLoader: faviconLoader,
@@ -1741,7 +1741,7 @@ struct BookmarkManagerView: View {
                 && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ContentUnavailableView.search(text: searchText)
             } else if collectionBookmarkSections.allSatisfy({ $0.bookmarks.isEmpty }) {
-                NativeBookmarkList(
+                BookmarkListView(
                     sections: collectionBookmarkSections,
                     selection: $selection,
                     selectedCollectionId: $selectedCollectionId,
@@ -1754,7 +1754,7 @@ struct BookmarkManagerView: View {
                     onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                 )
             } else {
-                NativeBookmarkList(
+                BookmarkListView(
                     sections: collectionBookmarkSections,
                     selection: $selection,
                     selectedCollectionId: $selectedCollectionId,
@@ -1803,7 +1803,7 @@ struct BookmarkManagerView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 4)
 
-                    NativeBookmarkList(
+                    BookmarkListView(
                         sections: hiddenBookmarkSections,
                         selection: $selection,
                         faviconLoader: faviconLoader,
@@ -1894,7 +1894,7 @@ struct BookmarkManagerView: View {
                     ContentUnavailableView.search(text: searchText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    NativeBookmarkList(
+                    BookmarkListView(
                         sections: archivedBookmarkSections,
                         selection: $selection,
                         faviconLoader: faviconLoader,

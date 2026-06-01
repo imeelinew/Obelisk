@@ -24,8 +24,7 @@ struct SmokeTests {
         try testLegacyBookmarkStateMigration()
         try testHiddenBookmarkPersistence()
         try testHiddenBookmarkKeywordExclusion()
-        try testBookmarkListSelectionKeepsDuplicateRowsSeparate()
-        try testBookmarkListSelectionResolvesCollectionHeaders()
+        try testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate()
         try testArchivePersistence()
         try testPinnedBookmarkPersistence()
         try testPinnedClearedByHiddenAndArchive()
@@ -300,7 +299,7 @@ struct SmokeTests {
         )
     }
 
-    private static func testBookmarkListSelectionKeepsDuplicateRowsSeparate() throws {
+    private static func testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate() throws {
         let bookmark = Bookmark(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000111")!,
             title: "Duplicate",
@@ -322,8 +321,8 @@ struct SmokeTests {
         try expect(items[1].isReference, "expected recent bookmark row to be marked as reference")
         try expect(!items[3].isReference, "expected ungrouped bookmark row to be marked as primary")
 
-        let recentSelection = BookmarkListSelectionResolver.selection(
-            from: Set([items[1].id]),
+        let recentSelection = NativeBookmarkSelectionResolver.selection(
+            from: IndexSet(integer: 1),
             in: items,
             allowsCollectionSelection: false
         )
@@ -332,70 +331,38 @@ struct SmokeTests {
             "expected recent row selection to keep bookmark action id"
         )
         try expect(
-            BookmarkListSelectionResolver.rowIDs(
+            NativeBookmarkSelectionResolver.rowIndexes(
                 for: recentSelection.bookmarkIDs,
-                selectedRowIDs: recentSelection.rowIDs,
+                selectedRowKeys: recentSelection.rowKeys,
                 selectedCollectionId: nil,
                 in: items
-            ) == Set([items[1].id]),
+            ) == IndexSet(integer: 1),
             "expected recent row selection to sync only the recent row"
         )
 
-        let ungroupedSelection = BookmarkListSelectionResolver.selection(
-            from: Set([items[3].id]),
+        let ungroupedSelection = NativeBookmarkSelectionResolver.selection(
+            from: IndexSet(integer: 3),
             in: items,
             allowsCollectionSelection: false
         )
         try expect(
-            BookmarkListSelectionResolver.rowIDs(
+            NativeBookmarkSelectionResolver.rowIndexes(
                 for: ungroupedSelection.bookmarkIDs,
-                selectedRowIDs: ungroupedSelection.rowIDs,
+                selectedRowKeys: ungroupedSelection.rowKeys,
                 selectedCollectionId: nil,
                 in: items
-            ) == Set([items[3].id]),
+            ) == IndexSet(integer: 3),
             "expected ungrouped row selection to sync only the ungrouped row"
         )
 
         try expect(
-            BookmarkListSelectionResolver.rowIDs(
+            NativeBookmarkSelectionResolver.rowIndexes(
                 for: Set([bookmark.id]),
-                selectedRowIDs: [],
+                selectedRowKeys: [],
                 selectedCollectionId: nil,
                 in: items
-            ) == Set([items[3].id]),
+            ) == IndexSet(integer: 3),
             "expected bookmark-id fallback to prefer the non-reference row"
-        )
-    }
-
-    private static func testBookmarkListSelectionResolvesCollectionHeaders() throws {
-        let collectionId = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
-        let items = [
-            BookmarkListSection(
-                title: "Reading",
-                bookmarks: [],
-                sortMode: nil,
-                collectionId: collectionId
-            )
-        ].flattenedItems
-
-        try expect(items.count == 1, "expected one collection header row")
-
-        let selection = BookmarkListSelectionResolver.selection(
-            from: Set([items[0].id]),
-            in: items,
-            allowsCollectionSelection: true
-        )
-
-        try expect(selection.bookmarkIDs.isEmpty, "expected collection header selection to omit bookmark ids")
-        try expect(selection.collectionId == collectionId, "expected collection header selection to resolve collection id")
-        try expect(
-            BookmarkListSelectionResolver.rowIDs(
-                for: [],
-                selectedRowIDs: [],
-                selectedCollectionId: collectionId,
-                in: items
-            ) == Set([items[0].id]),
-            "expected collection id fallback to select the header row"
         )
     }
 

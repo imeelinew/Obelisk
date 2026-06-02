@@ -309,7 +309,7 @@ struct SmokeTests {
             BookmarkListSection(
                 title: "最近添加 (1)",
                 bookmarks: [bookmark],
-                referenceIndicatorSystemImage: "arrow.up.forward"
+                referenceIndicatorSystemImage: FaviconReferenceBadge.systemImageName
             ),
             BookmarkListSection(
                 title: "未分组 (1)",

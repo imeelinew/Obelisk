@@ -471,9 +471,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             keyEquivalent: ""
         )
         item.representedObject = bookmark
-        item.image = faviconLoader.image(for: bookmark.url) ?? AppIcon.faviconPlaceholder(size: NSSize(width: 16, height: 16))
+        let faviconEdge: CGFloat = 16
+        let faviconSize = NSSize(width: faviconEdge, height: faviconEdge)
+        let baseFavicon = faviconLoader.image(for: bookmark.url)
+            ?? AppIcon.faviconPlaceholder(size: faviconSize)
         if isReference {
-            item.attributedTitle = referenceTitle(title)
+            item.image = FaviconReferenceBadge.composited(
+                favicon: baseFavicon,
+                faviconEdge: faviconEdge
+            )
+        } else {
+            item.image = baseFavicon
         }
         return item
     }
@@ -496,21 +504,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .foregroundColor: highlighted ? NSColor.white : NSColor.systemRed
             ]
         )
-    }
-
-    private func referenceTitle(_ title: String) -> NSAttributedString {
-        let result = NSMutableAttributedString(
-            string: title,
-            attributes: [.font: NSFont.menuFont(ofSize: 0)]
-        )
-        result.append(NSAttributedString(
-            string: " ↗",
-            attributes: [
-                .font: NSFont.menuFont(ofSize: 0),
-                .foregroundColor: NSColor.secondaryLabelColor
-            ]
-        ))
-        return result
     }
 
     private func truncatedTitle(_ title: String) -> String {

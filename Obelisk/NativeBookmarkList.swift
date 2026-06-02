@@ -59,8 +59,6 @@ struct NativeBookmarkList: NSViewRepresentable {
     fileprivate static let headerHeight: CGFloat = 24
     fileprivate static let headerBottomSpacing: CGFloat = 10
     fileprivate static let headerSortControlHeight: CGFloat = 24
-    fileprivate static let referenceIndicatorTrailingInset: CGFloat = 36
-
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -1133,12 +1131,16 @@ private final class BookmarkHeaderCellView: NSTableCellView {
 private final class BookmarkTableCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("BookmarkTableCell")
 
+    private static let faviconEdge: CGFloat = 18
+    private static let referenceBadgeDiameter = FaviconReferenceBadge.badgeDiameter(forFaviconEdge: faviconEdge)
+    private static let faviconLayoutSize = FaviconReferenceBadge.layoutCanvasSize(forFaviconEdge: faviconEdge)
+
+    private let faviconContainer = NSView()
     private let faviconView = NSImageView()
+    private let referenceBadgeView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let urlField = NSTextField(labelWithString: "")
-    private let referenceIndicatorView = NSImageView()
-    private var referenceIndicatorWidthConstraint: NSLayoutConstraint?
-    private var textTrailingToReferenceIndicatorConstraint: NSLayoutConstraint?
+    private var textTrailingConstraint: NSLayoutConstraint?
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
@@ -1150,8 +1152,19 @@ private final class BookmarkTableCellView: NSTableCellView {
         super.init(frame: .zero)
         identifier = Self.identifier
 
+        clipsToBounds = false
+        faviconContainer.translatesAutoresizingMaskIntoConstraints = false
+        faviconContainer.clipsToBounds = false
+
         faviconView.translatesAutoresizingMaskIntoConstraints = false
         faviconView.imageScaling = .scaleProportionallyUpOrDown
+
+        referenceBadgeView.translatesAutoresizingMaskIntoConstraints = false
+        referenceBadgeView.imageScaling = .scaleProportionallyUpOrDown
+        referenceBadgeView.isHidden = true
+
+        faviconContainer.addSubview(faviconView)
+        faviconContainer.addSubview(referenceBadgeView)
 
         titleField.translatesAutoresizingMaskIntoConstraints = false
         titleField.font = .systemFont(ofSize: 13)
@@ -1167,33 +1180,35 @@ private final class BookmarkTableCellView: NSTableCellView {
         urlField.usesSingleLineMode = true
         urlField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        referenceIndicatorView.translatesAutoresizingMaskIntoConstraints = false
-        referenceIndicatorView.imageScaling = .scaleProportionallyUpOrDown
-        referenceIndicatorView.contentTintColor = .secondaryLabelColor
-        referenceIndicatorView.setContentHuggingPriority(.required, for: .horizontal)
-        referenceIndicatorView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        [faviconContainer, titleField, urlField].forEach(addSubview)
 
-        [faviconView, titleField, urlField, referenceIndicatorView].forEach(addSubview)
-
-        referenceIndicatorWidthConstraint = referenceIndicatorView.widthAnchor.constraint(equalToConstant: 0)
-        textTrailingToReferenceIndicatorConstraint = titleField.trailingAnchor.constraint(
-            equalTo: referenceIndicatorView.leadingAnchor
+        textTrailingConstraint = titleField.trailingAnchor.constraint(
+            equalTo: trailingAnchor,
+            constant: -NativeBookmarkList.contentInset
         )
 
+        let badgeDiameter = Self.referenceBadgeDiameter
+        let badgeOffset = FaviconReferenceBadge.badgeCenterOffset(forFaviconEdge: Self.faviconEdge)
+
         NSLayoutConstraint.activate([
-            faviconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
-            faviconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            faviconView.widthAnchor.constraint(equalToConstant: 18),
-            faviconView.heightAnchor.constraint(equalToConstant: 18),
+            faviconContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
+            faviconContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
+            faviconContainer.widthAnchor.constraint(equalToConstant: Self.faviconLayoutSize.width),
+            faviconContainer.heightAnchor.constraint(equalToConstant: Self.faviconLayoutSize.height),
 
-            titleField.leadingAnchor.constraint(equalTo: faviconView.trailingAnchor, constant: 12),
+            faviconView.leadingAnchor.constraint(equalTo: faviconContainer.leadingAnchor),
+            faviconView.bottomAnchor.constraint(equalTo: faviconContainer.bottomAnchor),
+            faviconView.widthAnchor.constraint(equalToConstant: Self.faviconEdge),
+            faviconView.heightAnchor.constraint(equalToConstant: Self.faviconEdge),
+
+            referenceBadgeView.widthAnchor.constraint(equalToConstant: badgeDiameter),
+            referenceBadgeView.heightAnchor.constraint(equalToConstant: badgeDiameter),
+            referenceBadgeView.centerXAnchor.constraint(equalTo: faviconView.trailingAnchor, constant: badgeOffset.width),
+            referenceBadgeView.centerYAnchor.constraint(equalTo: faviconView.bottomAnchor, constant: -badgeOffset.height),
+
+            titleField.leadingAnchor.constraint(equalTo: faviconContainer.trailingAnchor, constant: 12),
             titleField.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            textTrailingToReferenceIndicatorConstraint!,
-
-            referenceIndicatorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -NativeBookmarkList.referenceIndicatorTrailingInset),
-            referenceIndicatorView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            referenceIndicatorWidthConstraint!,
-            referenceIndicatorView.heightAnchor.constraint(equalToConstant: 14),
+            textTrailingConstraint!,
 
             urlField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
             urlField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 2),
@@ -1212,43 +1227,23 @@ private final class BookmarkTableCellView: NSTableCellView {
         favicon: NSImage?,
         referenceIndicatorSystemImage: String?
     ) {
-        if let favicon {
-            faviconView.image = favicon
-            faviconView.contentTintColor = nil
+        let canvasSize = NSSize(width: Self.faviconEdge, height: Self.faviconEdge)
+        faviconView.image = favicon ?? AppIcon.faviconPlaceholder(size: canvasSize)
+        faviconView.contentTintColor = nil
+
+        if let referenceIndicatorSystemImage {
+            referenceBadgeView.image = FaviconReferenceBadge.badgeImage(
+                diameter: Self.referenceBadgeDiameter,
+                systemImageName: referenceIndicatorSystemImage
+            )
+            referenceBadgeView.isHidden = false
         } else {
-            faviconView.image = AppIcon.faviconPlaceholder(size: NSSize(width: 18, height: 18))
-            faviconView.contentTintColor = nil
+            referenceBadgeView.image = nil
+            referenceBadgeView.isHidden = true
         }
         titleField.stringValue = bookmark.title
         urlField.stringValue = displayURL(for: bookmark.url, showsHostOnly: showsURLHostOnly)
-        configureReferenceIndicator(referenceIndicatorSystemImage)
         applyNativeTextColors()
-    }
-
-    private func configureReferenceIndicator(_ systemImage: String?) {
-        guard let systemImage else {
-            referenceIndicatorView.image = nil
-            referenceIndicatorView.isHidden = true
-            referenceIndicatorWidthConstraint?.constant = 0
-            textTrailingToReferenceIndicatorConstraint?.constant = 0
-            return
-        }
-
-        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        guard let image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration)
-        else {
-            referenceIndicatorView.image = nil
-            referenceIndicatorView.isHidden = true
-            referenceIndicatorWidthConstraint?.constant = 0
-            textTrailingToReferenceIndicatorConstraint?.constant = 0
-            return
-        }
-
-        referenceIndicatorView.image = image
-        referenceIndicatorView.isHidden = false
-        referenceIndicatorWidthConstraint?.constant = 14
-        textTrailingToReferenceIndicatorConstraint?.constant = -6
     }
 
     private func displayURL(for urlString: String, showsHostOnly: Bool) -> String {
@@ -1262,6 +1257,5 @@ private final class BookmarkTableCellView: NSTableCellView {
         let selected = backgroundStyle == .emphasized
         titleField.textColor = selected ? .alternateSelectedControlTextColor : .labelColor
         urlField.textColor = selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
-        referenceIndicatorView.contentTintColor = selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
     }
 }

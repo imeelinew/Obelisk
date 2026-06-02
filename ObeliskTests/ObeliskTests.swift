@@ -1138,24 +1138,28 @@ struct SmokeTests {
             translateNonChineseTitles: true
         )
         try expect(
-            !translationOnPrompt.contains("Prefer the user's language when obvious from the title or URL."),
-            "expected translation-on prompt to remove conflicting source language preference"
+            translationOnPrompt.contains("Prefer the user's language when obvious from the title or URL."),
+            "expected translation-on prompt to keep source language preference"
         )
         try expect(
-            translationOnPrompt.contains("TRANSLATE_NON_CHINESE_TO_CHINESE"),
-            "expected translation-on prompt to set mandatory translation mode"
+            translationOnPrompt.contains("Translation preference:"),
+            "expected translation-on prompt to use translation preference wording"
         )
         try expect(
-            translationOnPrompt.contains("MUST contain natural Chinese"),
-            "expected translation-on prompt to require Chinese text"
+            !translationOnPrompt.contains("TRANSLATE_NON_CHINESE_TO_CHINESE"),
+            "expected translation-on prompt not to force mandatory Chinese mode"
         )
         try expect(
-            translationOnPrompt.contains("Do not return an English-only title"),
-            "expected translation-on prompt to reject English-only titles"
+            !translationOnPrompt.contains("MUST contain natural Chinese"),
+            "expected translation-on prompt not to require Chinese text"
         )
         try expect(
-            translationOnPrompt.contains("Preserve proper nouns and identifiers"),
-            "expected translation-on prompt to preserve proper nouns"
+            !translationOnPrompt.contains("Translate generic descriptive words, categories"),
+            "expected translation-on prompt not to invent category descriptors"
+        )
+        try expect(
+            translationOnPrompt.contains("when it is reasonable"),
+            "expected translation-on prompt to translate only when reasonable"
         )
     }
 

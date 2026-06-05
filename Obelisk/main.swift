@@ -752,31 +752,12 @@ final class FaviconLoader {
     }
 
     private func faviconStorageLocations() -> [FaviconStorageLocation] {
-        uniqueFaviconLocations(ObeliskPrivateStorage.migrationSourceRootDirectories(in: rootDirectory).flatMap { sourceRoot in
-            [
-                FaviconStorageLocation(
-                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: false),
-                    encrypted: false
-                ),
-                FaviconStorageLocation(
-                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: true),
-                    encrypted: true
-                ),
-                FaviconStorageLocation(
-                    directory: ObeliskPrivateStorage.encryptedDataDirectory(in: sourceRoot)
-                        .appendingPathComponent("Favicons", isDirectory: true),
-                    encrypted: true
-                ),
-                FaviconStorageLocation(
-                    directory: ObeliskPrivateStorage.legacyFaviconDirectory(in: sourceRoot),
-                    encrypted: false
-                ),
-                FaviconStorageLocation(
-                    directory: ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: sourceRoot),
-                    encrypted: true
-                )
-            ]
-        })
+        uniqueFaviconLocations([
+            FaviconStorageLocation(
+                directory: ObeliskPrivateStorage.faviconDirectory(in: rootDirectory),
+                encrypted: LocalJSONEncryption.isEnabled
+            )
+        ])
     }
 
     private func uniqueFaviconLocations(_ locations: [FaviconStorageLocation]) -> [FaviconStorageLocation] {

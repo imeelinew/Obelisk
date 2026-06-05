@@ -110,8 +110,9 @@ public enum ObeliskPlaintextDataBackup {
     }
 
     private static func candidateJSONURLs(rootDirectory: URL, logicalName: String) -> [URL] {
-        ObeliskPrivateStorage.candidateFileURLs(rootDirectory: rootDirectory, logicalName: logicalName)
-            .sorted { modificationDate(for: $0) > modificationDate(for: $1) }
+        [
+            ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
+        ].sorted { modificationDate(for: $0) > modificationDate(for: $1) }
     }
 
     private static func newestNonEmptyBookmarkData(
@@ -201,31 +202,12 @@ public enum ObeliskPlaintextDataBackup {
     }
 
     private static func faviconSourceLocations(in rootDirectory: URL) -> [FaviconLocation] {
-        uniqueFaviconLocations(ObeliskPrivateStorage.migrationSourceRootDirectories(in: rootDirectory).flatMap { sourceRoot in
-            [
-                FaviconLocation(
-                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: false),
-                    encrypted: false
-                ),
-                FaviconLocation(
-                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: true),
-                    encrypted: true
-                ),
-                FaviconLocation(
-                    directory: ObeliskPrivateStorage.encryptedDataDirectory(in: sourceRoot)
-                        .appendingPathComponent("Favicons", isDirectory: true),
-                    encrypted: true
-                ),
-                FaviconLocation(
-                    directory: ObeliskPrivateStorage.legacyFaviconDirectory(in: sourceRoot),
-                    encrypted: false
-                ),
-                FaviconLocation(
-                    directory: ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: sourceRoot),
-                    encrypted: true
-                )
-            ]
-        })
+        uniqueFaviconLocations([
+            FaviconLocation(
+                directory: ObeliskPrivateStorage.faviconDirectory(in: rootDirectory),
+                encrypted: LocalJSONEncryption.isEnabled
+            )
+        ])
     }
 
     private static func uniqueFaviconLocations(_ locations: [FaviconLocation]) -> [FaviconLocation] {

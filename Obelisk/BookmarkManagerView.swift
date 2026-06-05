@@ -119,19 +119,18 @@ struct BookmarkManagerView: View {
     @State private var isTestingLLMConfig = false
     @State private var hiddenBookmarksUnlocked = false
     @AppStorage(SidebarIconTheme.storageKey) private var sidebarIconThemeRaw = SidebarIconTheme.colorful.rawValue
-    @AppStorage("debugSidebarIconTileSize") private var sidebarIconTileSize: Double = 22
-    @AppStorage("debugSidebarIconSymbolSize") private var sidebarIconSymbolSize: Double = 11
-    @AppStorage("debugSidebarIconCornerRadius") private var sidebarIconCornerRadius: Double = 6
-    @AppStorage("debugProfessionalSidebarIconSize") private var professionalSidebarIconSize: Double = 15
-    @AppStorage("debugProfessionalSidebarLabelSpacing") private var professionalSidebarLabelSpacing: Double = 12
-    @AppStorage("debugProfessionalSidebarLeadingInset") private var professionalSidebarLeadingInset: Double = 6
+    private let sidebarIconTileSize = 22.0
+    private let sidebarIconSymbolSize = 11.0
+    private let sidebarIconCornerRadius = 6.0
+    private let professionalSidebarIconSize = 15.0
+    private let professionalSidebarLabelSpacing = 12.0
+    private let professionalSidebarLeadingInset = 6.0
     @AppStorage("showHiddenBookmarksPage") private var showHiddenBookmarksPage = false
     @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
     @AppStorage(BookmarksModel.autoArchiveEnabledKey) private var autoArchiveEnabled = false
     @AppStorage(BookmarksModel.archiveAfterDaysKey) private var archiveAfterDays = BookmarksModel.defaultArchiveAfterDays
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
-    @AppStorage(LocalJSONEncryption.enabledKey) private var encryptLocalJSONData = true
     @AppStorage(ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) private var openHiddenBookmarksIncognito = true
     @AppStorage(HiddenBookmarkKeywordExclusion.storageKey) private var hiddenBookmarkExcludedURLKeywordsRaw = ""
     @AppStorage(TitleOptimizationPreferences.autoOptimizeNewBookmarksKey) private var autoOptimizeNewBookmarks = false
@@ -1068,12 +1067,6 @@ struct BookmarkManagerView: View {
     }
 
     private func resetDeveloperOptionsToDefaults() {
-        sidebarIconTileSize = BookmarksModel.defaultDebugSidebarIconTileSize
-        sidebarIconSymbolSize = BookmarksModel.defaultDebugSidebarIconSymbolSize
-        sidebarIconCornerRadius = BookmarksModel.defaultDebugSidebarIconCornerRadius
-        professionalSidebarIconSize = BookmarksModel.defaultDebugProfessionalSidebarIconSize
-        professionalSidebarLabelSpacing = BookmarksModel.defaultDebugProfessionalSidebarLabelSpacing
-        professionalSidebarLeadingInset = BookmarksModel.defaultDebugProfessionalSidebarLeadingInset
         resetDeveloperOptionsConfirmation = false
         showToast("已恢复开发者选项默认值")
     }
@@ -1085,22 +1078,48 @@ struct BookmarkManagerView: View {
         }
         guard !isCreatingPlaintextBackup else { return }
 
-        isCreatingPlaintextBackup = true
-        let rootDirectory = model.rootDirectory
-        Task.detached(priority: .utility) {
+        Task {
+            isCreatingPlaintextBackup = true
+            guard await AuthenticationGate.authenticate(reason: "导出 Obelisk 明文数据备份") else {
+                isCreatingPlaintextBackup = false
+                showToast("已取消明文备份", kind: .error)
+                return
+            }
+
+            guard let destinationParent = choosePlaintextBackupParentDirectory() else {
+                isCreatingPlaintextBackup = false
+                showToast("已取消明文备份", kind: .error)
+                return
+            }
+
+            let rootDirectory = model.rootDirectory
             do {
-                let result = try ObeliskPlaintextDataBackup.createBackup(in: rootDirectory)
-                await MainActor.run {
-                    isCreatingPlaintextBackup = false
-                    showToast("已备份至 \(result.destinationURL.lastPathComponent)")
-                }
+                let result = try await Task.detached(priority: .utility) {
+                    try ObeliskPlaintextDataBackup.createBackup(
+                        in: rootDirectory,
+                        destinationParent: destinationParent
+                    )
+                }.value
+                isCreatingPlaintextBackup = false
+                showToast("已备份至 \(result.destinationURL.lastPathComponent)")
             } catch {
-                await MainActor.run {
-                    isCreatingPlaintextBackup = false
-                    showToast(error.localizedDescription, kind: .error)
-                }
+                isCreatingPlaintextBackup = false
+                showToast(error.localizedDescription, kind: .error)
             }
         }
+    }
+
+    private func choosePlaintextBackupParentDirectory() -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "选择明文备份位置"
+        panel.prompt = "备份"
+        panel.message = "将在所选位置创建 Backup-时间戳 文件夹。"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     private func showToast(_ message: String, kind: Toast.Kind = .success) {
@@ -1170,54 +1189,6 @@ struct BookmarkManagerView: View {
             launchAtLoginEnabled = previousValue
             showToast(error.localizedDescription, kind: .error)
         }
-    }
-
-    private func setLocalJSONEncryptionEnabled(_ isEnabled: Bool) {
-        if !isEnabled {
-            Task {
-                guard await AuthenticationGate.authenticate(reason: "关闭本地数据加密") else {
-                    await MainActor.run {
-                        encryptLocalJSONData = true
-                        LocalJSONEncryption.isEnabled = true
-                    }
-                    return
-                }
-                await MainActor.run {
-                    applyLocalJSONEncryptionEnabled(false, disabledByAuthenticatedUser: true)
-                }
-            }
-            return
-        }
-
-        applyLocalJSONEncryptionEnabled(true, disabledByAuthenticatedUser: false)
-    }
-
-    private func applyLocalJSONEncryptionEnabled(_ isEnabled: Bool, disabledByAuthenticatedUser: Bool) {
-        let previousValue = encryptLocalJSONData
-        let previousDisabledByAuthenticatedUser = LocalJSONEncryption.disabledByAuthenticatedUser
-        encryptLocalJSONData = isEnabled
-        LocalJSONEncryption.isEnabled = isEnabled
-        LocalJSONEncryption.disabledByAuthenticatedUser = disabledByAuthenticatedUser
-
-        do {
-            try migrateLocalPrivateStorage(isEnabled: isEnabled)
-            onStorageRootChanged(model.rootDirectory)
-            model.reload()
-            loadLLMConfig()
-            showToast(isEnabled ? "数据加密已开启" : "数据加密已关闭")
-        } catch {
-            encryptLocalJSONData = previousValue
-            LocalJSONEncryption.isEnabled = previousValue
-            LocalJSONEncryption.disabledByAuthenticatedUser = previousDisabledByAuthenticatedUser
-            llmConfigMessage = error.localizedDescription
-        }
-    }
-
-    private func migrateLocalPrivateStorage(isEnabled: Bool) throws {
-        let root = model.rootDirectory
-        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: isEnabled)
-
-        faviconLoader.reloadStorage()
     }
 
     private var modelErrorAlertBinding: Binding<Bool> {
@@ -2308,23 +2279,6 @@ struct BookmarkManagerView: View {
 
     private var privacyPage: some View {
         Form {
-            Section("安全") {
-                Toggle(
-                    isOn: Binding(
-                        get: { encryptLocalJSONData },
-                        set: { setLocalJSONEncryptionEnabled($0) }
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("开启加密功能")
-                        Text("开启后 Obelisk 会使用 AES-GCM 加密您的书签、使用记录、模型配置和 favicon 缓存。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .help("开启后 Obelisk 会使用 AES-GCM 加密您的书签、使用记录、模型配置和 favicon 缓存。")
-            }
-
             Section("隐藏书签") {
                 Toggle("在侧边栏显示隐藏书签", isOn: $showHiddenBookmarksPage)
 
@@ -2423,32 +2377,6 @@ struct BookmarkManagerView: View {
                     }
                 }
 
-                Section("Toast 调试") {
-                    HStack(spacing: 10) {
-                        Button("成功 Toast") {
-                            showToast("操作成功")
-                        }
-
-                        Button("失败 Toast") {
-                            showToast("操作失败", kind: .error)
-                        }
-                    }
-                }
-
-                if sidebarIconTheme == .colorful {
-                    Section("侧栏图标调试") {
-                        centeredValueSlider("背景尺寸", desc: "侧栏图标背景色块的尺寸。", value: $sidebarIconTileSize, range: 16...28)
-                        centeredValueSlider("符号尺寸", desc: "侧栏图标中 SF Symbol 的字体大小。", value: $sidebarIconSymbolSize, range: 6...16)
-                        centeredValueSlider("圆角", desc: "侧栏图标背景色块的圆角半径。", value: $sidebarIconCornerRadius, range: 2...10)
-                    }
-                } else if sidebarIconTheme == .professional {
-                    Section("侧栏图标调试") {
-                        centeredValueSlider("图标大小", desc: "专业主题侧栏 SF Symbol 的尺寸。", value: $professionalSidebarIconSize, range: 10...20)
-                        centeredValueSlider("图标间距", desc: "专业主题侧栏图标与标题之间的距离。", value: $professionalSidebarLabelSpacing, range: 7...17)
-                        centeredValueSlider("左侧边距", desc: "专业主题选中行蓝色容器内，图标距左边缘的距离。", value: $professionalSidebarLeadingInset, range: 0...12)
-                    }
-                }
-
                 Section("标题") {
                     LabeledContent {
                         Button(role: .destructive) {
@@ -2488,33 +2416,6 @@ struct BookmarkManagerView: View {
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("开发者选项")
-    }
-
-    private func centeredValueSlider(
-        _ title: LocalizedStringKey,
-        desc: String? = nil,
-        value: Binding<Double>,
-        range: ClosedRange<Double>
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 14) {
-                Text(title)
-                    .frame(width: 72, alignment: .leading)
-
-                Slider(value: value, in: range, step: 1)
-
-                Text("\(Int(value.wrappedValue))")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, alignment: .trailing)
-            }
-
-            if let desc {
-                Text(desc)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
     }
 
     @ToolbarContentBuilder
@@ -3357,7 +3258,7 @@ private struct ExtraAlerts: ViewModifier {
                     resetDeveloperOptionsToDefaults()
                 }
             } message: {
-                Text("将把侧栏图标调试参数恢复为默认值，不会修改书签数据。")
+                Text("将把开发者选项恢复为默认状态，不会修改书签数据。")
             }
     }
 }

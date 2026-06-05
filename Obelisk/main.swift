@@ -752,18 +752,31 @@ final class FaviconLoader {
     }
 
     private func faviconStorageLocations() -> [FaviconStorageLocation] {
-        uniqueFaviconLocations([
-            FaviconStorageLocation(directory: cacheDirectory(encrypted: false), encrypted: false),
-            FaviconStorageLocation(directory: cacheDirectory(encrypted: true), encrypted: true),
-            FaviconStorageLocation(
-                directory: ObeliskPrivateStorage.legacyFaviconDirectory(in: rootDirectory),
-                encrypted: false
-            ),
-            FaviconStorageLocation(
-                directory: ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: rootDirectory),
-                encrypted: true
-            )
-        ])
+        uniqueFaviconLocations(ObeliskPrivateStorage.migrationSourceRootDirectories(in: rootDirectory).flatMap { sourceRoot in
+            [
+                FaviconStorageLocation(
+                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: false),
+                    encrypted: false
+                ),
+                FaviconStorageLocation(
+                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: true),
+                    encrypted: true
+                ),
+                FaviconStorageLocation(
+                    directory: ObeliskPrivateStorage.encryptedDataDirectory(in: sourceRoot)
+                        .appendingPathComponent("Favicons", isDirectory: true),
+                    encrypted: true
+                ),
+                FaviconStorageLocation(
+                    directory: ObeliskPrivateStorage.legacyFaviconDirectory(in: sourceRoot),
+                    encrypted: false
+                ),
+                FaviconStorageLocation(
+                    directory: ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: sourceRoot),
+                    encrypted: true
+                )
+            ]
+        })
     }
 
     private func uniqueFaviconLocations(_ locations: [FaviconStorageLocation]) -> [FaviconStorageLocation] {

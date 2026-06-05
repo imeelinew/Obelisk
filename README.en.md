@@ -46,7 +46,7 @@ Browser bookmarks are usually tied to one browser, buried in sidebars, or mixed 
 - **Menu bar first**: open frequent, recent, and full bookmark lists without switching context.
 - **Native settings**: manage bookmarks in a macOS window with search, sections, and familiar toolbar controls.
 - **Private lists**: keep hidden bookmarks behind device-owner authentication.
-- **Local storage**: bookmark data lives under your local Documents folder.
+- **Local encrypted storage**: bookmark data lives in Obelisk.obelisk under your local Documents folder.
 - **Optional cleanup**: use AI title optimization when you want cleaner bookmark names.
 
 ## Menu Bar
@@ -74,7 +74,7 @@ Use the global add-bookmark shortcut to save the current browser tab. Obelisk re
 - Search, edit, delete, copy URL, and refresh favicon actions
 - Configurable menu limits and window appearance
 - Optional silent add flow
-- Optional local JSON encryption for private storage
+- Local JSON encryption for private storage
 - Optional AI title optimization
 
 ## Install

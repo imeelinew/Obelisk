@@ -16,6 +16,7 @@ struct SmokeTests {
             try? FileManager.default.removeItem(at: isolatedHome)
         }
 
+        try testDefaultRootDirectoryUsesVault()
         try testDuplicateProtection()
         try testWebURLValidation()
         try testLegacyCreatedAtFallback()
@@ -37,6 +38,9 @@ struct SmokeTests {
         try testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists()
         try testStorageNormalizeAllowsIntentionalEmptyBookmarkDatabase()
         try testStorageNormalizeMigratesLegacyRootJSONFile()
+        try testStorageNormalizeMigratesLegacyVaultRoot()
+        try testStorageNormalizeMigratesLegacySiblingRoot()
+        try testVaultDirectoryIsMarkedAsPackage()
         try testStorageNormalizeMigratesLegacyPrivateDataBackup()
         try testPlaintextStorageUsesDataDirectory()
         try testStorageNormalizeRemovesEmptyLegacyDirectories()
@@ -68,7 +72,7 @@ struct SmokeTests {
         try testKeychainMigrationSkipsEncryptionService()
         try testPlaintextDataBackup()
         try testFreshAppDefaultsEnableCoreWorkflows()
-        try testLocalJSONEncryptionDefaultsRequireAuthenticatedDisable()
+        try testLocalJSONEncryptionDefaultsForceProductionEncryption()
         try testBrowserCurrentTabParsingAndPermissionMapping()
         try testHotkeyResolverFailsClosed()
         try testPrivateBrowserOpenerPermissionMapping()
@@ -84,6 +88,23 @@ struct SmokeTests {
         } catch BookmarkStoreError.duplicateURL {
             return
         }
+    }
+
+    private static func testDefaultRootDirectoryUsesVault() throws {
+        let previousOverride = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"]
+        unsetenv("UNIBOOKMARK_HOME")
+        defer {
+            if let previousOverride {
+                setenv("UNIBOOKMARK_HOME", previousOverride, 1)
+            } else {
+                unsetenv("UNIBOOKMARK_HOME")
+            }
+        }
+
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents")
+            .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
+        try expect(BookmarkStore.defaultRootDirectory() == expected, "expected default storage root to use Obelisk.obelisk")
     }
 
     private static func testWebURLValidation() throws {
@@ -721,7 +742,7 @@ struct SmokeTests {
             rootDirectory: root,
             logicalName: "bookmarks.json"
         )
-        let dataURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        let encryptedURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try """
         {
@@ -736,15 +757,95 @@ struct SmokeTests {
         }
         """.write(to: legacyRootURL, atomically: true, encoding: .utf8)
 
-        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: false, logicalNames: ["bookmarks.json"])
+        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: true, logicalNames: ["bookmarks.json"])
 
-        try expect(FileManager.default.fileExists(atPath: dataURL.path), "expected legacy root JSON to move into Data")
+        try expect(FileManager.default.fileExists(atPath: encryptedURL.path), "expected legacy root JSON to move into vault bin")
         try expect(!FileManager.default.fileExists(atPath: legacyRootURL.path), "expected legacy root JSON to be removed")
-        LocalJSONEncryption.isEnabled = false
+        LocalJSONEncryption.isEnabled = true
         try expect(
             try BookmarkStore(rootDirectory: root).bookmarks().map(\.url) == ["https://legacy-root.example"],
-            "expected migrated Data bookmark to load"
+            "expected migrated vault bookmark to load"
         )
+    }
+
+    private static func testStorageNormalizeMigratesLegacySiblingRoot() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let documentsRoot = try temporaryDirectory()
+        let vaultRoot = documentsRoot.appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
+        let legacyRoot = documentsRoot.appendingPathComponent(ObeliskPrivateStorage.legacyLocalDirectoryName, isDirectory: true)
+        let legacyDataURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: legacyRoot, logicalName: "bookmarks.json")
+        let targetURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: vaultRoot, logicalName: "bookmarks.json")
+        try FileManager.default.createDirectory(at: legacyDataURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "version": 1,
+          "bookmarks": [
+            {
+              "id": "00000000-0000-0000-0000-000000000308",
+              "title": "Legacy Sibling",
+              "url": "https://legacy-sibling.example"
+            }
+          ]
+        }
+        """.write(to: legacyDataURL, atomically: true, encoding: .utf8)
+
+        try ObeliskStorageMigrator.normalizeStorage(in: vaultRoot, encrypted: true)
+
+        LocalJSONEncryption.isEnabled = true
+        try expect(FileManager.default.fileExists(atPath: targetURL.path), "expected sibling legacy data to migrate into vault")
+        try expect(!FileManager.default.fileExists(atPath: legacyDataURL.path), "expected sibling legacy data file to be removed after verified migration")
+        try expect(
+            try BookmarkStore(rootDirectory: vaultRoot).bookmarks().map(\.url) == ["https://legacy-sibling.example"],
+            "expected migrated sibling bookmark to load"
+        )
+    }
+
+    private static func testStorageNormalizeMigratesLegacyVaultRoot() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let documentsRoot = try temporaryDirectory()
+        let vaultRoot = documentsRoot.appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
+        let legacyVaultRoot = documentsRoot.appendingPathComponent(ObeliskPrivateStorage.legacyVaultDirectoryName, isDirectory: true)
+        let legacyDataURL = ObeliskPrivateStorage.legacyFileURL(rootDirectory: legacyVaultRoot, logicalName: "bookmarks.json")
+        let targetURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: vaultRoot, logicalName: "bookmarks.json")
+        try FileManager.default.createDirectory(at: legacyDataURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "version": 1,
+          "bookmarks": [
+            {
+              "id": "00000000-0000-0000-0000-000000000309",
+              "title": "Legacy Vault",
+              "url": "https://legacy-vault.example"
+            }
+          ]
+        }
+        """.write(to: legacyDataURL, atomically: true, encoding: .utf8)
+
+        try ObeliskStorageMigrator.normalizeStorage(in: vaultRoot, encrypted: true)
+
+        LocalJSONEncryption.isEnabled = true
+        try expect(FileManager.default.fileExists(atPath: targetURL.path), "expected legacy vault data to migrate into new vault")
+        try expect(!FileManager.default.fileExists(atPath: legacyDataURL.path), "expected legacy vault data file to be removed after verified migration")
+        try expect(!FileManager.default.fileExists(atPath: legacyVaultRoot.path), "expected empty legacy vault root to be removed after migration")
+        try expect(
+            try BookmarkStore(rootDirectory: vaultRoot).bookmarks().map(\.url) == ["https://legacy-vault.example"],
+            "expected migrated legacy vault bookmark to load"
+        )
+    }
+
+    private static func testVaultDirectoryIsMarkedAsPackage() throws {
+        let root = try temporaryDirectory()
+            .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(root)
+
+        let values = try root.resourceValues(forKeys: [.isPackageKey])
+        try expect(values.isPackage == true, "expected vault directory to be marked as a Finder package")
     }
 
     private static func testStorageNormalizeMigratesLegacyPrivateDataBackup() throws {
@@ -1013,10 +1114,10 @@ struct SmokeTests {
         try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: true)
 
         let encryptedIconURL = ObeliskPrivateStorage.faviconIconURL(rootDirectory: root, key: key, encrypted: true)
-        try expect(FileManager.default.fileExists(atPath: encryptedBookmarkURL.path), "expected encrypted bookmark JSON to remain in EncryptedData")
-        try expect(FileManager.default.fileExists(atPath: encryptedStateURL.path), "expected encrypted state JSON to remain in EncryptedData")
-        try expect(FileManager.default.fileExists(atPath: encryptedUsageURL.path), "expected encrypted usage JSON to remain in EncryptedData")
-        try expect(FileManager.default.fileExists(atPath: encryptedIconURL.path), "expected plaintext favicon to move into encrypted EncryptedData/Favicons")
+        try expect(FileManager.default.fileExists(atPath: encryptedBookmarkURL.path), "expected encrypted bookmark JSON to remain in vault root")
+        try expect(FileManager.default.fileExists(atPath: encryptedStateURL.path), "expected encrypted state JSON to remain in vault root")
+        try expect(FileManager.default.fileExists(atPath: encryptedUsageURL.path), "expected encrypted usage JSON to remain in vault root")
+        try expect(FileManager.default.fileExists(atPath: encryptedIconURL.path), "expected plaintext favicon to move into encrypted vault Favicons")
         try expect(!FileManager.default.fileExists(atPath: ObeliskPrivateStorage.dataDirectory(in: root).path), "expected no plaintext Data directory after encrypted normalization")
         let decrypted = try SecureJSONFileCodec().readData(from: encryptedIconURL)
         try expect(String(decoding: decrypted, as: UTF8.self) == "plain-mixed-icon", "expected encrypted mixed favicon data to decrypt")
@@ -1447,7 +1548,7 @@ struct SmokeTests {
         try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted envelope marker")
         try expect(!rawText.contains("private.example"), "expected encrypted file to hide bookmark URL")
         try expect(store.fileURL.pathExtension == "bin", "expected encrypted bookmark store to use an obscured bin file")
-        try expect(store.fileURL.deletingLastPathComponent().lastPathComponent == "EncryptedData", "expected encrypted bookmark store to use EncryptedData")
+        try expect(store.fileURL.deletingLastPathComponent() == root, "expected encrypted bookmark store to use vault root")
         try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected encrypted bookmark store to avoid legacy filename")
         try expect(try store.bookmarks().map(\.id) == [bookmark.id], "expected encrypted bookmark to read back")
 
@@ -1563,7 +1664,7 @@ struct SmokeTests {
 
             let groupsURL = groupStore.fileURL
             if encrypted {
-                try expect(groupsURL.path.contains("EncryptedData"), "expected encrypted groups under EncryptedData")
+                try expect(groupsURL.deletingLastPathComponent() == root, "expected encrypted groups under vault root")
                 try expect(groupsURL.pathExtension == "bin", "expected encrypted groups to use obscured bin file")
                 let raw = try Data(contentsOf: groupsURL)
                 let rawText = String(decoding: raw, as: UTF8.self)
@@ -1781,12 +1882,22 @@ struct SmokeTests {
         let store = BookmarkStore(rootDirectory: root)
         _ = try store.add(title: "Backup Me", url: "https://backup-me.example")
 
-        let result = try ObeliskPlaintextDataBackup.createBackup(in: root)
+        let backupParent = root.appendingPathComponent("Downloads", isDirectory: true)
+        let result = try ObeliskPlaintextDataBackup.createBackup(
+            in: root,
+            destinationParent: backupParent
+        )
         try expect(result.destinationURL.lastPathComponent.hasPrefix("Backup-"), "expected dated backup folder name")
-        let bookmarksURL = result.destinationURL
-            .appendingPathComponent("Data")
-            .appendingPathComponent("bookmarks.json")
+        try expect(
+            result.destinationURL.deletingLastPathComponent() == backupParent,
+            "expected plaintext backup to live directly inside the selected directory"
+        )
+        let bookmarksURL = result.destinationURL.appendingPathComponent("bookmarks.json")
         try expect(FileManager.default.fileExists(atPath: bookmarksURL.path), "expected plaintext bookmarks backup")
+        try expect(
+            !FileManager.default.fileExists(atPath: result.destinationURL.appendingPathComponent("Data").path),
+            "expected plaintext backup not to wrap files in Data"
+        )
         let raw = try String(contentsOf: bookmarksURL, encoding: .utf8)
         try expect(raw.contains("backup-me.example"), "expected backup to contain bookmark URL")
         try expect(!raw.contains("obelisk.encrypted-json.v1"), "expected backup to be plaintext JSON")
@@ -1845,7 +1956,7 @@ struct SmokeTests {
         )
     }
 
-    private static func testLocalJSONEncryptionDefaultsRequireAuthenticatedDisable() throws {
+    private static func testLocalJSONEncryptionDefaultsForceProductionEncryption() throws {
         let legacyFalseSuiteName = "com.eli.Obelisk.legacy-false.test.\(UUID().uuidString)"
         let authenticatedDisabledSuiteName = "com.eli.Obelisk.auth-disabled.test.\(UUID().uuidString)"
         let reenabledSuiteName = "com.eli.Obelisk.reenabled.test.\(UUID().uuidString)"
@@ -1880,12 +1991,12 @@ struct SmokeTests {
         authenticatedDisabledDefaults.set(true, forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey)
         ObeliskAppDefaults.register(in: authenticatedDisabledDefaults)
         try expect(
-            authenticatedDisabledDefaults.bool(forKey: LocalJSONEncryption.enabledKey) == false,
-            "expected authenticated user-disabled encryption setting to be preserved"
+            authenticatedDisabledDefaults.bool(forKey: LocalJSONEncryption.enabledKey),
+            "expected authenticated user-disabled encryption setting to be corrected"
         )
         try expect(
-            authenticatedDisabledDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey),
-            "expected authenticated user-disabled marker to be preserved"
+            authenticatedDisabledDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
+            "expected authenticated user-disabled marker to be cleared"
         )
 
         reenabledDefaults.set(true, forKey: LocalJSONEncryption.enabledKey)

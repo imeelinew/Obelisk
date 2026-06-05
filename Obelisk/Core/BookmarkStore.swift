@@ -131,7 +131,7 @@ public final class BookmarkStore {
         return FileManager.default
             .homeDirectoryForCurrentUser
             .appendingPathComponent("Documents")
-            .appendingPathComponent("Obelisk")
+            .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
     }
 
     public func updateRootDirectory(_ rootDirectory: URL) {
@@ -171,6 +171,7 @@ public final class BookmarkStore {
             at: rootDirectory,
             withIntermediateDirectories: true
         )
+        ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(rootDirectory)
 
         try persistState(from: database.bookmarks)
         let data = try encoder.encode(database)
@@ -506,6 +507,7 @@ public final class BookmarkStore {
     }
 
     private func ensureStoreExists() throws {
+        ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(rootDirectory)
         let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
             rootDirectory: rootDirectory,
             logicalName: "bookmarks.json"

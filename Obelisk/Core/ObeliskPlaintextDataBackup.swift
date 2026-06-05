@@ -1,6 +1,6 @@
 import Foundation
 
-/// Exports a point-in-time plaintext snapshot of Obelisk storage under the data root.
+/// Exports a point-in-time plaintext snapshot outside the private vault.
 public enum ObeliskPlaintextDataBackup {
     public struct Result: Sendable {
         public let destinationURL: URL
@@ -25,18 +25,19 @@ public enum ObeliskPlaintextDataBackup {
     private static let jsonLogicalNames = ObeliskStorageMigrator.logicalJSONFiles
     private static let backupFolderPrefix = "Backup-"
 
-    public static func createBackup(in rootDirectory: URL, now: Date = Date()) throws -> Result {
+    public static func createBackup(
+        in rootDirectory: URL,
+        destinationParent: URL,
+        now: Date = Date()
+    ) throws -> Result {
         let fileManager = FileManager.default
-        let destinationRoot = rootDirectory.appendingPathComponent(backupFolderName(for: now), isDirectory: true)
+        let destinationRoot = destinationParent
+            .appendingPathComponent(backupFolderName(for: now), isDirectory: true)
         guard !fileManager.fileExists(atPath: destinationRoot.path) else {
             throw BackupError.destinationAlreadyExists(destinationRoot)
         }
 
-        let dataDirectory = destinationRoot.appendingPathComponent(
-            ObeliskPrivateStorage.dataDirectoryName,
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
 
         let codec = SecureJSONFileCodec()
         var exportedJSONFiles: [String] = []
@@ -49,14 +50,14 @@ public enum ObeliskPlaintextDataBackup {
             ) else {
                 continue
             }
-            let destinationURL = dataDirectory.appendingPathComponent(logicalName)
+            let destinationURL = destinationRoot.appendingPathComponent(logicalName)
             try LocalFileAccess.writeData(plaintext, to: destinationURL)
             exportedJSONFiles.append(logicalName)
         }
 
         let faviconCount = try exportFavicons(
             from: rootDirectory,
-            to: dataDirectory.appendingPathComponent("Favicons", isDirectory: true),
+            to: destinationRoot.appendingPathComponent("Favicons", isDirectory: true),
             codec: codec
         )
 
@@ -109,12 +110,8 @@ public enum ObeliskPlaintextDataBackup {
     }
 
     private static func candidateJSONURLs(rootDirectory: URL, logicalName: String) -> [URL] {
-        uniqueURLs([
-            ObeliskPrivateStorage.fileURL(rootDirectory: rootDirectory, logicalName: logicalName, encrypted: true),
-            ObeliskPrivateStorage.fileURL(rootDirectory: rootDirectory, logicalName: logicalName, encrypted: false),
-            ObeliskPrivateStorage.legacyRootFileURL(rootDirectory: rootDirectory, logicalName: logicalName),
-            ObeliskPrivateStorage.legacyPrivateFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
-        ]).sorted { modificationDate(for: $0) > modificationDate(for: $1) }
+        ObeliskPrivateStorage.candidateFileURLs(rootDirectory: rootDirectory, logicalName: logicalName)
+            .sorted { modificationDate(for: $0) > modificationDate(for: $1) }
     }
 
     private static func newestNonEmptyBookmarkData(
@@ -204,24 +201,31 @@ public enum ObeliskPlaintextDataBackup {
     }
 
     private static func faviconSourceLocations(in rootDirectory: URL) -> [FaviconLocation] {
-        uniqueFaviconLocations([
-            FaviconLocation(
-                directory: ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: false),
-                encrypted: false
-            ),
-            FaviconLocation(
-                directory: ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: true),
-                encrypted: true
-            ),
-            FaviconLocation(
-                directory: ObeliskPrivateStorage.legacyFaviconDirectory(in: rootDirectory),
-                encrypted: false
-            ),
-            FaviconLocation(
-                directory: ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: rootDirectory),
-                encrypted: true
-            )
-        ])
+        uniqueFaviconLocations(ObeliskPrivateStorage.migrationSourceRootDirectories(in: rootDirectory).flatMap { sourceRoot in
+            [
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: false),
+                    encrypted: false
+                ),
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: true),
+                    encrypted: true
+                ),
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.encryptedDataDirectory(in: sourceRoot)
+                        .appendingPathComponent("Favicons", isDirectory: true),
+                    encrypted: true
+                ),
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.legacyFaviconDirectory(in: sourceRoot),
+                    encrypted: false
+                ),
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: sourceRoot),
+                    encrypted: true
+                )
+            ]
+        })
     }
 
     private static func uniqueFaviconLocations(_ locations: [FaviconLocation]) -> [FaviconLocation] {
@@ -300,7 +304,10 @@ public enum ObeliskStorageTransition {
         encrypted: Bool,
         backup: (URL) throws -> ObeliskPlaintextDataBackup.Result? = { rootDirectory in
             do {
-                return try ObeliskPlaintextDataBackup.createBackup(in: rootDirectory)
+                return try ObeliskPlaintextDataBackup.createBackup(
+                    in: rootDirectory,
+                    destinationParent: rootDirectory.deletingLastPathComponent()
+                )
             } catch ObeliskPlaintextDataBackup.BackupError.nothingToExport {
                 return nil
             }

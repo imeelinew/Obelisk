@@ -4,10 +4,16 @@ enum ObeliskAppDefaults {
     static let openHiddenBookmarksIncognitoKey = "openHiddenBookmarksIncognito"
 
     private static let professionalSidebarDebugDefaultsVersionKey = "professionalSidebarDebugDefaultsVersion"
-    private static let professionalSidebarDebugDefaultsVersion = 2
+    private static let professionalSidebarDebugDefaultsVersion = 3
+    private static let sidebarIconTileSizeKey = "debugSidebarIconTileSize"
+    private static let sidebarIconSymbolSizeKey = "debugSidebarIconSymbolSize"
+    private static let sidebarIconCornerRadiusKey = "debugSidebarIconCornerRadius"
     private static let professionalSidebarIconSizeKey = "debugProfessionalSidebarIconSize"
     private static let professionalSidebarLabelSpacingKey = "debugProfessionalSidebarLabelSpacing"
     private static let professionalSidebarLeadingInsetKey = "debugProfessionalSidebarLeadingInset"
+    private static let defaultSidebarIconTileSize: Double = 22
+    private static let defaultSidebarIconSymbolSize: Double = 11
+    private static let defaultSidebarIconCornerRadius: Double = 6
     private static let defaultProfessionalSidebarIconSize: Double = 15
     private static let defaultProfessionalSidebarLabelSpacing: Double = 12
     private static let defaultProfessionalSidebarLeadingInset: Double = 6
@@ -19,6 +25,9 @@ enum ObeliskAppDefaults {
         let hadStoredEncryptionPreference = defaults.object(forKey: LocalJSONEncryption.enabledKey) != nil
         defaults.register(defaults: [
             SidebarIconTheme.storageKey: SidebarIconTheme.colorful.rawValue,
+            sidebarIconTileSizeKey: defaultSidebarIconTileSize,
+            sidebarIconSymbolSizeKey: defaultSidebarIconSymbolSize,
+            sidebarIconCornerRadiusKey: defaultSidebarIconCornerRadius,
             professionalSidebarIconSizeKey: defaultProfessionalSidebarIconSize,
             professionalSidebarLabelSpacingKey: defaultProfessionalSidebarLabelSpacing,
             professionalSidebarLeadingInsetKey: defaultProfessionalSidebarLeadingInset,
@@ -62,6 +71,16 @@ enum ObeliskAppDefaults {
             if defaults.double(forKey: professionalSidebarLabelSpacingKey) == 2 {
                 defaults.set(defaultProfessionalSidebarLabelSpacing, forKey: professionalSidebarLabelSpacingKey)
             }
+            defaults.set(professionalSidebarDebugDefaultsVersion, forKey: professionalSidebarDebugDefaultsVersionKey)
+        }
+
+        if version < 3 {
+            defaults.set(defaultSidebarIconTileSize, forKey: sidebarIconTileSizeKey)
+            defaults.set(defaultSidebarIconSymbolSize, forKey: sidebarIconSymbolSizeKey)
+            defaults.set(defaultSidebarIconCornerRadius, forKey: sidebarIconCornerRadiusKey)
+            defaults.set(defaultProfessionalSidebarIconSize, forKey: professionalSidebarIconSizeKey)
+            defaults.set(defaultProfessionalSidebarLabelSpacing, forKey: professionalSidebarLabelSpacingKey)
+            defaults.set(defaultProfessionalSidebarLeadingInset, forKey: professionalSidebarLeadingInsetKey)
             defaults.set(professionalSidebarDebugDefaultsVersion, forKey: professionalSidebarDebugDefaultsVersionKey)
         }
     }

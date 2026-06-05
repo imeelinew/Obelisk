@@ -22,16 +22,14 @@ public enum LocalJSONEncryption {
         hadStoredEnabledPreference: Bool,
         preservesUnauthenticatedDisabledState: Bool = false
     ) {
-        if !preservesUnauthenticatedDisabledState,
+        if preservesUnauthenticatedDisabledState,
            hadStoredEnabledPreference,
-           !defaults.bool(forKey: enabledKey),
-           !defaults.bool(forKey: disabledByAuthenticatedUserKey) {
+           !defaults.bool(forKey: enabledKey) {
+            defaults.set(false, forKey: enabledKey)
+        } else {
             defaults.set(true, forKey: enabledKey)
         }
-
-        if defaults.bool(forKey: enabledKey) {
-            defaults.set(false, forKey: disabledByAuthenticatedUserKey)
-        }
+        defaults.set(false, forKey: disabledByAuthenticatedUserKey)
     }
 }
 
@@ -39,6 +37,9 @@ public enum ObeliskPrivateStorage {
     public static let dataDirectoryName = "Data"
     public static let encryptedDataDirectoryName = "EncryptedData"
     public static let legacyEncryptedDataDirectoryName = "PrivateData"
+    public static let vaultDirectoryName = "Obelisk.obelisk"
+    public static let legacyVaultDirectoryName = "Obelisk.vault"
+    public static let legacyLocalDirectoryName = "Obelisk"
 
     public static func dataDirectory(in rootDirectory: URL) -> URL {
         rootDirectory.appendingPathComponent(dataDirectoryName, isDirectory: true)
@@ -57,7 +58,7 @@ public enum ObeliskPrivateStorage {
     }
 
     public static func faviconDirectory(in rootDirectory: URL, encrypted: Bool) -> URL {
-        (encrypted ? encryptedDataDirectory(in: rootDirectory) : dataDirectory(in: rootDirectory))
+        (encrypted ? rootDirectory : dataDirectory(in: rootDirectory))
             .appendingPathComponent("Favicons", isDirectory: true)
     }
 
@@ -108,6 +109,10 @@ public enum ObeliskPrivateStorage {
     }
 
     public static func privateFileURL(rootDirectory: URL, logicalName: String) -> URL {
+        rootDirectory.appendingPathComponent("\(obscuredName(for: logicalName)).bin")
+    }
+
+    public static func legacyEncryptedFileURL(rootDirectory: URL, logicalName: String) -> URL {
         encryptedDataDirectory(in: rootDirectory).appendingPathComponent("\(obscuredName(for: logicalName)).bin")
     }
 
@@ -141,23 +146,54 @@ public enum ObeliskPrivateStorage {
 
     public static func inactiveFileURLs(rootDirectory: URL, logicalName: String) -> [URL] {
         let activeURL = activeFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
-        return uniqueURLs([
-            inactiveFileURL(rootDirectory: rootDirectory, logicalName: logicalName),
-            legacyRootFileURL(rootDirectory: rootDirectory, logicalName: logicalName),
-            legacyPrivateFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
-        ]).filter { $0.standardizedFileURL != activeURL.standardizedFileURL }
+        return candidateFileURLs(rootDirectory: rootDirectory, logicalName: logicalName)
+            .filter { $0.standardizedFileURL != activeURL.standardizedFileURL }
     }
 
     public static func existingReadableFileURL(rootDirectory: URL, logicalName: String) -> URL {
         let activeURL = activeFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
-        let candidates = [
-            activeURL,
-            inactiveFileURL(rootDirectory: rootDirectory, logicalName: logicalName),
-            legacyRootFileURL(rootDirectory: rootDirectory, logicalName: logicalName),
-            legacyPrivateFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
-        ]
+        let candidates = candidateFileURLs(rootDirectory: rootDirectory, logicalName: logicalName)
 
         return candidates.first { FileManager.default.fileExists(atPath: $0.path) } ?? activeURL
+    }
+
+    public static func candidateFileURLs(rootDirectory: URL, logicalName: String) -> [URL] {
+        uniqueURLs(migrationSourceRootDirectories(in: rootDirectory).flatMap { sourceRoot in
+            [
+                privateFileURL(rootDirectory: sourceRoot, logicalName: logicalName),
+                legacyFileURL(rootDirectory: sourceRoot, logicalName: logicalName),
+                legacyEncryptedFileURL(rootDirectory: sourceRoot, logicalName: logicalName),
+                legacyRootFileURL(rootDirectory: sourceRoot, logicalName: logicalName),
+                legacyPrivateFileURL(rootDirectory: sourceRoot, logicalName: logicalName)
+            ]
+        })
+    }
+
+    public static func migrationSourceRootDirectories(in rootDirectory: URL) -> [URL] {
+        var roots = [rootDirectory]
+        if rootDirectory.lastPathComponent == vaultDirectoryName {
+            let legacyVaultRoot = rootDirectory
+                .deletingLastPathComponent()
+                .appendingPathComponent(legacyVaultDirectoryName, isDirectory: true)
+            let legacyRoot = rootDirectory
+                .deletingLastPathComponent()
+                .appendingPathComponent(legacyLocalDirectoryName, isDirectory: true)
+            roots.append(legacyVaultRoot)
+            roots.append(legacyRoot)
+        }
+        return uniqueURLs(roots)
+    }
+
+    public static func markVaultDirectoryAsPackageIfNeeded(_ rootDirectory: URL) {
+        guard rootDirectory.lastPathComponent == vaultDirectoryName,
+              FileManager.default.fileExists(atPath: rootDirectory.path)
+        else {
+            return
+        }
+        var packageURL = rootDirectory
+        var values = URLResourceValues()
+        values.isPackage = true
+        try? packageURL.setResourceValues(values)
     }
 
     public static func obscuredName(for logicalName: String) -> String {
@@ -167,11 +203,7 @@ public enum ObeliskPrivateStorage {
     }
 
     public static func hasEncryptedPayloads(in rootDirectory: URL) -> Bool {
-        let directories = [
-            encryptedDataDirectory(in: rootDirectory),
-            legacyEncryptedDataDirectory(in: rootDirectory)
-        ]
-        for directory in directories {
+        for directory in encryptedPayloadSearchDirectories(in: rootDirectory) {
             guard let enumerator = FileManager.default.enumerator(
                 at: directory,
                 includingPropertiesForKeys: nil,
@@ -187,15 +219,11 @@ public enum ObeliskPrivateStorage {
     }
 
     public static func sampleEncryptedPayloadURL(in rootDirectory: URL) -> URL? {
-        let bookmarksURL = fileURL(rootDirectory: rootDirectory, logicalName: "bookmarks.json", encrypted: true)
+        let bookmarksURL = privateFileURL(rootDirectory: rootDirectory, logicalName: "bookmarks.json")
         if FileManager.default.fileExists(atPath: bookmarksURL.path) {
             return bookmarksURL
         }
-        let directories = [
-            encryptedDataDirectory(in: rootDirectory),
-            legacyEncryptedDataDirectory(in: rootDirectory)
-        ]
-        for directory in directories {
+        for directory in encryptedPayloadSearchDirectories(in: rootDirectory) {
             guard let enumerator = FileManager.default.enumerator(
                 at: directory,
                 includingPropertiesForKeys: [.fileSizeKey],
@@ -213,6 +241,16 @@ public enum ObeliskPrivateStorage {
             }
         }
         return nil
+    }
+
+    public static func encryptedPayloadSearchDirectories(in rootDirectory: URL) -> [URL] {
+        uniqueURLs(migrationSourceRootDirectories(in: rootDirectory).flatMap { sourceRoot in
+            [
+                sourceRoot,
+                encryptedDataDirectory(in: sourceRoot),
+                legacyEncryptedDataDirectory(in: sourceRoot)
+            ]
+        })
     }
 
     private static func uniqueURLs(_ urls: [URL]) -> [URL] {
@@ -259,20 +297,21 @@ public enum ObeliskStorageMigrator {
         keyStore: KeychainEncryptionKeyStore = KeychainEncryptionKeyStore()
     ) throws {
         try validateEncryptedPayloadsAreReadable(in: rootDirectory, keyStore: keyStore)
-        try normalizeJSONFiles(in: rootDirectory, encrypted: encrypted)
-        try normalizeFavicons(in: rootDirectory, encrypted: encrypted)
+        try normalizeJSONFiles(in: rootDirectory, encrypted: encrypted, keyStore: keyStore)
+        try normalizeFavicons(in: rootDirectory, encrypted: encrypted, keyStore: keyStore)
         removeEmptyStorageDirectories(in: rootDirectory)
     }
 
     public static func normalizeJSONFiles(
         in rootDirectory: URL,
         encrypted: Bool,
-        logicalNames: [String] = logicalJSONFiles
+        logicalNames: [String] = logicalJSONFiles,
+        keyStore: KeychainEncryptionKeyStore = KeychainEncryptionKeyStore()
     ) throws {
-        try validateEncryptedPayloadsAreReadable(in: rootDirectory)
+        try validateEncryptedPayloadsAreReadable(in: rootDirectory, keyStore: keyStore)
         defer { removeEmptyStorageDirectories(in: rootDirectory) }
 
-        let codec = SecureJSONFileCodec()
+        let codec = SecureJSONFileCodec(keyStore: keyStore)
         let fileManager = FileManager.default
 
         for logicalName in logicalNames {
@@ -281,22 +320,10 @@ public enum ObeliskStorageMigrator {
                 logicalName: logicalName,
                 encrypted: encrypted
             )
-            let candidateURLs = uniqueURLs([
-                targetURL,
-                ObeliskPrivateStorage.fileURL(
-                    rootDirectory: rootDirectory,
-                    logicalName: logicalName,
-                    encrypted: !encrypted
-                ),
-                ObeliskPrivateStorage.legacyRootFileURL(
-                    rootDirectory: rootDirectory,
-                    logicalName: logicalName
-                ),
-                ObeliskPrivateStorage.legacyPrivateFileURL(
-                    rootDirectory: rootDirectory,
-                    logicalName: logicalName
-                )
-            ])
+            let candidateURLs = ObeliskPrivateStorage.candidateFileURLs(
+                rootDirectory: rootDirectory,
+                logicalName: logicalName
+            )
 
             let existingCandidates = candidateURLs
                 .filter { fileManager.fileExists(atPath: $0.path) }
@@ -321,6 +348,10 @@ public enum ObeliskStorageMigrator {
                 to: targetURL,
                 encrypted: encrypted
             )
+            let verifiedPlaintext = try codec.readData(from: targetURL)
+            guard verifiedPlaintext == plaintext else {
+                throw SecureJSONFileCodecError.invalidEnvelope
+            }
 
             for staleURL in candidateURLs where staleURL.standardizedFileURL != targetURL.standardizedFileURL {
                 try? LocalFileAccess.removeItem(at: staleURL)
@@ -328,8 +359,12 @@ public enum ObeliskStorageMigrator {
         }
     }
 
-    public static func normalizeFavicons(in rootDirectory: URL, encrypted: Bool) throws {
-        try validateEncryptedPayloadsAreReadable(in: rootDirectory)
+    public static func normalizeFavicons(
+        in rootDirectory: URL,
+        encrypted: Bool,
+        keyStore: KeychainEncryptionKeyStore = KeychainEncryptionKeyStore()
+    ) throws {
+        try validateEncryptedPayloadsAreReadable(in: rootDirectory, keyStore: keyStore)
         defer { removeEmptyStorageDirectories(in: rootDirectory) }
 
         let targetLocation = FaviconLocation(
@@ -339,9 +374,9 @@ public enum ObeliskStorageMigrator {
         let sourceLocations = faviconLocations(in: rootDirectory)
             .filter { FileManager.default.fileExists(atPath: $0.directory.path) }
 
-        var mergedIndex = loadFaviconIndex(in: targetLocation, rootDirectory: rootDirectory)
+        var mergedIndex = loadFaviconIndex(in: targetLocation, rootDirectory: rootDirectory, keyStore: keyStore)
         for location in sourceLocations {
-            let sourceIndex = loadFaviconIndex(in: location, rootDirectory: rootDirectory)
+            let sourceIndex = loadFaviconIndex(in: location, rootDirectory: rootDirectory, keyStore: keyStore)
             for (key, record) in sourceIndex {
                 if let existing = mergedIndex[key], existing.fetchedAt >= record.fetchedAt {
                     continue
@@ -354,7 +389,8 @@ public enum ObeliskStorageMigrator {
             guard let data = newestReadableFaviconData(
                 for: key,
                 in: sourceLocations,
-                rootDirectory: rootDirectory
+                rootDirectory: rootDirectory,
+                keyStore: keyStore
             ) else {
                 continue
             }
@@ -367,11 +403,35 @@ public enum ObeliskStorageMigrator {
                 at: destinationURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try writeFaviconData(data, to: destinationURL, encrypted: targetLocation.encrypted, rootDirectory: rootDirectory)
+            try writeFaviconData(
+                data,
+                to: destinationURL,
+                encrypted: targetLocation.encrypted,
+                rootDirectory: rootDirectory,
+                keyStore: keyStore
+            )
+            let verifiedData = try readFaviconData(
+                from: destinationURL,
+                encrypted: targetLocation.encrypted,
+                rootDirectory: rootDirectory,
+                keyStore: keyStore
+            )
+            guard verifiedData == data else {
+                throw SecureJSONFileCodecError.invalidEnvelope
+            }
         }
 
         if !mergedIndex.isEmpty || !sourceLocations.isEmpty {
-            try saveFaviconIndex(mergedIndex, in: targetLocation, rootDirectory: rootDirectory)
+            try saveFaviconIndex(mergedIndex, in: targetLocation, rootDirectory: rootDirectory, keyStore: keyStore)
+            _ = try readFaviconData(
+                from: ObeliskPrivateStorage.faviconIndexURL(
+                    directory: targetLocation.directory,
+                    encrypted: targetLocation.encrypted
+                ),
+                encrypted: targetLocation.encrypted,
+                rootDirectory: rootDirectory,
+                keyStore: keyStore
+            )
         }
 
         for location in sourceLocations
@@ -381,18 +441,29 @@ public enum ObeliskStorageMigrator {
     }
 
     public static func removeEmptyStorageDirectories(in rootDirectory: URL) {
-        let directories = [
-            ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: false),
-            ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: true),
-            ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: rootDirectory),
-            ObeliskPrivateStorage.legacyFaviconDirectory(in: rootDirectory),
-            ObeliskPrivateStorage.dataDirectory(in: rootDirectory),
-            ObeliskPrivateStorage.encryptedDataDirectory(in: rootDirectory),
-            ObeliskPrivateStorage.legacyEncryptedDataDirectory(in: rootDirectory)
-        ]
+        let directories = ObeliskPrivateStorage.migrationSourceRootDirectories(in: rootDirectory).flatMap { sourceRoot in
+            [
+                ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: false),
+                ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: sourceRoot),
+                ObeliskPrivateStorage.legacyFaviconDirectory(in: sourceRoot),
+                ObeliskPrivateStorage.dataDirectory(in: sourceRoot),
+                ObeliskPrivateStorage.encryptedDataDirectory(in: sourceRoot),
+                ObeliskPrivateStorage.legacyEncryptedDataDirectory(in: sourceRoot)
+            ]
+        }
 
         for directory in directories {
             removeIfEmpty(directory)
+        }
+
+        for legacyRoot in legacySourceRootDirectories(in: rootDirectory) {
+            removeIfEmpty(legacyRoot)
+        }
+    }
+
+    private static func legacySourceRootDirectories(in rootDirectory: URL) -> [URL] {
+        ObeliskPrivateStorage.migrationSourceRootDirectories(in: rootDirectory).filter {
+            $0.standardizedFileURL != rootDirectory.standardizedFileURL
         }
     }
 
@@ -412,24 +483,31 @@ public enum ObeliskStorageMigrator {
     }
 
     private static func faviconLocations(in rootDirectory: URL) -> [FaviconLocation] {
-        uniqueFaviconLocations([
-            FaviconLocation(
-                directory: ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: false),
-                encrypted: false
-            ),
-            FaviconLocation(
-                directory: ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: true),
-                encrypted: true
-            ),
-            FaviconLocation(
-                directory: ObeliskPrivateStorage.legacyFaviconDirectory(in: rootDirectory),
-                encrypted: false
-            ),
-            FaviconLocation(
-                directory: ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: rootDirectory),
-                encrypted: true
-            )
-        ])
+        uniqueFaviconLocations(ObeliskPrivateStorage.migrationSourceRootDirectories(in: rootDirectory).flatMap { sourceRoot in
+            [
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: false),
+                    encrypted: false
+                ),
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.faviconDirectory(in: sourceRoot, encrypted: true),
+                    encrypted: true
+                ),
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.encryptedDataDirectory(in: sourceRoot)
+                        .appendingPathComponent("Favicons", isDirectory: true),
+                    encrypted: true
+                ),
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.legacyFaviconDirectory(in: sourceRoot),
+                    encrypted: false
+                ),
+                FaviconLocation(
+                    directory: ObeliskPrivateStorage.legacyEncryptedFaviconDirectory(in: sourceRoot),
+                    encrypted: true
+                )
+            ]
+        })
     }
 
     private static func uniqueFaviconLocations(_ locations: [FaviconLocation]) -> [FaviconLocation] {
@@ -439,7 +517,8 @@ public enum ObeliskStorageMigrator {
 
     private static func loadFaviconIndex(
         in location: FaviconLocation,
-        rootDirectory: URL
+        rootDirectory: URL,
+        keyStore: KeychainEncryptionKeyStore
     ) -> [String: FaviconRecord] {
         let indexURL = ObeliskPrivateStorage.faviconIndexURL(
             directory: location.directory,
@@ -448,7 +527,8 @@ public enum ObeliskStorageMigrator {
         guard let data = try? readFaviconData(
             from: indexURL,
             encrypted: location.encrypted,
-            rootDirectory: rootDirectory
+            rootDirectory: rootDirectory,
+            keyStore: keyStore
         ) else {
             return [:]
         }
@@ -461,7 +541,8 @@ public enum ObeliskStorageMigrator {
     private static func saveFaviconIndex(
         _ index: [String: FaviconRecord],
         in location: FaviconLocation,
-        rootDirectory: URL
+        rootDirectory: URL,
+        keyStore: KeychainEncryptionKeyStore
     ) throws {
         try FileManager.default.createDirectory(
             at: location.directory,
@@ -474,13 +555,20 @@ public enum ObeliskStorageMigrator {
             directory: location.directory,
             encrypted: location.encrypted
         )
-        try writeFaviconData(data, to: indexURL, encrypted: location.encrypted, rootDirectory: rootDirectory)
+        try writeFaviconData(
+            data,
+            to: indexURL,
+            encrypted: location.encrypted,
+            rootDirectory: rootDirectory,
+            keyStore: keyStore
+        )
     }
 
     private static func newestReadableFaviconData(
         for key: String,
         in locations: [FaviconLocation],
-        rootDirectory: URL
+        rootDirectory: URL,
+        keyStore: KeychainEncryptionKeyStore
     ) -> Data? {
         locations
             .map { location in
@@ -502,22 +590,34 @@ public enum ObeliskStorageMigrator {
                 try? readFaviconData(
                     from: $0.url,
                     encrypted: $0.location.encrypted,
-                    rootDirectory: rootDirectory
+                    rootDirectory: rootDirectory,
+                    keyStore: keyStore
                 )
             }
             .first
     }
 
-    private static func readFaviconData(from url: URL, encrypted: Bool, rootDirectory: URL) throws -> Data {
+    private static func readFaviconData(
+        from url: URL,
+        encrypted: Bool,
+        rootDirectory: URL,
+        keyStore: KeychainEncryptionKeyStore
+    ) throws -> Data {
         if encrypted {
-            return try SecureJSONFileCodec().readData(from: url)
+            return try SecureJSONFileCodec(keyStore: keyStore).readData(from: url)
         }
         return try LocalFileAccess.readData(from: url)
     }
 
-    private static func writeFaviconData(_ data: Data, to url: URL, encrypted: Bool, rootDirectory: URL) throws {
+    private static func writeFaviconData(
+        _ data: Data,
+        to url: URL,
+        encrypted: Bool,
+        rootDirectory: URL,
+        keyStore: KeychainEncryptionKeyStore
+    ) throws {
         if encrypted {
-            try SecureJSONFileCodec().writeData(
+            try SecureJSONFileCodec(keyStore: keyStore).writeData(
                 data,
                 to: url,
                 encrypted: true
@@ -627,7 +727,7 @@ public enum SecureJSONFileCodecError: LocalizedError {
         case .invalidEnvelope:
             return "本地加密文件格式无效"
         case .decryptFailed:
-            return "无法解密本地数据：钥匙串中的加密密钥与磁盘上的加密书签不匹配。若刚切换过签名/Team，旧密钥可能已丢失；请先保留 EncryptedData 备份，再用明文备份恢复数据。"
+            return "无法解密本地数据：钥匙串中的加密密钥与磁盘上的加密书签不匹配。若刚切换过签名/Team，旧密钥可能已丢失；请先保留 Obelisk.obelisk 和旧存储备份，再用明文备份恢复数据。"
         case .encryptionKeyMissing:
             return "找不到本地数据加密密钥，无法解密书签。若刚切换过签名/Team，请尝试用 Time Machine 恢复「登录」钥匙串后再打开 Obelisk。"
         case .encryptionKeyWouldOverwrite:
@@ -956,7 +1056,7 @@ public final class KeychainEncryptionKeyStore {
         }
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Documents")
-            .appendingPathComponent("Obelisk")
+            .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
     }
 
     private func allKeychainKeyCandidates() -> [Data] {

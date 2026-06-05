@@ -102,7 +102,9 @@ public enum ObeliskPrivateStorage {
     }
 
     public static func existingReadableFileURL(rootDirectory: URL, logicalName: String) -> URL {
-        activeFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
+        let activeURL = activeFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
+        let candidates = [activeURL] + inactiveFileURLs(rootDirectory: rootDirectory, logicalName: logicalName)
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) } ?? activeURL
     }
 
     public static func markVaultDirectoryAsPackageIfNeeded(_ rootDirectory: URL) {

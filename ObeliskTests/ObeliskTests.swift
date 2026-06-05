@@ -35,6 +35,7 @@ struct SmokeTests {
         try testBookmarkStoreCacheInvalidation()
         try testStorageNormalizeMigratesSingleStaleJSONFile()
         try testStorageNormalizeRemovesDuplicateJSONFile()
+        try testBookmarkStoreReadsCurrentEncryptedFileWhenPreferenceIsStaleFalse()
         try testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists()
         try testStorageNormalizeAllowsIntentionalEmptyBookmarkDatabase()
         try testVaultDirectoryIsMarkedAsPackage()
@@ -648,6 +649,25 @@ struct SmokeTests {
         LocalJSONEncryption.isEnabled = false
         let id = try expectUUID("00000000-0000-0000-0000-000000000302")
         try expect(UsageStore(rootDirectory: root).record(for: id)?.count == 7, "expected newest duplicate usage to win")
+    }
+
+    private static func testBookmarkStoreReadsCurrentEncryptedFileWhenPreferenceIsStaleFalse() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        LocalJSONEncryption.isEnabled = true
+        let encryptedStore = BookmarkStore(rootDirectory: root)
+        let bookmark = try encryptedStore.add(title: "Current", url: "https://current.example")
+        let encryptedURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        let plaintextURL = ObeliskPrivateStorage.plaintextFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try expect(FileManager.default.fileExists(atPath: encryptedURL.path), "expected encrypted current-format bookmark file")
+
+        LocalJSONEncryption.isEnabled = false
+        let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
+
+        try expect(loaded.map(\.id) == [bookmark.id], "expected stale disabled encryption preference to read current encrypted file")
+        try expect(!FileManager.default.fileExists(atPath: plaintextURL.path), "expected stale preference not to create an empty plaintext bookmark file")
     }
 
     private static func testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists() throws {

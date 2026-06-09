@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private var notificationPopover: NSPopover?
     private var notificationDismissWorkItem: DispatchWorkItem?
+    private var statusMenu: NSMenu?
     private var pendingUndo: PendingBookmarkUndo?
     private var pendingUndoExpirationWorkItem: DispatchWorkItem?
 
@@ -326,7 +327,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let button = statusItem.button {
             button.image = AppIcon.menuBarImage()
             button.title = ""
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        dismissNotificationPopover()
+
+        guard let menu = statusMenu else {
+            rebuildMenu()
+            if let menu = statusMenu {
+                statusItem.popUpMenu(menu)
+            }
+            return
+        }
+
+        statusItem.popUpMenu(menu)
     }
 
     private func clearLegacySpotlightIndex() {
@@ -432,7 +450,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyDestructiveMenuItemStyle(to: quitItem, highlighted: false)
         menu.addItem(quitItem)
 
-        statusItem.menu = menu
+        statusMenu = menu
+        statusItem.menu = nil
     }
 
     private func appendSection(title: String, bookmarks: [Bookmark], to menu: NSMenu, isReference: Bool = false) {

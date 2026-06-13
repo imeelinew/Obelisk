@@ -69,3 +69,50 @@ struct WindowTransparencyConfigurator: NSViewRepresentable {
         override func draw(_ dirtyRect: NSRect) {}
     }
 }
+
+/// Clears NSTableView / scroll view backgrounds so sidebar lists sit on window blur.
+struct TransparentListBackgroundInstaller: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { [weak view] in
+            view?.nearestTableView()?.applyTransparentListBackground()
+        }
+    }
+}
+
+private extension NSView {
+    func nearestTableView() -> NSTableView? {
+        var candidate: NSView? = self
+        while let view = candidate {
+            if let tableView = view.firstDescendant(ofType: NSTableView.self) {
+                return tableView
+            }
+            candidate = view.superview
+        }
+        return nil
+    }
+
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        if let typed = self as? T {
+            return typed
+        }
+
+        for subview in subviews {
+            if let typed = subview.firstDescendant(ofType: type) {
+                return typed
+            }
+        }
+
+        return nil
+    }
+}
+
+private extension NSTableView {
+    func applyTransparentListBackground() {
+        backgroundColor = .clear
+        enclosingScrollView?.drawsBackground = false
+    }
+}

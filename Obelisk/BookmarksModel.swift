@@ -533,13 +533,11 @@ final class BookmarksModel {
     }
 
     func visibleUngroupedSections(
-        searchText: String = "",
         sortMode: BookmarkListSortMode,
         showsSortControl: Bool = false
     ) -> [BookmarkListSection] {
         let bookmarks = sortedVisibleBookmarks(
             collectionId: nil,
-            searchText: searchText,
             sortMode: sortMode
         )
         guard !bookmarks.isEmpty else { return [] }
@@ -554,16 +552,12 @@ final class BookmarksModel {
     }
 
     func pinnedSections(
-        searchText: String = "",
         sortMode: BookmarkListSortMode,
         showsSortControl: Bool = false
     ) -> [BookmarkListSection] {
         let usage = usageStore.load()
         let bookmarks = sortMode.sorted(
-            filteredBookmarks(
-                visibleBookmarks(from: self.bookmarks, usage: usage).filter(\.isPinned),
-                searchText: searchText
-            ),
+            visibleBookmarks(from: self.bookmarks, usage: usage).filter(\.isPinned),
             usage: usage
         )
         guard !bookmarks.isEmpty else { return [] }
@@ -578,7 +572,6 @@ final class BookmarksModel {
     }
 
     func visibleCollectionSections(
-        searchText: String = "",
         sortMode: BookmarkListSortMode,
         includeEmptyCollections: Bool = false,
         showsSortControlOnFirstSection: Bool = false
@@ -587,7 +580,6 @@ final class BookmarksModel {
         for collection in collections {
             let bookmarks = sortedVisibleBookmarks(
                 collectionId: collection.id,
-                searchText: searchText,
                 sortMode: sortMode
             )
             guard includeEmptyCollections || !bookmarks.isEmpty else { continue }
@@ -631,28 +623,15 @@ final class BookmarksModel {
 
     private func sortedVisibleBookmarks(
         collectionId: UUID?,
-        searchText: String = "",
         sortMode: BookmarkListSortMode
     ) -> [Bookmark] {
         let usage = usageStore.load()
         let visible = visibleBookmarks(from: bookmarks, usage: usage)
-        let filtered = filteredBookmarks(
-            visible.filter { bookmark in
-                !bookmark.isPinned &&
-                membershipByBookmarkId[bookmark.id] == collectionId
-            },
-            searchText: searchText
-        )
-        return sortMode.sorted(filtered, usage: usage)
-    }
-
-    private func filteredBookmarks(_ bookmarks: [Bookmark], searchText: String) -> [Bookmark] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return bookmarks }
-        return bookmarks.filter {
-            $0.title.localizedCaseInsensitiveContains(query)
-                || $0.url.localizedCaseInsensitiveContains(query)
+        let scoped = visible.filter { bookmark in
+            !bookmark.isPinned &&
+            membershipByBookmarkId[bookmark.id] == collectionId
         }
+        return sortMode.sorted(scoped, usage: usage)
     }
 
     func createCollection(name: String) -> String? {

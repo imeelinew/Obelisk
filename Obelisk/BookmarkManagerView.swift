@@ -111,7 +111,6 @@ struct BookmarkManagerView: View {
     @State private var deleteConfirmation: DeleteConfirmation?
     @State private var refreshAllFaviconConfirmation = false
     @State private var toast: Toast?
-    @State private var searchText = ""
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var selectedCollectionId: UUID?
     @State private var llmProfiles = LLMProfilesSettings()
@@ -409,7 +408,7 @@ struct BookmarkManagerView: View {
     }
 
     private var filteredHiddenBookmarks: [Bookmark] {
-        model.sortedBookmarks(filtered(hiddenBookmarks), sortMode: hiddenBookmarkListSortMode)
+        model.sortedBookmarks(hiddenBookmarks, sortMode: hiddenBookmarkListSortMode)
     }
 
     private var archivedBookmarks: [Bookmark] {
@@ -419,11 +418,10 @@ struct BookmarkManagerView: View {
 
     private var bookmarkSections: [BookmarkListSection] {
         let pinnedSections = model.pinnedSections(
-            searchText: searchText,
             sortMode: pinnedBookmarkListSortMode,
             showsSortControl: true
         )
-        let recentBookmarks = filtered(model.recent)
+        let recentBookmarks = model.recent
         let recentSections = recentBookmarks.isEmpty ? [] : [
             BookmarkListSection(
                 title: "最近添加 (\(recentBookmarks.count))",
@@ -432,7 +430,6 @@ struct BookmarkManagerView: View {
             )
         ]
         let ungroupedSections = model.visibleUngroupedSections(
-            searchText: searchText,
             sortMode: bookmarkListSortMode,
             showsSortControl: true
         )
@@ -441,7 +438,6 @@ struct BookmarkManagerView: View {
 
     private var collectionBookmarkSections: [BookmarkListSection] {
         model.visibleCollectionSections(
-            searchText: searchText,
             sortMode: collectionListSortMode,
             includeEmptyCollections: true,
             showsSortControlOnFirstSection: true
@@ -562,24 +558,12 @@ struct BookmarkManagerView: View {
     }
 
     private var archivedBookmarkSections: [BookmarkListSection] {
-        let bookmarks = filtered(archivedBookmarks)
+        let bookmarks = archivedBookmarks
         return bookmarks.isEmpty ? [] : [BookmarkListSection(title: "归档书签", bookmarks: bookmarks)]
     }
 
     private func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
         model.isEffectivelyArchived(bookmark)
-    }
-
-    private func filtered(_ bookmarks: [Bookmark]) -> [Bookmark] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            return bookmarks
-        }
-
-        return bookmarks.filter {
-            $0.title.localizedCaseInsensitiveContains(query)
-                || $0.url.localizedCaseInsensitiveContains(query)
-        }
     }
 
     private var bookmarkListSortMode: BookmarkListSortMode {
@@ -1321,10 +1305,14 @@ struct BookmarkManagerView: View {
         .environment(\.professionalSidebarIconSize, professionalSidebarIconSize)
         .environment(\.professionalSidebarLabelSpacing, professionalSidebarLabelSpacing)
         .environment(\.professionalSidebarLeadingInset, professionalSidebarLeadingInset)
-        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索书签")
         .toolbar {
+            ToolbarSpacer(.flexible)
             settingsToolbar
         }
+        .toolbarBackgroundVisibility(
+            windowTransparencyEnabled ? .hidden : .automatic,
+            for: .windowToolbar
+        )
         .overlay(alignment: .top) {
             toastView
         }
@@ -1505,6 +1493,13 @@ struct BookmarkManagerView: View {
         }
         .navigationTitle("设置")
         .navigationSplitViewColumnWidth(min: 150, ideal: 180)
+        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
+        .background {
+            if windowTransparencyEnabled {
+                Color.clear
+                TransparentListBackgroundInstaller()
+            }
+        }
     }
 
     private var visibleSettingsPages: [SettingsPage] {
@@ -1517,11 +1512,9 @@ struct BookmarkManagerView: View {
         switch page {
         case .bookmarks:
             let pinnedCount = model.pinnedSections(
-                searchText: "",
                 sortMode: pinnedBookmarkListSortMode
             ).reduce(0) { $0 + $1.bookmarks.count }
             let ungroupedCount = model.visibleUngroupedSections(
-                searchText: "",
                 sortMode: bookmarkListSortMode
             ).reduce(0) { $0 + $1.bookmarks.count }
             return pinnedCount + ungroupedCount
@@ -1657,16 +1650,10 @@ struct BookmarkManagerView: View {
                     Text("点击工具栏的 + 添加你的第一个书签。")
                 }
             } else if bookmarkSections.isEmpty {
-                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                } else if !model.visibleCollectionSections(sortMode: collectionListSortMode).isEmpty {
-                    ContentUnavailableView {
-                        Label("没有未分组的书签", systemImage: "bookmark")
-                    } description: {
-                        Text("已放入分组的书签在「分组」页查看。")
-                    }
-                } else {
-                    ContentUnavailableView.search(text: searchText)
+                ContentUnavailableView {
+                    Label("没有未分组的书签", systemImage: "bookmark")
+                } description: {
+                    Text("已放入分组的书签在「分组」页查看。")
                 }
             } else {
                 NativeBookmarkList(
@@ -1708,9 +1695,6 @@ struct BookmarkManagerView: View {
                 } description: {
                     Text("点击工具栏 + 创建分组。")
                 }
-            } else if collectionBookmarkSections.allSatisfy({ $0.bookmarks.isEmpty })
-                && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                ContentUnavailableView.search(text: searchText)
             } else if collectionBookmarkSections.allSatisfy({ $0.bookmarks.isEmpty }) {
                 NativeBookmarkList(
                     sections: collectionBookmarkSections,
@@ -1765,8 +1749,6 @@ struct BookmarkManagerView: View {
                 } description: {
                     Text("按 ⌥H 可以把当前浏览器标签添加为隐藏书签。")
                 }
-            } else if filteredHiddenBookmarks.isEmpty {
-                ContentUnavailableView.search(text: searchText)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     hiddenBookmarkSortMenu
@@ -1861,9 +1843,6 @@ struct BookmarkManagerView: View {
                         Text("闲置书签会在达到设定天数后自动归档。")
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if archivedBookmarkSections.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     NativeBookmarkList(
                         sections: archivedBookmarkSections,
@@ -2421,8 +2400,6 @@ struct BookmarkManagerView: View {
     @ToolbarContentBuilder
     private var settingsToolbar: some ToolbarContent {
         if settingsPage == .bookmarks {
-            ToolbarSpacer(.flexible)
-
             ToolbarItemGroup {
                 if !model.collections.isEmpty {
                     Menu {
@@ -2508,8 +2485,6 @@ struct BookmarkManagerView: View {
                 }
             }
         } else if settingsPage == .collections {
-            ToolbarSpacer(.flexible)
-
             ToolbarItemGroup {
                 if !model.collections.isEmpty {
                     Menu {
@@ -2594,8 +2569,6 @@ struct BookmarkManagerView: View {
                 }
             }
         } else if settingsPage == .hiddenBookmarks {
-            ToolbarSpacer(.flexible)
-
             ToolbarItemGroup {
                 Button {
                     presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil, prefilledIsHidden: true)

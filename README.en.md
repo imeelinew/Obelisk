@@ -5,9 +5,10 @@
 <h1 align="center">Obelisk</h1>
 
 <p align="center">
-  A native macOS bookmark shelf that lives in your menu bar.<br>
-  Fast access, local storage, private lists, and a quiet settings window.
+  A native bookmark shelf that lives in your macOS menu bar.<br>
+  Fast access, shortcut-based adding, local storage, hidden bookmarks, AI optimization, and a polished app window.
 </p>
+
 
 <p align="center">
   <a href="https://github.com/imeelinew/Obelisk/releases">Download</a> ·
@@ -35,19 +36,19 @@
 
 ## About
 
-Obelisk is a menu bar bookmark manager for people who want bookmarks close at hand without turning the browser into the center of everything.
+Obelisk is an elegant, native macOS bookmark manager for people who switch browsers often, want bookmarks close at hand, and do not want to keep everything inside the browser.
 
-It keeps a small native menu in the macOS menu bar, opens bookmarks quickly, and gives you a full settings window when you need to organize, hide, archive, or clean up titles. Bookmarks are stored locally on disk, with optional local encryption for private data.
+It keeps a lightweight native menu in the menu bar for quick access, and opens a full app window when you need to organize. Bookmarks are stored locally on disk, protected with AES encryption. Your key is stored safely in iCloud Keychain and can only be unlocked with your password or fingerprint.
 
 ## Why Obelisk
 
-Browser bookmarks are usually tied to one browser, buried in sidebars, or mixed with sync accounts you may not want to use. Obelisk keeps the list outside the browser and makes it feel like a small system tool.
+Browser bookmarks are usually tied to one browser, buried in sidebars or nested menus, and often mixed with sync accounts. Obelisk takes bookmarks out of the browser and makes them feel more like a small system utility.
 
-- **Menu bar first**: open frequent, recent, and full bookmark lists without switching context.
-- **Native settings**: manage bookmarks in a macOS window with search, sections, and familiar toolbar controls.
-- **Private lists**: keep hidden bookmarks behind device-owner authentication.
-- **Local encrypted storage**: bookmark data lives in Obelisk.obelisk under your local Documents folder.
-- **Optional cleanup**: use AI title optimization when you want cleaner bookmark names.
+- **Menu bar first**: open pinned, recently added, and full bookmark lists without switching windows.
+- **Native settings window**: search, organize, hide, and archive bookmarks in a macOS-style window.
+- **Hidden bookmarks**: protect sensitive bookmarks with device-owner authentication.
+- **Local encrypted storage**: bookmark data lives in `Obelisk.obelisk` under your local `Documents` folder.
+- **AI optimization**: Obelisk supports BYOK for automatic title optimization and auto-grouping. I call this Intelligence. As your collection grows over time, the automatic cleanup stays convenient and easy to scan.
 
 ## Menu Bar
 
@@ -55,30 +56,27 @@ Browser bookmarks are usually tied to one browser, buried in sidebars, or mixed 
   <img alt="Obelisk menu bar dropdown" src=".github/assets/menu.png" width="480">
 </p>
 
-The menu groups bookmarks by usage and recency, with the full list kept one level away.
+The menu bar supports fully custom ordering, and each group supports multiple sort modes, including the most useful one: sort by usage frequency.
 
 ## Quick Add
 
 <p align="center">
   <img alt="Obelisk bookmark added notification" src=".github/assets/notification.png" width="600">
 </p>
+<p align="center">  <img alt="Obelisk bookmark optimization notification" src=".github/assets/optimize.png" width="600"></p>
 
-Use the global add-bookmark shortcut to save the current browser tab. Obelisk reads the frontmost browser's URL and title, then shows a compact confirmation so you know the bookmark landed.
+On the current tab, press `Option + B`. Obelisk reads the frontmost browser's URL and title, then shows a lightweight popover to confirm the bookmark was saved. Shortcuts are customizable. If you trigger one by mistake, press `Option + Z` within 5 seconds to undo. If Intelligence is enabled and configured, Obelisk can optimize page titles (even translate them) and place the bookmark into a suitable group automatically.
 
-## What's Inside
+## More Features
 
 - Menu bar bookmark launcher with favicons
 - Full bookmark management window
-- Hidden bookmarks with local authentication
-- Archive view for older or manually archived bookmarks
-- Search, edit, delete, copy URL, and refresh favicon actions
-- Configurable menu limits and window appearance
-- Optional silent add flow
-- Local JSON encryption for private storage
-- Optional AI title optimization
+- Hidden bookmarks protected by local authentication, with support for opening them in private windows
+- Filter URLs containing specific keywords so they can only be added as hidden bookmarks, helping prevent privacy leaks
+- Automatically archive bookmarks you have not used for a while
+- Search, edit, delete, copy URL, refresh favicons, and other expected bookmark actions
+- Optional frosted-glass transparency for a lighter window
 
 ## Install
 
-Download the latest app from the [Releases page](https://github.com/imeelinew/Obelisk/releases), then move `Obelisk.app` to `/Applications`.
-
-Obelisk is a menu bar app. After launching it, look for the Obelisk icon in the macOS menu bar.
+Download the latest release from the [Releases page](https://github.com/imeelinew/Obelisk/releases), then move `Obelisk.app` to `/Applications`.

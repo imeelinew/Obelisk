@@ -51,6 +51,9 @@ struct SmokeTests {
         try testTitleOptimizationTranslationPrompt()
         try await testBookmarksModelFiltersHiddenTitleOptimization()
         try await testBookmarksModelTitleOptimizationOutcomeIncludesUpdatedTitle()
+        try testBookmarkIntelligenceAutomaticOptions()
+        try await testBookmarksModelCombinedOptimizationUsesUpdatedTitles()
+        try testBookmarkIntelligenceOutcomeSummary()
         try await testBookmarksModelAutoGroupsUngroupedBookmarks()
         try await testBookmarksModelAutoGroupingSkipsGroupedPinnedAndHiddenBookmarks()
         try testBookmarkAutoGroupingSingleDescription()
@@ -68,6 +71,7 @@ struct SmokeTests {
         try testKeychainMigrationSkipsEncryptionService()
         try testPlaintextDataBackup()
         try testFreshAppDefaultsEnableCoreWorkflows()
+        try testIntelligenceIconContract()
         try testLocalJSONEncryptionDefaultsForceProductionEncryption()
         try testBrowserCurrentTabParsingAndPermissionMapping()
         try testHotkeyResolverFailsClosed()
@@ -101,6 +105,21 @@ struct SmokeTests {
             .appendingPathComponent("Documents")
             .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
         try expect(BookmarkStore.defaultRootDirectory() == expected, "expected default storage root to use Obelisk.obelisk")
+    }
+
+    private static func testIntelligenceIconContract() throws {
+        try expect(
+            IntelligenceSymbolIcon.symbolName == "siri",
+            "expected the shared Intelligence icon to use the Siri symbol"
+        )
+        try expect(
+            BookmarkManagerView.SettingsPage.ai.symbolName == IntelligenceSymbolIcon.symbolName,
+            "expected the colorful sidebar Intelligence icon to use the shared symbol"
+        )
+        try expect(
+            BookmarkManagerView.SettingsPage.ai.professionalSymbolName == IntelligenceSymbolIcon.symbolName,
+            "expected the professional sidebar Intelligence icon to use the shared symbol"
+        )
     }
 
     private static func testWebURLValidation() throws {
@@ -1196,6 +1215,139 @@ struct SmokeTests {
         try expect(legacyMessage == "没有需要优化的标题", "expected legacy string API to remain available")
     }
 
+    private static func testBookmarkIntelligenceAutomaticOptions() throws {
+        let defaults = UserDefaults.standard
+        let restoredDefaults = capturedDefaults(
+            keys: [
+                TitleOptimizationPreferences.autoOptimizeNewBookmarksKey,
+                BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey
+            ],
+            defaults: defaults
+        )
+        defer {
+            restoreDefaults(restoredDefaults, defaults: defaults)
+        }
+
+        let bookmark = Bookmark(title: "Visible", url: "https://visible.example")
+        for optimizeTitles in [false, true] {
+            for autoGroup in [false, true] {
+                defaults.set(
+                    optimizeTitles,
+                    forKey: TitleOptimizationPreferences.autoOptimizeNewBookmarksKey
+                )
+                defaults.set(
+                    autoGroup,
+                    forKey: BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey
+                )
+                let options = BookmarkIntelligenceOptimizationOptions.automatic(
+                    for: bookmark,
+                    defaults: defaults
+                )
+                try expect(
+                    options == BookmarkIntelligenceOptimizationOptions(
+                        optimizeTitles: optimizeTitles,
+                        autoGroup: autoGroup
+                    ),
+                    "expected automatic bookmark optimization toggles to remain independent"
+                )
+            }
+        }
+    }
+
+    @MainActor
+    private static func testBookmarksModelCombinedOptimizationUsesUpdatedTitles() async throws {
+        let defaults = UserDefaults.standard
+        let restoredDefaults = capturedDefaults(
+            keys: [BookmarksModel.aiFeaturesEnabledKey],
+            defaults: defaults
+        )
+        defer {
+            restoreDefaults(restoredDefaults, defaults: defaults)
+        }
+        defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
+
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let first = try store.add(title: "First Original", url: "https://first.example")
+        let second = try store.add(title: "Second Original", url: "https://second.example")
+        let titleOptimizer = StubTitleOptimizer(response: [
+            first.id: "First Optimized",
+            second.id: "Second Optimized"
+        ])
+        let groupOptimizer = StubBookmarkGroupOptimizer(response: [
+            first.id: "开发",
+            second.id: "开发"
+        ])
+        let model = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root),
+            titleOptimizer: titleOptimizer,
+            groupOptimizer: groupOptimizer
+        )
+        try expect(model.createCollection(name: "开发") == nil, "expected collection setup")
+
+        let outcome = await model.optimizeBookmarks(
+            options: BookmarkIntelligenceOptimizationOptions(
+                optimizeTitles: true,
+                autoGroup: true
+            )
+        )
+
+        try expect(
+            Set(titleOptimizer.candidateIDs) == [first.id, second.id],
+            "expected an empty combined scope to optimize all eligible titles"
+        )
+        try expect(
+            Set(groupOptimizer.candidateTitles) == ["First Optimized", "Second Optimized"],
+            "expected grouping to receive titles after title optimization"
+        )
+        try expect(outcome.titleOptimization?.status == .changed, "expected title changes")
+        try expect(outcome.autoGrouping?.status == .changed, "expected grouping changes")
+        try expect(outcome.didChange, "expected combined optimization to report success")
+        try expect(
+            outcome.summary == "优化标题 2 个；自动分组 2 个",
+            "expected one combined batch summary"
+        )
+    }
+
+    private static func testBookmarkIntelligenceOutcomeSummary() throws {
+        let partialSuccess = BookmarkIntelligenceOptimizationOutcome(
+            titleOptimization: TitleOptimizationOutcome(
+                message: "已优化 1 个标题",
+                optimizedTitles: ["Optimized"],
+                status: .changed
+            ),
+            autoGrouping: BookmarkAutoGroupingOutcome(
+                message: "分组请求失败",
+                groupedCount: 0,
+                placements: [],
+                status: .failed
+            )
+        )
+        try expect(partialSuccess.didChange, "expected any changed step to make the combined result successful")
+        try expect(
+            partialSuccess.summary == "标题「Optimized」；分组请求失败",
+            "expected partial failures to remain visible in the combined summary"
+        )
+
+        let noChanges = BookmarkIntelligenceOptimizationOutcome(
+            titleOptimization: TitleOptimizationOutcome(
+                message: "没有需要优化的标题",
+                optimizedTitles: []
+            ),
+            autoGrouping: BookmarkAutoGroupingOutcome(
+                message: "没有需要自动分组的书签",
+                groupedCount: 0,
+                placements: []
+            )
+        )
+        try expect(!noChanges.didChange, "expected an all-no-change result to be unsuccessful")
+        try expect(
+            noChanges.summary == "没有需要优化的标题；没有需要自动分组的书签",
+            "expected both no-change reasons in one summary"
+        )
+    }
+
     @MainActor
     private static func testBookmarksModelAutoGroupsUngroupedBookmarks() async throws {
         let defaults = UserDefaults.standard
@@ -2081,6 +2233,7 @@ private final class StubTitleOptimizer: TitleOptimizing {
 private final class StubBookmarkGroupOptimizer: BookmarkGroupingOptimizing {
     private let response: [UUID: String]
     private(set) var candidateIDs: [UUID] = []
+    private(set) var candidateTitles: [String] = []
     private(set) var existingCollectionNames: [String] = []
 
     init(response: [UUID: String]) {
@@ -2092,6 +2245,7 @@ private final class StubBookmarkGroupOptimizer: BookmarkGroupingOptimizing {
         existingCollections: [BookmarkGroupingExistingCollection]
     ) async throws -> [UUID: String] {
         candidateIDs = candidates.map(\.id)
+        candidateTitles = candidates.map(\.title)
         existingCollectionNames = existingCollections.map(\.name)
         return response
     }

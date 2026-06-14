@@ -287,7 +287,7 @@ struct BookmarkManagerView: View {
             case .appearance:      return "paintpalette.fill"
             case .menuBar:         return "menubar.rectangle"
             case .shortcuts:       return "command"
-            case .ai:              return "apple.intelligence"
+            case .ai:              return IntelligenceSymbolIcon.symbolName
             case .privacy:         return "lock.fill"
             case .settings:        return "gearshape.fill"
             case .developer:       return "wrench.fill"
@@ -303,7 +303,7 @@ struct BookmarkManagerView: View {
             case .appearance:      return "paintpalette"
             case .menuBar:         return "menubar.rectangle"
             case .shortcuts:       return "command"
-            case .ai:              return "apple.intelligence"
+            case .ai:              return IntelligenceSymbolIcon.symbolName
             case .privacy:         return "lock"
             case .settings:        return "gearshape"
             case .developer:       return "wrench"
@@ -959,11 +959,12 @@ struct BookmarkManagerView: View {
         )
     }
 
-    private var selectedUnoptimizedTitleCount: Int {
-        model.bookmarks.filter {
-            selection.contains($0.id)
-                && !$0.titleOptimized
-                && TitleOptimizationPreferences.allowsOptimization(for: $0)
+    private var optimizableTitleCountInScope: Int {
+        let scope = selection.isEmpty ? nil : selection
+        return model.bookmarks.filter { bookmark in
+            (scope?.contains(bookmark.id) ?? true)
+                && !bookmark.titleOptimized
+                && TitleOptimizationPreferences.allowsOptimization(for: bookmark)
         }.count
     }
 
@@ -980,43 +981,32 @@ struct BookmarkManagerView: View {
         }.count
     }
 
-    private func optimizeSelectedTitles() {
+    private func optimizeBookmarks(includeAutoGrouping: Bool) {
         Task {
-            let message = await model.optimizeTitles(bookmarkIds: selection)
-            showToast(message)
-        }
-    }
-
-    private func autoGroupBookmarks() {
-        Task {
-            let outcome = await model.autoGroupBookmarks(bookmarkIds: selection)
-            showToast(outcome.message, kind: outcome.groupedCount > 0 ? .success : .error)
+            let outcome = await model.optimizeBookmarks(
+                bookmarkIds: selection,
+                options: BookmarkIntelligenceOptimizationOptions(
+                    optimizeTitles: true,
+                    autoGroup: includeAutoGrouping
+                )
+            )
+            showToast(outcome.summary, kind: outcome.didChange ? .success : .error)
         }
     }
 
     private func runAutoIntelligenceForNewBookmark(_ bookmark: Bookmark) {
         guard aiFeaturesEnabled else { return }
 
-        let shouldOptimizeTitle = TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark)
-        let shouldAutoGroup = autoGroupNewBookmarks && !bookmark.isHidden
-        guard shouldOptimizeTitle || shouldAutoGroup else { return }
+        let options = BookmarkIntelligenceOptimizationOptions.automatic(for: bookmark)
+        guard options.optimizeTitles || options.autoGroup else { return }
 
         pendingAutoIntelligenceTask?.cancel()
         pendingAutoIntelligenceTask = Task {
-            if shouldOptimizeTitle {
-                let outcome = await model.optimizeTitleDetails(bookmarkIds: [bookmark.id])
-                showToast(
-                    outcome.optimizedTitles.first ?? outcome.message,
-                    kind: outcome.message.hasPrefix("已优化") ? .success : .error
-                )
-            }
-
-            if shouldAutoGroup {
-                let outcome = await model.autoGroupBookmarks(bookmarkIds: [bookmark.id])
-                if outcome.groupedCount > 0 || !shouldOptimizeTitle {
-                    showToast(outcome.message, kind: outcome.groupedCount > 0 ? .success : .error)
-                }
-            }
+            let outcome = await model.optimizeBookmarks(
+                bookmarkIds: [bookmark.id],
+                options: options
+            )
+            showToast(outcome.summary, kind: outcome.didChange ? .success : .error)
         }
     }
 
@@ -2128,7 +2118,7 @@ struct BookmarkManagerView: View {
             }
 
             if aiFeaturesEnabled {
-                Section("Intelligence 标题优化") {
+                Section("Intelligence 书签优化") {
                     LabeledContent {
                         titleIntensityPicker
                             // SwiftUI gives this picker a larger trailing inset
@@ -2147,12 +2137,6 @@ struct BookmarkManagerView: View {
                         }
                     }
 
-                    Toggle("优化隐藏书签", isOn: $optimizeHiddenBookmarks)
-
-                    Toggle("自动翻译非中文标题", isOn: $translateNonChineseTitles)
-                }
-
-                Section("Intelligence 自动分组") {
                     Toggle(isOn: $autoGroupNewBookmarks) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自动分组新书签")
@@ -2161,6 +2145,10 @@ struct BookmarkManagerView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
+                    Toggle("优化隐藏书签", isOn: $optimizeHiddenBookmarks)
+
+                    Toggle("自动翻译非中文标题", isOn: $translateNonChineseTitles)
                 }
 
                 Section("模型配置") {
@@ -2461,27 +2449,21 @@ struct BookmarkManagerView: View {
 
                 ToolbarItem {
                     Button {
-                        autoGroupBookmarks()
+                        optimizeBookmarks(includeAutoGrouping: true)
                     } label: {
-                        Label(
-                            model.isAutoGroupingBookmarks ? "分组中" : "自动分组",
-                            systemImage: "sparkles"
+                        IntelligenceSymbolLabel(
+                            title: model.isOptimizingBookmarks ? "优化中" : "书签优化"
                         )
                     }
-                    .disabled(model.isAutoGroupingBookmarks || autoGroupableBookmarkCountInScope == 0)
-                    .help(selection.isEmpty ? "自动分组所有未分组书签" : "自动分组选中的未分组书签")
-                }
-
-                ToolbarItem {
-                    Button {
-                        optimizeSelectedTitles()
-                    } label: {
-                        Label(
-                            model.isOptimizingTitles ? "优化中" : "优化标题",
-                            systemImage: "apple.intelligence"
-                        )
-                    }
-                    .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
+                    .disabled(
+                        model.isOptimizingBookmarks
+                            || (optimizableTitleCountInScope == 0 && autoGroupableBookmarkCountInScope == 0)
+                    )
+                    .help(
+                        selection.isEmpty
+                            ? "优化全部可用书签的标题与分组"
+                            : "优化选中书签的标题与分组"
+                    )
                 }
             }
         } else if settingsPage == .collections {
@@ -2545,27 +2527,21 @@ struct BookmarkManagerView: View {
 
                 ToolbarItem {
                     Button {
-                        autoGroupBookmarks()
+                        optimizeBookmarks(includeAutoGrouping: true)
                     } label: {
-                        Label(
-                            model.isAutoGroupingBookmarks ? "分组中" : "自动分组",
-                            systemImage: "sparkles"
+                        IntelligenceSymbolLabel(
+                            title: model.isOptimizingBookmarks ? "优化中" : "书签优化"
                         )
                     }
-                    .disabled(model.isAutoGroupingBookmarks || autoGroupableBookmarkCountInScope == 0)
-                    .help(selection.isEmpty ? "自动分组所有未分组书签" : "自动分组选中的未分组书签")
-                }
-
-                ToolbarItem {
-                    Button {
-                        optimizeSelectedTitles()
-                    } label: {
-                        Label(
-                            model.isOptimizingTitles ? "优化中" : "优化标题",
-                            systemImage: "apple.intelligence"
-                        )
-                    }
-                    .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
+                    .disabled(
+                        model.isOptimizingBookmarks
+                            || (optimizableTitleCountInScope == 0 && autoGroupableBookmarkCountInScope == 0)
+                    )
+                    .help(
+                        selection.isEmpty
+                            ? "优化全部可用书签的标题与分组"
+                            : "优化选中书签的标题与分组"
+                    )
                 }
             }
         } else if settingsPage == .hiddenBookmarks {
@@ -2605,14 +2581,18 @@ struct BookmarkManagerView: View {
 
                 ToolbarItem {
                     Button {
-                        optimizeSelectedTitles()
+                        optimizeBookmarks(includeAutoGrouping: false)
                     } label: {
-                        Label(
-                            model.isOptimizingTitles ? "优化中" : "优化标题",
-                            systemImage: "apple.intelligence"
+                        IntelligenceSymbolLabel(
+                            title: model.isOptimizingBookmarks ? "优化中" : "书签优化"
                         )
                     }
-                    .disabled(selection.isEmpty || model.isOptimizingTitles || selectedUnoptimizedTitleCount == 0)
+                    .disabled(
+                        selection.isEmpty
+                            || model.isOptimizingBookmarks
+                            || optimizableTitleCountInScope == 0
+                    )
+                    .help("优化选中隐藏书签的标题")
                 }
             }
         }
@@ -2661,24 +2641,37 @@ private struct SidebarCategoryIcon: View {
         Group {
             switch theme {
             case .professional:
-                Image(systemName: page.professionalSymbolName)
-                    .font(.system(size: professionalIconSize, weight: .semibold))
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(.primary)
+                if page == .ai {
+                    IntelligenceSymbolIcon(size: professionalIconSize)
+                } else {
+                    Image(systemName: page.professionalSymbolName)
+                        .font(.system(size: professionalIconSize, weight: .semibold))
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(.primary)
+                }
             case .colorful:
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(page.iconGradient)
-                        .overlay {
-                            if page == .ai {
-                                IntelligenceTileOverlay(cornerRadius: cornerRadius)
+                if page == .ai {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(Color.white.opacity(0.94))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                    .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
                             }
-                        }
 
-                    Image(systemName: page.symbolName)
-                        .font(.system(size: symbolSize, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.white)
+                        IntelligenceSymbolIcon(size: symbolSize + 2)
+                    }
+                    .shadow(color: Color.black.opacity(0.10), radius: 1.5, y: 0.5)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(page.iconGradient)
+
+                        Image(systemName: page.symbolName)
+                            .font(.system(size: symbolSize, weight: .semibold))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.white)
+                    }
                 }
             }
         }
@@ -2686,53 +2679,6 @@ private struct SidebarCategoryIcon: View {
             width: theme == .professional ? professionalIconSize : tileSize,
             height: theme == .professional ? professionalIconSize : tileSize
         )
-    }
-}
-
-private struct IntelligenceTileOverlay: View {
-    let cornerRadius: Double
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(
-                RadialGradient(
-                    colors: [
-                        Color(red: 0.70, green: 0.90, blue: 0.72).opacity(0.96),
-                        Color(red: 0.70, green: 0.90, blue: 0.72).opacity(0.0)
-                    ],
-                    center: UnitPoint(x: 0.28, y: 0.55),
-                    startRadius: 0,
-                    endRadius: 22
-                )
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color(red: 1.0, green: 0.18, blue: 0.36).opacity(0.78),
-                                Color(red: 1.0, green: 0.18, blue: 0.36).opacity(0.0)
-                            ],
-                            center: UnitPoint(x: 0.82, y: 0.18),
-                            startRadius: 0,
-                            endRadius: 20
-                        )
-                    )
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color(red: 0.24, green: 0.66, blue: 1.0).opacity(0.78),
-                                Color(red: 0.24, green: 0.66, blue: 1.0).opacity(0.0)
-                            ],
-                            center: UnitPoint(x: 0.14, y: 0.92),
-                            startRadius: 0,
-                            endRadius: 18
-                        )
-                    )
-            }
     }
 }
 

@@ -56,9 +56,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var aiFeaturesEnabled: Bool {
         UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
     }
-    private var autoGroupNewBookmarks: Bool {
-        BookmarkAutoGroupingPreferences.autoGroupNewBookmarks()
-    }
     private var notificationPopover: NSPopover?
     private var notificationDismissWorkItem: DispatchWorkItem?
     private var statusMenu: NSMenu?
@@ -153,30 +150,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         guard aiFeaturesEnabled else { return }
 
-        let shouldOptimizeTitle = TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark)
-        let shouldAutoGroup = autoGroupNewBookmarks && !bookmark.isHidden
-        guard shouldOptimizeTitle || shouldAutoGroup else { return }
+        let options = BookmarkIntelligenceOptimizationOptions.automatic(for: bookmark)
+        guard options.optimizeTitles || options.autoGroup else { return }
 
         pendingOptimizationTask?.cancel()
         pendingOptimizationTask = Task { [weak self] in
-            if shouldOptimizeTitle,
-               let titleOutcome = await self?.bookmarksModel.optimizeTitleDetails(bookmarkIds: [bookmark.id]) {
-                self?.notifyUser(
-                    title: "标题优化完成",
-                    body: titleOutcome.optimizedTitles.first ?? titleOutcome.message,
-                    kind: titleOutcome.message.hasPrefix("已优化") ? .intelligence : .error
-                )
-            }
-
-            if shouldAutoGroup,
-               let groupingOutcome = await self?.bookmarksModel.autoGroupBookmarks(bookmarkIds: [bookmark.id]),
-               groupingOutcome.groupedCount > 0 || !shouldOptimizeTitle {
-                self?.notifyUser(
-                    title: groupingOutcome.groupedCount > 0 ? "自动分组完成" : "自动分组失败",
-                    body: groupingOutcome.singleBookmarkDescription ?? groupingOutcome.message,
-                    kind: groupingOutcome.groupedCount > 0 ? .autoGrouping : .error
-                )
-            }
+            guard let self else { return }
+            let outcome = await bookmarksModel.optimizeBookmarks(
+                bookmarkIds: [bookmark.id],
+                options: options
+            )
+            notifyUser(
+                title: "Intelligence 书签优化",
+                body: outcome.summary,
+                kind: outcome.didChange ? .intelligence : .error
+            )
         }
     }
 

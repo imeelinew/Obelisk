@@ -412,7 +412,6 @@ struct BookmarkManagerView: View {
     }
 
     private var archivedBookmarks: [Bookmark] {
-        guard autoArchiveEnabled else { return [] }
         return model.bookmarks.filter { !$0.isHidden && model.isEffectivelyArchived($0) }
     }
 
@@ -1659,8 +1658,8 @@ struct BookmarkManagerView: View {
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签",
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
-                    archiveStateActionTitle: autoArchiveEnabled ? "归档" : nil,
-                    onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
+                    archiveStateActionTitle: "归档",
+                    onSetArchived: { bookmark in setArchived(true, for: bookmark) },
                     pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     onSortModeChange: { sortMode, scope in
@@ -1713,8 +1712,8 @@ struct BookmarkManagerView: View {
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签",
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
-                    archiveStateActionTitle: autoArchiveEnabled ? "归档" : nil,
-                    onSetArchived: autoArchiveEnabled ? { bookmark in setArchived(true, for: bookmark) } : nil,
+                    archiveStateActionTitle: "归档",
+                    onSetArchived: { bookmark in setArchived(true, for: bookmark) },
                     pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     onSortModeChange: { sortMode, _ in collectionListSortMode = sortMode },
@@ -1825,30 +1824,32 @@ struct BookmarkManagerView: View {
             .settingsContentMargins()
             .frame(height: 190)
 
-            if autoArchiveEnabled {
-                if archivedBookmarks.isEmpty {
-                    ContentUnavailableView {
-                        Label("没有归档书签", systemImage: "archivebox")
-                    } description: {
+            if archivedBookmarks.isEmpty {
+                ContentUnavailableView {
+                    Label("没有归档书签", systemImage: "archivebox")
+                } description: {
+                    if autoArchiveEnabled {
                         Text("闲置书签会在达到设定天数后自动归档。")
+                    } else {
+                        Text("您手动归档的书签会显示在这里。")
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    NativeBookmarkList(
-                        sections: archivedBookmarkSections,
-                        selection: $selection,
-                        faviconLoader: faviconLoader,
-                        faviconVersion: faviconLoader.version,
-                        showsURLHostOnly: showsURLHostOnly,
-                        onOpen: { bookmark in openArchivedBookmark(bookmark) },
-                        onCopyURL: { bookmark in copyURL(bookmark) },
-                        onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
-                        onEdit: { bookmark in presentation = .edit(bookmark) },
-                        onDelete: { ids in requestDelete(ids: ids) },
-                        archiveStateActionTitle: "恢复到书签",
-                        onSetArchived: { bookmark in setArchived(false, for: bookmark) }
-                    )
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                NativeBookmarkList(
+                    sections: archivedBookmarkSections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version,
+                    showsURLHostOnly: showsURLHostOnly,
+                    onOpen: { bookmark in openArchivedBookmark(bookmark) },
+                    onCopyURL: { bookmark in copyURL(bookmark) },
+                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onEdit: { bookmark in presentation = .edit(bookmark) },
+                    onDelete: { ids in requestDelete(ids: ids) },
+                    archiveStateActionTitle: "恢复到书签",
+                    onSetArchived: { bookmark in setArchived(false, for: bookmark) }
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

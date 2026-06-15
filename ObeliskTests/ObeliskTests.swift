@@ -27,6 +27,7 @@ struct SmokeTests {
         try testHiddenBookmarkKeywordExclusion()
         try testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate()
         try testArchivePersistence()
+        try testManualArchiveIndependentOfAutoArchiveSetting()
         try testPinnedBookmarkPersistence()
         try testPinnedClearedByHiddenAndArchive()
         try testStateCleanupOnDelete()
@@ -420,6 +421,58 @@ struct SmokeTests {
         try expect(loaded.first { $0.id == bookmark.id }?.archivedAt == nil, "expected archive restore to clear archivedAt")
         state = BookmarkStateStore(rootDirectory: store.rootDirectory).load()
         try expect(state.manualArchivedIds.isEmpty, "expected restore to clear manual archive id")
+    }
+
+    @MainActor
+    private static func testManualArchiveIndependentOfAutoArchiveSetting() throws {
+        let defaults = UserDefaults.standard
+        let restoredDefaults = capturedDefaults(
+            keys: [BookmarksModel.autoArchiveEnabledKey],
+            defaults: defaults
+        )
+        defer {
+            restoreDefaults(restoredDefaults, defaults: defaults)
+        }
+
+        defaults.set(false, forKey: BookmarksModel.autoArchiveEnabledKey)
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let bookmark = try store.add(title: "Manual Archive", url: "https://manual-archive.example")
+        try store.setArchived(true, ids: [bookmark.id])
+
+        let model = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root)
+        )
+        guard let archived = model.bookmarks.first(where: { $0.id == bookmark.id }) else {
+            throw SmokeTestError.failure("expected manually archived bookmark to load")
+        }
+
+        try expect(
+            model.isEffectivelyArchived(archived),
+            "expected manual archive state to remain effective when auto archive is disabled"
+        )
+        try expect(
+            model.visibleUngroupedSections(sortMode: .name).isEmpty,
+            "expected manually archived bookmark to stay out of visible bookmark sections"
+        )
+        try expect(
+            model.menuRenderSections().allSatisfy { section in
+                !section.bookmarks.contains(where: { $0.id == bookmark.id })
+            },
+            "expected manually archived bookmark to stay out of the menu"
+        )
+
+        try expect(
+            model.setArchived(false, for: bookmark.id) == nil,
+            "expected manually archived bookmark to be restorable while auto archive is disabled"
+        )
+        try expect(
+            model.visibleUngroupedSections(sortMode: .name)
+                .flatMap(\.bookmarks)
+                .contains(where: { $0.id == bookmark.id }),
+            "expected restored bookmark to return to visible bookmark sections"
+        )
     }
 
     private static func testPinnedBookmarkPersistence() throws {

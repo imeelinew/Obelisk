@@ -1320,14 +1320,14 @@ final class BookmarksModel {
         context: AutoArchiveContext?,
         usage: [UUID: UsageRecord]
     ) -> Bool {
-        guard autoArchiveEnabled else {
-            return false
-        }
         guard !bookmark.isHidden else {
             return false
         }
         if bookmark.archivedAt != nil {
             return true
+        }
+        guard autoArchiveEnabled else {
+            return false
         }
         guard let context, !context.protectedIds.contains(bookmark.id)
         else {

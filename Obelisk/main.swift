@@ -73,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)
         }
         ObeliskKeychainMigration.migrateIfNeeded()
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         installMainMenu()
         configureStatusItem()
         clearLegacySpotlightIndex()
@@ -87,9 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildMenu()
         setupNotificationPopover()
 
-        if isUITesting {
-            openManager()
-        }
+        openManager()
     }
 
     /// Global shortcuts (user-customizable in Settings) fetch the frontmost

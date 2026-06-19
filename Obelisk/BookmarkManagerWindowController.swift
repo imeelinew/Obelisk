@@ -58,7 +58,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window = nil
-        // Hide the dock icon again so we behave like a pure menu-bar app.
+        // 退回 accessory：Dock 图标消失，但 statusItem 菜单栏图标独立保留。
         NSApp.setActivationPolicy(.accessory)
     }
 

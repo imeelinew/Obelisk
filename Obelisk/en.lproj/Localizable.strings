@@ -1,0 +1,67 @@
+/* App menu */
+"About Obelisk" = "About Obelisk";
+"Settings…" = "Settings…";
+"Hide Obelisk" = "Hide Obelisk";
+"Hide Others" = "Hide Others";
+"Show All" = "Show All";
+"Quit Obelisk" = "Quit Obelisk";
+
+/* File menu */
+"File" = "File";
+"New Bookmark" = "New Bookmark";
+"Open…" = "Open…";
+"Open Recent" = "Open Recent";
+"Clear Menu" = "Clear Menu";
+"Close" = "Close";
+"Save" = "Save";
+"Save As…" = "Save As…";
+"Revert To Saved" = "Revert To Saved";
+"Page Setup…" = "Page Setup…";
+"Print…" = "Print…";
+
+/* Edit menu */
+"Edit" = "Edit";
+"Undo" = "Undo";
+"Redo" = "Redo";
+"Cut" = "Cut";
+"Copy" = "Copy";
+"Paste" = "Paste";
+"Delete" = "Delete";
+"Select All" = "Select All";
+"Find" = "Find";
+"Find…" = "Find…";
+"Find Next" = "Find Next";
+"Find Previous" = "Find Previous";
+"Use Selection for Find" = "Use Selection for Find";
+"Jump to Selection" = "Jump to Selection";
+"Spelling and Grammar" = "Spelling and Grammar";
+"Check Spelling Now" = "Check Spelling Now";
+"Check Spelling While Typing" = "Check Spelling While Typing";
+"Show Spelling and Grammar" = "Show Spelling and Grammar";
+"Substitutions" = "Substitutions";
+"Show Substitutions" = "Show Substitutions";
+"Smart Copy/Paste" = "Smart Copy/Paste";
+"Smart Quotes" = "Smart Quotes";
+"Smart Dashes" = "Smart Dashes";
+"Smart Links" = "Smart Links";
+"Text Replacement" = "Text Replacement";
+"Speech" = "Speech";
+"Start Speaking" = "Start Speaking";
+"Stop Speaking" = "Stop Speaking";
+"Emoji & Symbols" = "Emoji & Symbols";
+
+/* View menu */
+"View" = "View";
+"Show Toolbar" = "Show Toolbar";
+"Customize Toolbar…" = "Customize Toolbar…";
+"Enter Full Screen" = "Enter Full Screen";
+
+/* Window menu */
+"Window" = "Window";
+"Minimize" = "Minimize";
+"Zoom" = "Zoom";
+"Bring All to Front" = "Bring All to Front";
+
+/* Help menu */
+"Help" = "Help";
+"Obelisk Help" = "Obelisk Help";

@@ -501,21 +501,12 @@ struct BookmarkManagerView: View {
     }
 
     private var searchBookmarkSections: [BookmarkListSection] {
-        switch effectiveSearchFilter {
-        case .all:
-            return groupedSearchSections(for: searchableBookmarks)
-        case .collection(let id):
-            guard let collection = model.collections.first(where: { $0.id == id }) else { return [] }
-            let bookmarks = model.sortedBookmarks(searchableBookmarks, sortMode: collectionListSortMode)
-            guard !bookmarks.isEmpty else { return [] }
-            return [
-                BookmarkListSection(
-                    title: "\(collection.name) (\(bookmarks.count))",
-                    bookmarks: bookmarks,
-                    collectionId: collection.id
-                )
-            ]
-        }
+        model.bookmarkLibrarySections(
+            for: searchableBookmarks,
+            pinnedSortMode: pinnedBookmarkListSortMode,
+            collectionSortMode: collectionListSortMode,
+            ungroupedSortMode: bookmarkListSortMode
+        )
     }
 
     private func matchesSearchFilter(_ bookmark: Bookmark) -> Bool {
@@ -525,39 +516,6 @@ struct BookmarkManagerView: View {
         case .collection(let id):
             return model.collectionId(for: bookmark.id) == id
         }
-    }
-
-    private func groupedSearchSections(for bookmarks: [Bookmark]) -> [BookmarkListSection] {
-        var sections: [BookmarkListSection] = []
-        for collection in model.collections {
-            let collectionBookmarks = model.sortedBookmarks(
-                bookmarks.filter { model.collectionId(for: $0.id) == collection.id },
-                sortMode: collectionListSortMode
-            )
-            guard !collectionBookmarks.isEmpty else { continue }
-            sections.append(
-                BookmarkListSection(
-                    title: "\(collection.name) (\(collectionBookmarks.count))",
-                    bookmarks: collectionBookmarks,
-                    collectionId: collection.id
-                )
-            )
-        }
-
-        let ungroupedBookmarks = model.sortedBookmarks(
-            bookmarks.filter { model.collectionId(for: $0.id) == nil },
-            sortMode: bookmarkListSortMode
-        )
-        if !ungroupedBookmarks.isEmpty {
-            sections.append(
-                BookmarkListSection(
-                    title: "未分组 (\(ungroupedBookmarks.count))",
-                    bookmarks: ungroupedBookmarks
-                )
-            )
-        }
-
-        return sections
     }
 
     private var collectionAssignOptions: [BookmarkCollectionAssignOption] {

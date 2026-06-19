@@ -327,12 +327,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let menu = statusMenu else {
             rebuildMenu()
             if let menu = statusMenu {
-                statusItem.popUpMenu(menu)
+                showStatusMenu(menu)
             }
             return
         }
 
-        statusItem.popUpMenu(menu)
+        showStatusMenu(menu)
+    }
+
+    private func showStatusMenu(_ menu: NSMenu) {
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
     }
 
     private func clearLegacySpotlightIndex() {
@@ -500,6 +505,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         dismissNotificationPopover()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        statusItem.menu = nil
     }
 
     private func applyDestructiveMenuItemStyle(to item: NSMenuItem, highlighted: Bool) {

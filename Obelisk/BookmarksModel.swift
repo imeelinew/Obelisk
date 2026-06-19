@@ -664,6 +664,66 @@ final class BookmarksModel {
         return sections
     }
 
+    func bookmarkLibrarySections(
+        for candidates: [Bookmark],
+        pinnedSortMode: BookmarkListSortMode,
+        collectionSortMode: BookmarkListSortMode,
+        ungroupedSortMode: BookmarkListSortMode
+    ) -> [BookmarkListSection] {
+        let usage = usageStore.load()
+        var sections: [BookmarkListSection] = []
+
+        let pinnedBookmarks = pinnedSortMode.sorted(
+            candidates.filter(\.isPinned),
+            usage: usage
+        )
+        let pinnedIds = Set(pinnedBookmarks.map(\.id))
+        if !pinnedBookmarks.isEmpty {
+            sections.append(
+                BookmarkListSection(
+                    title: "置顶 (\(pinnedBookmarks.count))",
+                    bookmarks: pinnedBookmarks
+                )
+            )
+        }
+
+        for collection in collections {
+            let bookmarks = collectionSortMode.sorted(
+                candidates.filter {
+                    !pinnedIds.contains($0.id)
+                        && membershipByBookmarkId[$0.id] == collection.id
+                },
+                usage: usage
+            )
+            guard !bookmarks.isEmpty else { continue }
+            sections.append(
+                BookmarkListSection(
+                    title: "\(collection.name) (\(bookmarks.count))",
+                    bookmarks: bookmarks,
+                    collectionId: collection.id
+                )
+            )
+        }
+
+        let ungroupedBookmarks = ungroupedSortMode.sorted(
+            candidates.filter {
+                !pinnedIds.contains($0.id)
+                    && membershipByBookmarkId[$0.id] == nil
+            },
+            usage: usage
+        )
+        if !ungroupedBookmarks.isEmpty {
+            sections.append(
+                BookmarkListSection(
+                    title: "未分组 (\(ungroupedBookmarks.count))",
+                    bookmarks: ungroupedBookmarks
+                )
+            )
+        }
+
+        return sections
+    }
+
     func menuSections(
         pinnedSortMode: BookmarkListSortMode = .storedForPinned,
         ungroupedSortMode: BookmarkListSortMode = .storedForUngrouped,

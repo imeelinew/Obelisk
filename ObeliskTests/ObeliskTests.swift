@@ -29,6 +29,7 @@ struct SmokeTests {
         try testArchivePersistence()
         try testManualArchiveIndependentOfAutoArchiveSetting()
         try testPinnedBookmarkPersistence()
+        try testLibrarySectionsPrioritizePinnedBookmarks()
         try testPinnedClearedByHiddenAndArchive()
         try testStateCleanupOnDelete()
         try testEmptyBookmarkLoadDoesNotEraseExistingState()
@@ -492,6 +493,40 @@ struct SmokeTests {
         try expect(loaded.first { $0.id == bookmark.id }?.isPinned == false, "expected unpin to clear runtime state")
         state = BookmarkStateStore(rootDirectory: store.rootDirectory).load()
         try expect(state.pinnedIds.isEmpty, "expected unpin to clear pinned state")
+    }
+
+    @MainActor
+    private static func testLibrarySectionsPrioritizePinnedBookmarks() throws {
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let pinned = try store.add(title: "YouTube 订阅", url: "https://www.youtube.com")
+        let ungrouped = try store.add(title: "Plain", url: "https://plain.example")
+        try store.setPinned(true, ids: [pinned.id])
+
+        let model = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root)
+        )
+        let sections = model.bookmarkLibrarySections(
+            for: model.bookmarks,
+            pinnedSortMode: .name,
+            collectionSortMode: .name,
+            ungroupedSortMode: .name
+        )
+
+        try expect(
+            sections.first?.title == "置顶 (1)",
+            "expected pinned candidates to be rendered before ungrouped candidates"
+        )
+        try expect(
+            sections.first?.bookmarks.map(\.id) == [pinned.id],
+            "expected pinned candidate to stay in the pinned section"
+        )
+        let ungroupedSection = sections.first { $0.title == "未分组 (1)" }
+        try expect(
+            ungroupedSection?.bookmarks.map(\.id) == [ungrouped.id],
+            "expected ungrouped section to exclude pinned bookmarks"
+        )
     }
 
     private static func testPinnedClearedByHiddenAndArchive() throws {

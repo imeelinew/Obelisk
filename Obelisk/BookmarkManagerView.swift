@@ -113,6 +113,8 @@ struct BookmarkManagerView: View {
     @State private var toast: Toast?
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var selectedCollectionId: UUID?
+    @State private var searchText = ""
+    @State private var searchFilter: SearchFilter = .all
     @State private var llmProfiles = LLMProfilesSettings()
     @State private var llmConfigMessage: String?
     @State private var isTestingLLMConfig = false
@@ -231,8 +233,14 @@ struct BookmarkManagerView: View {
         }
     }
 
+    enum SearchFilter: Hashable {
+        case all
+        case collection(UUID)
+    }
+
     enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
         case bookmarks
+        case search
         case collections
         case hiddenBookmarks
         case archive
@@ -256,7 +264,7 @@ struct BookmarkManagerView: View {
 
         var group: Group {
             switch self {
-            case .bookmarks, .collections, .hiddenBookmarks, .archive: return .content
+            case .bookmarks, .search, .collections, .hiddenBookmarks, .archive: return .content
             case .appearance, .menuBar, .shortcuts:     return .preferences
             case .ai, .privacy, .settings, .developer:  return .advanced
             }
@@ -265,6 +273,7 @@ struct BookmarkManagerView: View {
         var title: String {
             switch self {
             case .bookmarks:       return "书签"
+            case .search:          return "搜索"
             case .collections:     return "分组"
             case .hiddenBookmarks: return "隐藏书签"
             case .archive:         return "归档"
@@ -281,6 +290,7 @@ struct BookmarkManagerView: View {
         var symbolName: String {
             switch self {
             case .bookmarks:       return "bookmark.fill"
+            case .search:          return "magnifyingglass"
             case .collections:     return "folder.fill"
             case .hiddenBookmarks: return "eye.slash.fill"
             case .archive:         return "archivebox.fill"
@@ -297,6 +307,7 @@ struct BookmarkManagerView: View {
         var professionalSymbolName: String {
             switch self {
             case .bookmarks:       return "bookmark"
+            case .search:          return "magnifyingglass"
             case .collections:     return "folder"
             case .hiddenBookmarks: return "eye.slash"
             case .archive:         return "archivebox"
@@ -315,6 +326,12 @@ struct BookmarkManagerView: View {
             case .bookmarks:
                 return LinearGradient(
                     colors: [Color(red: 1.0, green: 0.50, blue: 0.40), Color(red: 0.96, green: 0.28, blue: 0.24)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .search:
+                return LinearGradient(
+                    colors: [Color(red: 0.42, green: 0.74, blue: 0.94), Color(red: 0.18, green: 0.46, blue: 0.78)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -441,6 +458,106 @@ struct BookmarkManagerView: View {
             includeEmptyCollections: true,
             showsSortControlOnFirstSection: true
         )
+    }
+
+    private var searchFilterOptions: [SearchFilter] {
+        [.all] + model.collections.map { .collection($0.id) }
+    }
+
+    private var effectiveSearchFilter: SearchFilter {
+        switch searchFilter {
+        case .all:
+            return .all
+        case .collection(let id):
+            return model.collections.contains(where: { $0.id == id }) ? searchFilter : .all
+        }
+    }
+
+    private var searchFilterBinding: Binding<SearchFilter> {
+        Binding(
+            get: { effectiveSearchFilter },
+            set: { searchFilter = $0 }
+        )
+    }
+
+    private func searchFilterTitle(for filter: SearchFilter) -> String {
+        switch filter {
+        case .all:
+            return "全部"
+        case .collection(let id):
+            return model.collections.first(where: { $0.id == id })?.name ?? "分组"
+        }
+    }
+
+    private var searchableBookmarks: [Bookmark] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return model.bookmarks.filter { bookmark in
+            guard !bookmark.isHidden else { return false }
+            guard matchesSearchFilter(bookmark) else { return false }
+            guard !query.isEmpty else { return true }
+            return bookmark.title.localizedCaseInsensitiveContains(query)
+                || bookmark.url.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var searchBookmarkSections: [BookmarkListSection] {
+        switch effectiveSearchFilter {
+        case .all:
+            return groupedSearchSections(for: searchableBookmarks)
+        case .collection(let id):
+            guard let collection = model.collections.first(where: { $0.id == id }) else { return [] }
+            let bookmarks = model.sortedBookmarks(searchableBookmarks, sortMode: collectionListSortMode)
+            guard !bookmarks.isEmpty else { return [] }
+            return [
+                BookmarkListSection(
+                    title: "\(collection.name) (\(bookmarks.count))",
+                    bookmarks: bookmarks,
+                    collectionId: collection.id
+                )
+            ]
+        }
+    }
+
+    private func matchesSearchFilter(_ bookmark: Bookmark) -> Bool {
+        switch effectiveSearchFilter {
+        case .all:
+            return true
+        case .collection(let id):
+            return model.collectionId(for: bookmark.id) == id
+        }
+    }
+
+    private func groupedSearchSections(for bookmarks: [Bookmark]) -> [BookmarkListSection] {
+        var sections: [BookmarkListSection] = []
+        for collection in model.collections {
+            let collectionBookmarks = model.sortedBookmarks(
+                bookmarks.filter { model.collectionId(for: $0.id) == collection.id },
+                sortMode: collectionListSortMode
+            )
+            guard !collectionBookmarks.isEmpty else { continue }
+            sections.append(
+                BookmarkListSection(
+                    title: "\(collection.name) (\(collectionBookmarks.count))",
+                    bookmarks: collectionBookmarks,
+                    collectionId: collection.id
+                )
+            )
+        }
+
+        let ungroupedBookmarks = model.sortedBookmarks(
+            bookmarks.filter { model.collectionId(for: $0.id) == nil },
+            sortMode: bookmarkListSortMode
+        )
+        if !ungroupedBookmarks.isEmpty {
+            sections.append(
+                BookmarkListSection(
+                    title: "未分组 (\(ungroupedBookmarks.count))",
+                    bookmarks: ungroupedBookmarks
+                )
+            )
+        }
+
+        return sections
     }
 
     private var collectionAssignOptions: [BookmarkCollectionAssignOption] {
@@ -1507,6 +1624,8 @@ struct BookmarkManagerView: View {
                 sortMode: bookmarkListSortMode
             ).reduce(0) { $0 + $1.bookmarks.count }
             return pinnedCount + ungroupedCount
+        case .search:
+            return nil
         case .collections:
             return model.collections.count
         case .hiddenBookmarks:
@@ -1601,6 +1720,8 @@ struct BookmarkManagerView: View {
             switch settingsPage {
             case .bookmarks:
                 bookmarkManagementPage
+            case .search:
+                searchPage
             case .collections:
                 collectionsManagementPage
             case .hiddenBookmarks:
@@ -1674,6 +1795,58 @@ struct BookmarkManagerView: View {
             }
         }
         .navigationTitle("书签")
+    }
+
+    private var searchPage: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            NativeSearchField(text: $searchText, placeholder: "搜索")
+                .frame(height: 28)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+            CompactBorderedMenuPicker(
+                options: searchFilterOptions,
+                selection: searchFilterBinding,
+                title: { searchFilterTitle(for: $0) }
+            )
+            .padding(.leading, 16)
+            .padding(.bottom, 6)
+
+            if searchBookmarkSections.isEmpty {
+                ContentUnavailableView {
+                    Label("没有结果", systemImage: "magnifyingglass")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                NativeBookmarkList(
+                    sections: searchBookmarkSections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version,
+                    showsURLHostOnly: showsURLHostOnly,
+                    onOpen: { bookmark in openBookmark(bookmark) },
+                    onCopyURL: { bookmark in copyURL(bookmark) },
+                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onEdit: { bookmark in presentation = .edit(bookmark) },
+                    onDelete: { ids in requestDelete(ids: ids) },
+                    hiddenStateActionTitle: "移到隐藏书签",
+                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
+                    archiveStateActionTitleProvider: { bookmark in
+                        model.isEffectivelyArchived(bookmark) ? "恢复到书签" : "归档"
+                    },
+                    onSetArchived: { bookmark in setArchived(!model.isEffectivelyArchived(bookmark), for: bookmark) },
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                    collectionAssignOptions: collectionAssignOptions,
+                    onAssignCollection: { bookmarkIds, collectionId in
+                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                    },
+                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
+                )
+            }
+        }
+        .navigationTitle("搜索")
     }
 
     private var collectionsManagementPage: some View {
@@ -2680,6 +2853,52 @@ private struct SidebarCategoryIcon: View {
             width: theme == .professional ? professionalIconSize : tileSize,
             height: theme == .professional ? professionalIconSize : tileSize
         )
+    }
+}
+
+private struct NativeSearchField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let searchField = NSSearchField()
+        searchField.placeholderString = placeholder
+        searchField.delegate = context.coordinator
+        searchField.sendsSearchStringImmediately = true
+        searchField.controlSize = .large
+        searchField.font = .systemFont(ofSize: NSFont.systemFontSize)
+        searchField.bezelStyle = .roundedBezel
+        searchField.target = context.coordinator
+        searchField.action = #selector(Coordinator.searchFieldAction(_:))
+        return searchField
+    }
+
+    func updateNSView(_ searchField: NSSearchField, context: Context) {
+        if searchField.stringValue != text {
+            searchField.stringValue = text
+        }
+        searchField.placeholderString = placeholder
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let searchField = notification.object as? NSSearchField else { return }
+            text.wrappedValue = searchField.stringValue
+        }
+
+        @MainActor @objc func searchFieldAction(_ sender: NSSearchField) {
+            text.wrappedValue = sender.stringValue
+        }
     }
 }
 

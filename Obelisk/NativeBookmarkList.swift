@@ -45,6 +45,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     var hiddenStateActionTitle: String?
     var onSetHidden: ((Bookmark) -> Void)?
     var archiveStateActionTitle: String? = nil
+    var archiveStateActionTitleProvider: ((Bookmark) -> String)? = nil
     var onSetArchived: ((Bookmark) -> Void)? = nil
     var pinStateActionTitle: ((Bookmark) -> String)? = nil
     var onSetPinned: ((Bookmark) -> Void)? = nil
@@ -331,7 +332,8 @@ struct NativeBookmarkList: NSViewRepresentable {
                     bookmark: bookmark
                 ))
             }
-            if let archiveStateActionTitle = parent.archiveStateActionTitle, parent.onSetArchived != nil {
+            if let archiveStateActionTitle = parent.archiveStateActionTitleProvider?(bookmark) ?? parent.archiveStateActionTitle,
+               parent.onSetArchived != nil {
                 menu.addItem(NSMenuItem.separator())
                 menu.addItem(menuItem(
                     archiveStateActionTitle,
@@ -1083,10 +1085,7 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         if let cell = sortButton.cell as? NSPopUpButtonCell {
             cell.alignment = .left
         }
-        for mode in BookmarkListSortMode.allCases {
-            sortButton.addItem(withTitle: mode.title)
-            sortButton.lastItem?.representedObject = mode.rawValue
-        }
+        sortButton.menu = Self.makeSortMenu()
         addSubview(sortButton)
 
         titleCenterYConstraint = titleField.centerYAnchor.constraint(
@@ -1123,8 +1122,21 @@ private final class BookmarkHeaderCellView: NSTableCellView {
         sortButton.target = target
         sortButton.action = action
         if let sortMode {
-            sortButton.selectItem(withTitle: sortMode.title)
+            let item = sortButton.menu?.items.first {
+                ($0.representedObject as? String) == sortMode.rawValue
+            }
+            sortButton.select(item)
         }
+    }
+
+    private static func makeSortMenu() -> NSMenu {
+        let menu = NSMenu()
+        for mode in BookmarkListSortMode.allCases {
+            let item = NSMenuItem(title: mode.title, action: nil, keyEquivalent: "")
+            item.representedObject = mode.rawValue
+            menu.addItem(item)
+        }
+        return menu
     }
 }
 

@@ -240,8 +240,8 @@ struct BookmarkManagerView: View {
 
     enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
         case bookmarks
-        case search
         case collections
+        case search
         case hiddenBookmarks
         case archive
         case appearance
@@ -1758,7 +1758,7 @@ struct BookmarkManagerView: View {
     private var searchPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             NativeSearchField(text: $searchText, placeholder: "搜索")
-                .frame(height: 28)
+                .frame(height: 34)
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
                 .padding(.bottom, 8)

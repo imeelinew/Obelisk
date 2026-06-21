@@ -33,6 +33,7 @@ struct BookmarkListSection: Equatable, Identifiable {
 struct NativeBookmarkList: NSViewRepresentable {
     var sections: [BookmarkListSection]
     @Binding var selection: Set<Bookmark.ID>
+    var focusFirstBookmarkRequest: Int = 0
     var selectedCollectionId: Binding<UUID?>?
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
@@ -114,6 +115,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         } else {
             context.coordinator.syncSelectionToTable()
         }
+        context.coordinator.handleFocusFirstBookmarkRequestIfNeeded()
     }
 
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("BookmarkColumn")
@@ -128,6 +130,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         private var selectedRowKeys: Set<NativeBookmarkRowSelectionKey> = []
         private var hoveredRow: Int = -1
         fileprivate var cachedFaviconVersion: Int = -1
+        private var handledFocusFirstBookmarkRequest = 0
 
         init(_ parent: NativeBookmarkList) {
             self.parent = parent
@@ -587,6 +590,21 @@ struct NativeBookmarkList: NSViewRepresentable {
             isSyncingSelection = false
         }
 
+        func handleFocusFirstBookmarkRequestIfNeeded() {
+            guard parent.focusFirstBookmarkRequest > 0,
+                  parent.focusFirstBookmarkRequest != handledFocusFirstBookmarkRequest,
+                  let tableView,
+                  let row = NativeBookmarkSelectionResolver.firstBookmarkRowIndex(in: items)
+            else {
+                return
+            }
+
+            handledFocusFirstBookmarkRequest = parent.focusFirstBookmarkRequest
+            tableView.window?.makeFirstResponder(tableView)
+            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            tableView.scrollRowToVisible(row)
+        }
+
         private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
 
         func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
@@ -748,6 +766,10 @@ struct NativeBookmarkSelectionState: Equatable {
 }
 
 enum NativeBookmarkSelectionResolver {
+    static func firstBookmarkRowIndex(in items: [NativeBookmarkListItem]) -> Int? {
+        items.firstIndex { $0.bookmark != nil }
+    }
+
     static func selection(
         from selectedRows: IndexSet,
         in items: [NativeBookmarkListItem],
@@ -991,7 +1013,9 @@ class BookmarkMenuTableView: NSTableView {
 
     override func keyDown(with event: NSEvent) {
         let characters = event.charactersIgnoringModifiers ?? ""
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let modifiers = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting(.numericPad)
 
         if modifiers == .command, characters == "c" {
             menuDelegate?.bookmarkMenuTableViewCopySelection(self)

@@ -1,6 +1,9 @@
+import AppKit
+import Carbon.HIToolbox
 import CryptoKit
 import Foundation
 import Security
+import SwiftUI
 import Testing
 @testable import Obelisk
 
@@ -26,6 +29,9 @@ struct SmokeTests {
         try testHiddenBookmarkPersistence()
         try testHiddenBookmarkKeywordExclusion()
         try testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate()
+        try testNativeBookmarkListFirstBookmarkRowSkipsHeaders()
+        try testNativeSearchFieldEnterUsesFieldEditorText()
+        try testBookmarkMenuTableViewReturnOpensSelection()
         try testArchivePersistence()
         try testManualArchiveIndependentOfAutoArchiveSetting()
         try testPinnedBookmarkPersistence()
@@ -550,6 +556,69 @@ struct SmokeTests {
             BookmarkSearchMatcher.matches(bookmark: bookmark, query: "bilibili.com"),
             "expected existing URL matching to keep working"
         )
+    }
+
+    private static func testNativeBookmarkListFirstBookmarkRowSkipsHeaders() throws {
+        let bookmark = Bookmark(title: "YouTube", url: "https://www.youtube.com")
+        let sections = [
+            BookmarkListSection(title: "置顶 (1)", bookmarks: [bookmark])
+        ]
+
+        try expect(
+            NativeBookmarkSelectionResolver.firstBookmarkRowIndex(in: sections.flattenedItems) == 1,
+            "expected keyboard focus to skip the section header and select the first bookmark row"
+        )
+        try expect(
+            NativeBookmarkSelectionResolver.firstBookmarkRowIndex(in: [
+                BookmarkListSection(title: "没有结果", bookmarks: [])
+            ].flattenedItems) == nil,
+            "expected no selectable row when sections contain no bookmarks"
+        )
+    }
+
+    @MainActor
+    private static func testNativeSearchFieldEnterUsesFieldEditorText() throws {
+        var text = ""
+        var enteredQuery: String?
+        let binding = Binding<String>(
+            get: { text },
+            set: { text = $0 }
+        )
+        let coordinator = NativeSearchField.Coordinator(
+            text: binding,
+            onEscape: nil,
+            onTab: nil,
+            onEnter: { enteredQuery = $0 },
+            onDownArrow: nil
+        )
+        let textView = NSTextView()
+        textView.string = "youtube"
+
+        let handled = coordinator.control(
+            NSSearchField(),
+            textView: textView,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+
+        try expect(handled, "expected search field Enter command to be handled")
+        try expect(text == "youtube", "expected Enter command to sync current field-editor text")
+        try expect(enteredQuery == "youtube", "expected Enter callback to receive current field-editor text")
+    }
+
+    @MainActor
+    private static func testBookmarkMenuTableViewReturnOpensSelection() throws {
+        let delegate = BookmarkMenuTableViewDelegateSpy()
+        let tableView = BookmarkMenuTableView()
+        tableView.menuDelegate = delegate
+
+        tableView.keyDown(with: keyEvent(keyCode: UInt16(kVK_Return), characters: "\r"))
+        tableView.keyDown(with: keyEvent(
+            keyCode: UInt16(kVK_ANSI_KeypadEnter),
+            characters: "\r",
+            modifierFlags: .numericPad
+        ))
+
+        try expect(delegate.openSelectionCount == 2, "expected Return and keypad Enter to open selected row")
     }
 
     @MainActor
@@ -2380,6 +2449,48 @@ private final class StubBookmarkGroupOptimizer: BookmarkGroupingOptimizing {
         existingCollectionNames = existingCollections.map(\.name)
         return response
     }
+}
+
+@MainActor
+private final class BookmarkMenuTableViewDelegateSpy: BookmarkMenuTableViewDelegate {
+    private(set) var openSelectionCount = 0
+
+    func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
+        false
+    }
+
+    func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu? {
+        nil
+    }
+
+    func bookmarkMenuTableViewCopySelection(_ tableView: BookmarkMenuTableView) {}
+
+    func bookmarkMenuTableViewEditSelection(_ tableView: BookmarkMenuTableView) {}
+
+    func bookmarkMenuTableViewDeleteSelection(_ tableView: BookmarkMenuTableView) {}
+
+    func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView) {
+        openSelectionCount += 1
+    }
+}
+
+private func keyEvent(
+    keyCode: UInt16,
+    characters: String,
+    modifierFlags: NSEvent.ModifierFlags = []
+) -> NSEvent {
+    NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: modifierFlags,
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: characters,
+        isARepeat: false,
+        keyCode: keyCode
+    )!
 }
 
 @Suite struct ObeliskTests {

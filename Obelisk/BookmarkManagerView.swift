@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 enum BookmarkListSortMode: String, CaseIterable, Identifiable {
@@ -2869,14 +2870,27 @@ struct NativeSearchField: NSViewRepresentable {
     var placeholder: String
     var focusesOnAppear = false
     var onEscape: (() -> Void)?
+    var onTab: (() -> Void)?
+    var onEnter: ((String) -> Void)?
+    var onDownArrow: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onEscape: onEscape)
+        Coordinator(
+            text: $text,
+            onEscape: onEscape,
+            onTab: onTab,
+            onEnter: onEnter,
+            onDownArrow: onDownArrow
+        )
     }
 
     func makeNSView(context: Context) -> NSSearchField {
         let searchField = FocusableSearchField()
         searchField.focusesOnAppear = focusesOnAppear
+        searchField.onEscape = onEscape
+        searchField.onTab = onTab
+        searchField.onEnter = onEnter
+        searchField.onDownArrow = onDownArrow
         searchField.placeholderString = placeholder
         searchField.delegate = context.coordinator
         searchField.sendsSearchStringImmediately = true
@@ -2891,6 +2905,10 @@ struct NativeSearchField: NSViewRepresentable {
     func updateNSView(_ searchField: NSSearchField, context: Context) {
         if let searchField = searchField as? FocusableSearchField {
             searchField.focusesOnAppear = focusesOnAppear
+            searchField.onEscape = onEscape
+            searchField.onTab = onTab
+            searchField.onEnter = onEnter
+            searchField.onDownArrow = onDownArrow
             searchField.focusIfNeeded()
         }
         if searchField.stringValue != text {
@@ -2899,15 +2917,55 @@ struct NativeSearchField: NSViewRepresentable {
         searchField.placeholderString = placeholder
         context.coordinator.text = $text
         context.coordinator.onEscape = onEscape
+        context.coordinator.onTab = onTab
+        context.coordinator.onEnter = onEnter
+        context.coordinator.onDownArrow = onDownArrow
     }
 
     private final class FocusableSearchField: NSSearchField {
         var focusesOnAppear = false
+        var onEscape: (() -> Void)?
+        var onTab: (() -> Void)?
+        var onEnter: ((String) -> Void)?
+        var onDownArrow: (() -> Void)?
         private var didFocus = false
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             focusIfNeeded()
+        }
+
+        override func keyDown(with event: NSEvent) {
+            let modifiers = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting(.numericPad)
+            guard modifiers.isEmpty else {
+                super.keyDown(with: event)
+                return
+            }
+
+            switch event.keyCode {
+            case UInt16(kVK_Escape):
+                guard let onEscape else { break }
+                onEscape()
+                return
+            case UInt16(kVK_Tab):
+                guard let onTab else { break }
+                onTab()
+                return
+            case UInt16(kVK_Return), UInt16(kVK_ANSI_KeypadEnter):
+                guard let onEnter else { break }
+                onEnter(stringValue)
+                return
+            case UInt16(kVK_DownArrow):
+                guard let onDownArrow else { break }
+                onDownArrow()
+                return
+            default:
+                break
+            }
+
+            super.keyDown(with: event)
         }
 
         func focusIfNeeded() {
@@ -2923,10 +2981,22 @@ struct NativeSearchField: NSViewRepresentable {
     final class Coordinator: NSObject, NSSearchFieldDelegate {
         var text: Binding<String>
         var onEscape: (() -> Void)?
+        var onTab: (() -> Void)?
+        var onEnter: ((String) -> Void)?
+        var onDownArrow: (() -> Void)?
 
-        init(text: Binding<String>, onEscape: (() -> Void)?) {
+        init(
+            text: Binding<String>,
+            onEscape: (() -> Void)?,
+            onTab: (() -> Void)?,
+            onEnter: ((String) -> Void)?,
+            onDownArrow: (() -> Void)?
+        ) {
             self.text = text
             self.onEscape = onEscape
+            self.onTab = onTab
+            self.onEnter = onEnter
+            self.onDownArrow = onDownArrow
         }
 
         func controlTextDidChange(_ notification: Notification) {
@@ -2935,15 +3005,40 @@ struct NativeSearchField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else {
+            text.wrappedValue = textView.string
+            switch commandSelector {
+            case #selector(NSResponder.cancelOperation(_:)):
+                onEscape?()
+                return true
+            case #selector(NSResponder.insertTab(_:)),
+                 #selector(NSResponder.insertTabIgnoringFieldEditor(_:)):
+                guard let onTab else { return false }
+                onTab()
+                return true
+            case #selector(NSResponder.insertNewline(_:)),
+                 #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
+                guard let onEnter else { return false }
+                onEnter(textView.string)
+                return true
+            case #selector(NSResponder.moveDown(_:)):
+                guard let onDownArrow else { return false }
+                onDownArrow()
+                return true
+            default:
                 return false
             }
-            onEscape?()
-            return true
         }
 
         @MainActor @objc func searchFieldAction(_ sender: NSSearchField) {
             text.wrappedValue = sender.stringValue
+            guard let event = NSApp.currentEvent, event.type == .keyDown else { return }
+            let modifiers = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting(.numericPad)
+            guard modifiers.isEmpty else { return }
+            if event.keyCode == UInt16(kVK_Return) || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) {
+                onEnter?(sender.stringValue)
+            }
         }
     }
 }

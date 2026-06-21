@@ -10,6 +10,7 @@ import os
 import SwiftUI
 
 private let faviconLog = Logger(subsystem: "com.eli.Obelisk", category: "Favicon")
+private let inputSourceLog = Logger(subsystem: "com.eli.Obelisk", category: "InputSource")
 private let isUITesting = CommandLine.arguments.contains("-uiTesting")
 
 private func configureUITestingEnvironmentIfNeeded() {
@@ -61,6 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var notificationDismissWorkItem: DispatchWorkItem?
     private var searchPopover: NSPopover?
     private let searchInputSourceSwitcher = InputSourceSwitcher()
+    private var searchCommandBridge: MenuBarSearchCommandBridge?
+    private var searchKeyMonitor: Any?
     private var statusMenu: NSMenu?
     private var pendingUndo: PendingBookmarkUndo?
     private var pendingUndoExpirationWorkItem: DispatchWorkItem?
@@ -244,13 +247,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         guard let button = statusItem.button else { return }
 
-        searchInputSourceSwitcher.switchToUSEnglish()
         NSApp.activate(ignoringOtherApps: true)
+
+        let commandBridge = MenuBarSearchCommandBridge()
+        searchCommandBridge = commandBridge
+        installMenuBarSearchKeyMonitor(commandBridge: commandBridge)
 
         let contentView = MenuBarBookmarkSearchView(
             model: bookmarksModel,
             faviconLoader: faviconLoader,
             showsURLHostOnly: UserDefaults.standard.bool(forKey: "showsURLHostOnly"),
+            commandBridge: commandBridge,
             onOpen: { [weak self] bookmark in
                 self?.bookmarksModel.openBookmark(bookmark)
             },
@@ -270,6 +277,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         statusItem.menu = nil
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        searchInputSourceSwitcher.switchToUSEnglish()
+        DispatchQueue.main.async { [searchInputSourceSwitcher] in
+            searchInputSourceSwitcher.switchToUSEnglish()
+        }
     }
 
     private func dismissMenuBarSearchPopover() {
@@ -277,9 +288,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         popover?.performClose(nil)
         popover?.close()
         if let popover, searchPopover === popover {
-            searchInputSourceSwitcher.restorePreviousInputSource()
             searchPopover = nil
         }
+        uninstallMenuBarSearchKeyMonitor()
+        searchCommandBridge = nil
+    }
+
+    private func installMenuBarSearchKeyMonitor(commandBridge: MenuBarSearchCommandBridge) {
+        uninstallMenuBarSearchKeyMonitor()
+        searchKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak commandBridge] event in
+            guard let self,
+                  let commandBridge,
+                  self.searchPopover?.isShown == true
+            else {
+                return event
+            }
+
+            let modifiers = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting(.numericPad)
+            guard modifiers.isEmpty else { return event }
+            guard event.keyCode == UInt16(kVK_Return) || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) else {
+                return event
+            }
+            guard !Self.firstResponderHasMarkedText(in: event.window) else {
+                return event
+            }
+
+            commandBridge.open(query: Self.currentText(in: event.window))
+            return nil
+        }
+    }
+
+    private func uninstallMenuBarSearchKeyMonitor() {
+        guard let searchKeyMonitor else { return }
+        NSEvent.removeMonitor(searchKeyMonitor)
+        self.searchKeyMonitor = nil
+    }
+
+    private static func firstResponderHasMarkedText(in window: NSWindow?) -> Bool {
+        guard let firstResponder = window?.firstResponder as? NSTextView else { return false }
+        return firstResponder.hasMarkedText()
+    }
+
+    private static func currentText(in window: NSWindow?) -> String? {
+        guard let firstResponder = window?.firstResponder else { return nil }
+        if let textView = firstResponder as? NSTextView {
+            return textView.string
+        }
+        if let searchField = firstResponder as? NSSearchField {
+            return searchField.stringValue
+        }
+        if let view = firstResponder as? NSView,
+           let searchField = sequence(first: view, next: \.superview)
+            .compactMap({ $0 as? NSSearchField })
+            .first {
+            return searchField.stringValue
+        }
+        return nil
     }
 
     // MARK: - Menu bar popover notification
@@ -720,8 +786,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         guard let popover = notification.object as? NSPopover, popover === searchPopover else {
             return
         }
-        searchInputSourceSwitcher.restorePreviousInputSource()
         searchPopover = nil
+        uninstallMenuBarSearchKeyMonitor()
+        searchCommandBridge = nil
     }
 
     private func applyDestructiveMenuItemStyle(to item: NSMenuItem, highlighted: Bool) {
@@ -811,28 +878,62 @@ app.run()
 
 @MainActor
 private final class InputSourceSwitcher {
-    private var previousInputSource: TISInputSource?
-
     func switchToUSEnglish() {
-        if previousInputSource == nil {
-            previousInputSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
-        }
-
-        let filter = [kTISPropertyInputSourceID as String: "com.apple.keylayout.US"] as CFDictionary
-        guard
-            let sources = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource],
-            let usEnglish = sources.first
-        else {
+        guard let inputSource = preferredEnglishInputSource() else {
+            inputSourceLog.error("No enabled ASCII-capable keyboard input source found")
             return
         }
 
-        TISSelectInputSource(usEnglish)
+        let status = TISSelectInputSource(inputSource)
+        if status != noErr {
+            let inputSourceID = stringProperty(inputSource, kTISPropertyInputSourceID)
+            inputSourceLog.error("Failed to select input source \(inputSourceID, privacy: .public): \(status)")
+        }
     }
 
-    func restorePreviousInputSource() {
-        guard let previousInputSource else { return }
-        TISSelectInputSource(previousInputSource)
-        self.previousInputSource = nil
+    private func preferredEnglishInputSource() -> TISInputSource? {
+        let preferredIDs = [
+            "com.apple.keylayout.ABC",
+            "com.apple.keylayout.US",
+            "com.apple.keylayout.USInternational-PC"
+        ]
+
+        for id in preferredIDs {
+            let filter = [kTISPropertyInputSourceID as String: id] as CFDictionary
+            guard
+                let sources = TISCreateInputSourceList(filter, false)?.takeRetainedValue() as? [TISInputSource],
+                let source = sources.first,
+                isSelectableASCIIKeyboardLayout(source)
+            else {
+                continue
+            }
+
+            return source
+        }
+
+        guard let sources = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] else {
+            return nil
+        }
+
+        return sources.first(where: isSelectableASCIIKeyboardLayout)
+    }
+
+    private func isSelectableASCIIKeyboardLayout(_ source: TISInputSource) -> Bool {
+        stringProperty(source, kTISPropertyInputSourceCategory) == (kTISCategoryKeyboardInputSource as String)
+            && stringProperty(source, kTISPropertyInputSourceType) == (kTISTypeKeyboardLayout as String)
+            && boolProperty(source, kTISPropertyInputSourceIsEnabled)
+            && boolProperty(source, kTISPropertyInputSourceIsSelectCapable)
+            && boolProperty(source, kTISPropertyInputSourceIsASCIICapable)
+    }
+
+    private func stringProperty(_ source: TISInputSource, _ key: CFString) -> String {
+        guard let rawValue = TISGetInputSourceProperty(source, key) else { return "" }
+        return Unmanaged<CFString>.fromOpaque(rawValue).takeUnretainedValue() as String
+    }
+
+    private func boolProperty(_ source: TISInputSource, _ key: CFString) -> Bool {
+        guard let rawValue = TISGetInputSourceProperty(source, key) else { return false }
+        return CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque(rawValue).takeUnretainedValue())
     }
 }
 

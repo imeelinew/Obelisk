@@ -123,19 +123,37 @@ struct MenuBarBookmarkSearchView: View {
     @Bindable var model: BookmarksModel
     let faviconLoader: FaviconLoader
     var showsURLHostOnly: Bool
+    let commandBridge: MenuBarSearchCommandBridge
     let onOpen: (Bookmark) -> Void
     let onClose: () -> Void
 
     @State private var searchText = ""
     @State private var selection: Set<Bookmark.ID> = []
+    @State private var focusFirstBookmarkRequest = 0
 
     private var searchSections: [BookmarkListSection] {
+        searchSections(matching: searchText)
+    }
+
+    private func searchSections(matching query: String) -> [BookmarkListSection] {
         model.bookmarkLibrarySections(
-            for: model.searchBookmarks(matching: searchText),
+            for: model.searchBookmarks(matching: query),
             pinnedSortMode: .storedForPinned,
             collectionSortMode: .storedForCollections,
             ungroupedSortMode: .storedForUngrouped
         )
+    }
+
+    private var firstSearchResult: Bookmark? {
+        firstSearchResult(matching: searchText)
+    }
+
+    private var selectedSearchResult: Bookmark? {
+        searchSections.lazy.flatMap(\.bookmarks).first { selection.contains($0.id) }
+    }
+
+    private func firstSearchResult(matching query: String) -> Bookmark? {
+        searchSections(matching: query).lazy.flatMap(\.bookmarks).first
     }
 
     var body: some View {
@@ -144,12 +162,18 @@ struct MenuBarBookmarkSearchView: View {
                 text: $searchText,
                 placeholder: "搜索",
                 focusesOnAppear: true,
-                onEscape: onClose
+                onEscape: onClose,
+                onTab: focusFirstSearchResult,
+                onEnter: openFirstSearchResult,
+                onDownArrow: focusFirstSearchResult
             )
             .frame(height: 32)
             .padding(.horizontal, 12)
             .padding(.top, 12)
             .padding(.bottom, 10)
+            .onChange(of: searchText) { _, _ in
+                selection.removeAll()
+            }
 
             Divider()
 
@@ -162,6 +186,7 @@ struct MenuBarBookmarkSearchView: View {
                 NativeBookmarkList(
                     sections: searchSections,
                     selection: $selection,
+                    focusFirstBookmarkRequest: focusFirstBookmarkRequest,
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
@@ -173,5 +198,55 @@ struct MenuBarBookmarkSearchView: View {
             }
         }
         .frame(width: 420, height: 520)
+        .onAppear(perform: updateCommandBridge)
+        .onDisappear {
+            commandBridge.openHandler = nil
+        }
+        .onChange(of: searchText) { _, _ in
+            updateCommandBridge()
+        }
+        .onChange(of: selection) { _, _ in
+            updateCommandBridge()
+        }
+    }
+
+    private func focusFirstSearchResult() {
+        guard firstSearchResult != nil else { return }
+        focusFirstBookmarkRequest += 1
+    }
+
+    private func openFirstSearchResult(matching query: String) {
+        searchText = query
+        guard let firstSearchResult = firstSearchResult(matching: query) else { return }
+        onClose()
+        onOpen(firstSearchResult)
+    }
+
+    private func openSelectedOrFirstSearchResult(query: String?) {
+        if let query {
+            searchText = query
+        }
+
+        let bookmark = selectedSearchResult
+            ?? query.flatMap(firstSearchResult(matching:))
+            ?? firstSearchResult
+        guard let bookmark else { return }
+        onClose()
+        onOpen(bookmark)
+    }
+
+    private func updateCommandBridge() {
+        commandBridge.openHandler = { query in
+            openSelectedOrFirstSearchResult(query: query)
+        }
+    }
+}
+
+@MainActor
+final class MenuBarSearchCommandBridge {
+    var openHandler: ((String?) -> Void)?
+
+    func open(query: String?) {
+        openHandler?(query)
     }
 }

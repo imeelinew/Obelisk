@@ -81,6 +81,64 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum BookmarkSearchMatcher {
+    static func matches(bookmark: Bookmark, query: String) -> Bool {
+        let normalizedQuery = normalized(query)
+        guard !normalizedQuery.isEmpty else { return true }
+
+        let collapsedQuery = collapsed(normalizedQuery)
+        return searchableStrings(for: bookmark).contains { value in
+            let normalizedValue = normalized(value)
+            guard !normalizedValue.isEmpty else { return false }
+            if normalizedValue.contains(normalizedQuery) {
+                return true
+            }
+
+            let pinyinValue = pinyin(normalizedValue)
+            return pinyinValue.contains(normalizedQuery)
+                || collapsed(pinyinValue).contains(collapsedQuery)
+                || initials(from: pinyinValue).contains(collapsedQuery)
+        }
+    }
+
+    private static func searchableStrings(for bookmark: Bookmark) -> [String] {
+        var values = [bookmark.title, bookmark.url]
+        if let originalTitle = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !originalTitle.isEmpty,
+           originalTitle != bookmark.title {
+            values.append(originalTitle)
+        }
+        return values
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    private static func pinyin(_ value: String) -> String {
+        let latin = (value as NSString).applyingTransform(.toLatin, reverse: false) ?? value
+        return normalized((latin as NSString).applyingTransform(.stripDiacritics, reverse: false) ?? latin)
+    }
+
+    private static func collapsed(_ value: String) -> String {
+        value.unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+    }
+
+    private static func initials(from value: String) -> String {
+        value
+            .split { !$0.isLetter && !$0.isNumber }
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+    }
+}
+
 private struct CompactBorderedMenuPicker<Option: Hashable>: View {
     let options: [Option]
     @Binding var selection: Option
@@ -489,15 +547,15 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private var searchableBookmarks: [Bookmark] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return model.bookmarks.filter { bookmark in
-            guard !bookmark.isHidden else { return false }
-            guard matchesSearchFilter(bookmark) else { return false }
-            guard !query.isEmpty else { return true }
-            return bookmark.title.localizedCaseInsensitiveContains(query)
-                || bookmark.url.localizedCaseInsensitiveContains(query)
+    private var effectiveSearchCollectionId: UUID? {
+        if case .collection(let id) = effectiveSearchFilter {
+            return id
         }
+        return nil
+    }
+
+    private var searchableBookmarks: [Bookmark] {
+        model.searchBookmarks(matching: searchText, inCollection: effectiveSearchCollectionId)
     }
 
     private var searchBookmarkSections: [BookmarkListSection] {
@@ -507,15 +565,6 @@ struct BookmarkManagerView: View {
             collectionSortMode: collectionListSortMode,
             ungroupedSortMode: bookmarkListSortMode
         )
-    }
-
-    private func matchesSearchFilter(_ bookmark: Bookmark) -> Bool {
-        switch effectiveSearchFilter {
-        case .all:
-            return true
-        case .collection(let id):
-            return model.collectionId(for: bookmark.id) == id
-        }
     }
 
     private var collectionAssignOptions: [BookmarkCollectionAssignOption] {
@@ -2208,6 +2257,7 @@ struct BookmarkManagerView: View {
             Section("快捷键") {
                 ShortcutRecorderRow(title: "添加书签", name: .addBookmark)
                 ShortcutRecorderRow(title: "添加隐藏书签", name: .addHiddenBookmark)
+                ShortcutRecorderRow(title: "菜单栏搜索", name: .menuBarSearch)
                 ShortcutRecorderRow(
                     title: "撤销添加",
                     description: "添加书签 5s 内可以撤回。",
@@ -2814,16 +2864,19 @@ private struct SidebarCategoryIcon: View {
     }
 }
 
-private struct NativeSearchField: NSViewRepresentable {
+struct NativeSearchField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
+    var focusesOnAppear = false
+    var onEscape: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, onEscape: onEscape)
     }
 
     func makeNSView(context: Context) -> NSSearchField {
-        let searchField = NSSearchField()
+        let searchField = FocusableSearchField()
+        searchField.focusesOnAppear = focusesOnAppear
         searchField.placeholderString = placeholder
         searchField.delegate = context.coordinator
         searchField.sendsSearchStringImmediately = true
@@ -2836,22 +2889,57 @@ private struct NativeSearchField: NSViewRepresentable {
     }
 
     func updateNSView(_ searchField: NSSearchField, context: Context) {
+        if let searchField = searchField as? FocusableSearchField {
+            searchField.focusesOnAppear = focusesOnAppear
+            searchField.focusIfNeeded()
+        }
         if searchField.stringValue != text {
             searchField.stringValue = text
         }
         searchField.placeholderString = placeholder
+        context.coordinator.text = $text
+        context.coordinator.onEscape = onEscape
+    }
+
+    private final class FocusableSearchField: NSSearchField {
+        var focusesOnAppear = false
+        private var didFocus = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            focusIfNeeded()
+        }
+
+        func focusIfNeeded() {
+            guard focusesOnAppear, !didFocus, window != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.didFocus, let window = self.window else { return }
+                window.makeFirstResponder(self)
+                self.didFocus = true
+            }
+        }
     }
 
     final class Coordinator: NSObject, NSSearchFieldDelegate {
         var text: Binding<String>
+        var onEscape: (() -> Void)?
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, onEscape: (() -> Void)?) {
             self.text = text
+            self.onEscape = onEscape
         }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let searchField = notification.object as? NSSearchField else { return }
             text.wrappedValue = searchField.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else {
+                return false
+            }
+            onEscape?()
+            return true
         }
 
         @MainActor @objc func searchFieldAction(_ sender: NSSearchField) {

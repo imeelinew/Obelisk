@@ -117,3 +117,61 @@ struct BookmarkAddedNotificationView: View {
         }
     }
 }
+
+@MainActor
+struct MenuBarBookmarkSearchView: View {
+    @Bindable var model: BookmarksModel
+    let faviconLoader: FaviconLoader
+    var showsURLHostOnly: Bool
+    let onOpen: (Bookmark) -> Void
+    let onClose: () -> Void
+
+    @State private var searchText = ""
+    @State private var selection: Set<Bookmark.ID> = []
+
+    private var searchSections: [BookmarkListSection] {
+        model.bookmarkLibrarySections(
+            for: model.searchBookmarks(matching: searchText),
+            pinnedSortMode: .storedForPinned,
+            collectionSortMode: .storedForCollections,
+            ungroupedSortMode: .storedForUngrouped
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            NativeSearchField(
+                text: $searchText,
+                placeholder: "搜索",
+                focusesOnAppear: true,
+                onEscape: onClose
+            )
+            .frame(height: 32)
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            Divider()
+
+            if searchSections.isEmpty {
+                ContentUnavailableView {
+                    Label("没有结果", systemImage: "magnifyingglass")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                NativeBookmarkList(
+                    sections: searchSections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version,
+                    showsURLHostOnly: showsURLHostOnly,
+                    onOpen: { bookmark in
+                        onClose()
+                        onOpen(bookmark)
+                    }
+                )
+            }
+        }
+        .frame(width: 420, height: 520)
+    }
+}

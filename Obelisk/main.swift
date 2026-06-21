@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CoreSpotlight
 import KeyboardShortcuts
 import CryptoKit
@@ -22,7 +23,7 @@ private func configureUITestingEnvironmentIfNeeded() {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopoverDelegate {
     private let maxMenuTitlePixelWidth: CGFloat = 300
     private let undoWindowSeconds: TimeInterval = 5
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
@@ -58,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private var notificationPopover: NSPopover?
     private var notificationDismissWorkItem: DispatchWorkItem?
+    private var searchPopover: NSPopover?
+    private let searchInputSourceSwitcher = InputSourceSwitcher()
     private var statusMenu: NSMenu?
     private var pendingUndo: PendingBookmarkUndo?
     private var pendingUndoExpirationWorkItem: DispatchWorkItem?
@@ -101,6 +104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         KeyboardShortcuts.onKeyUp(for: .undoAdd) { [weak self] in
             self?.undoLastAdd()
+        }
+        KeyboardShortcuts.onKeyUp(for: .menuBarSearch) { [weak self] in
+            self?.showMenuBarSearchPopover()
         }
     }
 
@@ -226,6 +232,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         notificationPopover?.performClose(nil)
         notificationPopover?.close()
         notificationPopover = nil
+    }
+
+    private func showMenuBarSearchPopover() {
+        dismissNotificationPopover()
+
+        if searchPopover?.isShown == true {
+            dismissMenuBarSearchPopover()
+            return
+        }
+
+        guard let button = statusItem.button else { return }
+
+        searchInputSourceSwitcher.switchToUSEnglish()
+        NSApp.activate(ignoringOtherApps: true)
+
+        let contentView = MenuBarBookmarkSearchView(
+            model: bookmarksModel,
+            faviconLoader: faviconLoader,
+            showsURLHostOnly: UserDefaults.standard.bool(forKey: "showsURLHostOnly"),
+            onOpen: { [weak self] bookmark in
+                self?.bookmarksModel.openBookmark(bookmark)
+            },
+            onClose: { [weak self] in
+                self?.dismissMenuBarSearchPopover()
+            }
+        )
+        let hosting = NSHostingController(rootView: contentView)
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.delegate = self
+        popover.contentViewController = hosting
+        popover.contentSize = NSSize(width: 420, height: 520)
+        searchPopover = popover
+        statusItem.menu = nil
+
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func dismissMenuBarSearchPopover() {
+        let popover = searchPopover
+        popover?.performClose(nil)
+        popover?.close()
+        if let popover, searchPopover === popover {
+            searchInputSourceSwitcher.restorePreviousInputSource()
+            searchPopover = nil
+        }
     }
 
     // MARK: - Menu bar popover notification
@@ -473,6 +527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         dismissNotificationPopover()
+        dismissMenuBarSearchPopover()
 
         guard let menu = statusMenu else {
             rebuildMenu()
@@ -661,6 +716,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = nil
     }
 
+    func popoverDidClose(_ notification: Notification) {
+        guard let popover = notification.object as? NSPopover, popover === searchPopover else {
+            return
+        }
+        searchInputSourceSwitcher.restorePreviousInputSource()
+        searchPopover = nil
+    }
+
     private func applyDestructiveMenuItemStyle(to item: NSMenuItem, highlighted: Bool) {
         item.attributedTitle = NSAttributedString(
             string: item.title,
@@ -745,6 +808,33 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
+
+@MainActor
+private final class InputSourceSwitcher {
+    private var previousInputSource: TISInputSource?
+
+    func switchToUSEnglish() {
+        if previousInputSource == nil {
+            previousInputSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
+        }
+
+        let filter = [kTISPropertyInputSourceID as String: "com.apple.keylayout.US"] as CFDictionary
+        guard
+            let sources = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource],
+            let usEnglish = sources.first
+        else {
+            return
+        }
+
+        TISSelectInputSource(usEnglish)
+    }
+
+    func restorePreviousInputSource() {
+        guard let previousInputSource else { return }
+        TISSelectInputSource(previousInputSource)
+        self.previousInputSource = nil
+    }
+}
 
 private struct FaviconRecord: Codable {
     var fetchedAt: Date

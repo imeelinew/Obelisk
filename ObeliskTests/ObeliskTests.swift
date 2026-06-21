@@ -29,6 +29,8 @@ struct SmokeTests {
         try testArchivePersistence()
         try testManualArchiveIndependentOfAutoArchiveSetting()
         try testPinnedBookmarkPersistence()
+        try testBookmarkSearchMatcherSupportsPinyin()
+        try testBookmarkSearchCandidatesExcludeHiddenAndIncludeArchived()
         try testLibrarySectionsPrioritizePinnedBookmarks()
         try testPinnedClearedByHiddenAndArchive()
         try testStateCleanupOnDelete()
@@ -527,6 +529,47 @@ struct SmokeTests {
             ungroupedSection?.bookmarks.map(\.id) == [ungrouped.id],
             "expected ungrouped section to exclude pinned bookmarks"
         )
+    }
+
+    private static func testBookmarkSearchMatcherSupportsPinyin() throws {
+        let bookmark = Bookmark(title: "哔哩哔哩", url: "https://www.bilibili.com")
+
+        try expect(
+            BookmarkSearchMatcher.matches(bookmark: bookmark, query: "bili"),
+            "expected collapsed pinyin to match Chinese title"
+        )
+        try expect(
+            BookmarkSearchMatcher.matches(bookmark: bookmark, query: "bi li"),
+            "expected spaced pinyin to match Chinese title"
+        )
+        try expect(
+            BookmarkSearchMatcher.matches(bookmark: bookmark, query: "blbl"),
+            "expected pinyin initials to match Chinese title"
+        )
+        try expect(
+            BookmarkSearchMatcher.matches(bookmark: bookmark, query: "bilibili.com"),
+            "expected existing URL matching to keep working"
+        )
+    }
+
+    @MainActor
+    private static func testBookmarkSearchCandidatesExcludeHiddenAndIncludeArchived() throws {
+        let root = try temporaryDirectory()
+        let store = BookmarkStore(rootDirectory: root)
+        let visible = try store.add(title: "Target Visible", url: "https://visible.example")
+        let hidden = try store.add(title: "Target Hidden", url: "https://hidden.example", isHidden: true)
+        let archived = try store.add(title: "Target Archived", url: "https://archived.example")
+        try store.setArchived(true, ids: [archived.id])
+
+        let model = BookmarksModel(
+            store: store,
+            usageStore: UsageStore(rootDirectory: root)
+        )
+        let resultIds = Set(model.searchBookmarks(matching: "target").map(\.id))
+
+        try expect(resultIds.contains(visible.id), "expected visible search hit")
+        try expect(!resultIds.contains(hidden.id), "expected hidden bookmarks to be excluded from search")
+        try expect(resultIds.contains(archived.id), "expected archived bookmarks to remain searchable")
     }
 
     private static func testPinnedClearedByHiddenAndArchive() throws {

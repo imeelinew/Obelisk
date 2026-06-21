@@ -724,6 +724,18 @@ final class BookmarksModel {
         return sections
     }
 
+    func searchBookmarks(matching query: String, inCollection collectionId: UUID? = nil) -> [Bookmark] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return bookmarks.filter { bookmark in
+            guard !bookmark.isHidden else { return false }
+            if let collectionId, membershipByBookmarkId[bookmark.id] != collectionId {
+                return false
+            }
+            guard !trimmedQuery.isEmpty else { return true }
+            return BookmarkSearchMatcher.matches(bookmark: bookmark, query: trimmedQuery)
+        }
+    }
+
     func menuSections(
         pinnedSortMode: BookmarkListSortMode = .storedForPinned,
         ungroupedSortMode: BookmarkListSortMode = .storedForUngrouped,

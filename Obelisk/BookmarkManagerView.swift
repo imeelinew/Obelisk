@@ -1800,7 +1800,8 @@ struct BookmarkManagerView: View {
         VStack(spacing: 0) {
             if !model.bookmarks.isEmpty {
                 bookmarkDisplayModePicker
-                    .padding(.horizontal, 18)
+                    .padding(.leading, 0)
+                    .padding(.trailing, 18)
                     .padding(.top, 12)
                     .padding(.bottom, 8)
             }

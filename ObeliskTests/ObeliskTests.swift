@@ -40,16 +40,17 @@ struct SmokeTests {
         try testLibrarySectionsPrioritizePinnedBookmarks()
         try testPinnedClearedByHiddenAndArchive()
         try testStateCleanupOnDelete()
-        try testEmptyBookmarkLoadDoesNotEraseExistingState()
+        try testEmptyBookmarkLoadCreatesEmptyVaultPayload()
         try testUsageStoreCacheInvalidation()
         try testBookmarkStoreCacheInvalidation()
         try testStorageNormalizeMigratesSingleStaleJSONFile()
         try testStorageNormalizeRemovesDuplicateJSONFile()
         try testBookmarkStoreReadsCurrentEncryptedFileWhenPreferenceIsStaleFalse()
+        try testStorageNormalizeDoesNotReviveLegacyJSONWhenV2PayloadExists()
         try testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists()
         try testStorageNormalizeAllowsIntentionalEmptyBookmarkDatabase()
         try testVaultDirectoryIsMarkedAsPackage()
-        try testPlaintextStorageUsesVaultRoot()
+        try testVaultPayloadUsesVaultRoot()
         try testStorageNormalizeDecryptsMixedFaviconState()
         try testStorageNormalizeEncryptsMixedFaviconState()
         try testStorageNormalizeDecryptsMixedJSONAndFaviconState()
@@ -254,18 +255,18 @@ struct SmokeTests {
         try expect(loaded[0].isHidden == true, "expected legacy hidden flag to move into state")
         try expect(loaded[0].titleOptimized == true, "expected legacy title optimization flag to move into state")
         try expect(loaded[0].createdAt == Date(timeIntervalSince1970: 100), "expected legacy createdAt to move into state")
-        try expect(loaded[0].archivedAt == nil, "expected legacy archivedAt to be discarded")
+        try expect(loaded[0].archivedAt == Date(timeIntervalSince1970: 200), "expected legacy archivedAt to be preserved")
 
         let state = BookmarkStateStore(rootDirectory: root).load()
         try expect(state.hiddenIds == [id], "expected hidden id in bookmark_state")
         try expect(state.titleOptimizedIds == [id], "expected title optimized id in bookmark_state")
         try expect(state.createdAtById[id] == Date(timeIntervalSince1970: 100), "expected createdAt in bookmark_state")
-        try expect(state.manualArchivedIds.isEmpty, "expected legacy archivedAt not to become manual archive state")
+        try expect(state.manualArchivedIds == [id], "expected legacy archivedAt to become archive state")
 
         try store.save(try store.load())
-        let raw = try String(contentsOf: store.fileURL, encoding: .utf8)
-        try expectBookmarkJSONContainsOnlyCoreFields(raw)
-        try expect(FileManager.default.fileExists(atPath: store.fileURL.path), "expected migrated bookmark JSON to be saved in the active store")
+        let payload = try loadVaultPayload(root: root)
+        try expect(payload.bookmarks.first?.id == id, "expected migrated bookmark in v2 payload")
+        try expect(FileManager.default.fileExists(atPath: store.fileURL.path), "expected migrated payload to be saved in the vault store")
     }
 
     private static func testHiddenBookmarkPersistence() throws {
@@ -420,8 +421,8 @@ struct SmokeTests {
         try store.setArchived(true, ids: [bookmark.id], at: archivedAt)
         var loaded = try store.bookmarks()
         try expect(loaded.first { $0.id == bookmark.id }?.archivedAt != nil, "expected manual archive state to persist")
-        let raw = try String(contentsOf: store.fileURL, encoding: .utf8)
-        try expect(!raw.contains("archivedAt"), "expected bookmark JSON to omit archivedAt state")
+        let payload = try loadVaultPayload(root: store.rootDirectory)
+        try expect(payload.bookmarks.first { $0.id == bookmark.id }?.archivedAt == archivedAt, "expected payload to include archivedAt state")
         var state = BookmarkStateStore(rootDirectory: store.rootDirectory).load()
         try expect(state.manualArchivedIds == [bookmark.id], "expected manual archive id in bookmark_state")
 
@@ -491,8 +492,8 @@ struct SmokeTests {
         try store.setPinned(true, ids: [bookmark.id])
         var loaded = try store.bookmarks()
         try expect(loaded.first { $0.id == bookmark.id }?.isPinned == true, "expected pinned state to persist")
-        let raw = try String(contentsOf: store.fileURL, encoding: .utf8)
-        try expect(!raw.contains("isPinned"), "expected bookmark JSON to omit pinned state")
+        let payload = try loadVaultPayload(root: store.rootDirectory)
+        try expect(payload.bookmarks.first { $0.id == bookmark.id }?.isPinned == true, "expected payload to include pinned state")
         var state = BookmarkStateStore(rootDirectory: store.rootDirectory).load()
         try expect(state.pinnedIds == [bookmark.id], "expected pinned id in bookmark_state")
 
@@ -686,97 +687,56 @@ struct SmokeTests {
         try expect(state.createdAtById[bookmark.id] == nil, "expected delete to clean createdAt state")
     }
 
-    private static func testEmptyBookmarkLoadDoesNotEraseExistingState() throws {
+    private static func testEmptyBookmarkLoadCreatesEmptyVaultPayload() throws {
         let root = try temporaryDirectory()
-        let id = try expectUUID("00000000-0000-0000-0000-000000000202")
-        let bookmarkURL = ObeliskPrivateStorage.plaintextFileURL(rootDirectory: root, logicalName: "bookmarks.json")
-        try FileManager.default.createDirectory(
-            at: bookmarkURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try """
-        {
-          "version": 1,
-          "bookmarks": []
-        }
-        """.write(to: bookmarkURL, atomically: true, encoding: .utf8)
-
-        try BookmarkStateStore(rootDirectory: root).save(
-            BookmarkStateDatabase(
-                hiddenIds: [id],
-                manualArchivedIds: [],
-                pinnedIds: [id],
-                createdAtById: [id: Date(timeIntervalSince1970: 100)],
-                titleOptimizedIds: [id]
-            )
-        )
-
         let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
-        let state = BookmarkStateStore(rootDirectory: root).load()
         try expect(loaded.isEmpty, "expected empty bookmark file to load as empty")
-        try expect(state.hiddenIds == [id], "expected empty bookmark load not to erase hidden state")
-        try expect(state.pinnedIds == [id], "expected empty bookmark load not to erase pinned state")
-        try expect(state.createdAtById[id] == Date(timeIntervalSince1970: 100), "expected empty bookmark load not to erase createdAt state")
-        try expect(state.titleOptimizedIds == [id], "expected empty bookmark load not to erase title state")
+        let payload = try loadVaultPayload(root: root)
+        try expect(payload.bookmarks.isEmpty, "expected empty vault payload")
+        try expect(payload.groups.isEmpty, "expected empty vault groups")
     }
 
     private static func testUsageStoreCacheInvalidation() throws {
         let root = try temporaryDirectory()
+        let bookmark = try BookmarkStore(rootDirectory: root).add(title: "Used", url: "https://used.example")
         let store = UsageStore(rootDirectory: root)
-        let id = try expectUUID("00000000-0000-0000-0000-000000000201")
         let firstDate = Date(timeIntervalSince1970: 100)
         let secondDate = Date(timeIntervalSince1970: 200)
 
-        store.saveAll([id: UsageRecord(count: 1, lastClickedAt: firstDate)])
-        try expect(store.record(for: id)?.count == 1, "expected initial usage count")
+        store.saveAll([bookmark.id: UsageRecord(count: 1, lastClickedAt: firstDate)])
+        try expect(store.record(for: bookmark.id)?.count == 1, "expected initial usage count")
 
-        let fileURL = ObeliskPrivateStorage.plaintextFileURL(rootDirectory: root, logicalName: "usage.json")
-        try FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try """
-        {
-          "\(id.uuidString)" : {
-            "count" : 2,
-            "lastClickedAt" : "1970-01-01T00:03:20Z"
-          }
+        var payload = try loadVaultPayload(root: root)
+        payload.bookmarks = payload.bookmarks.map { record in
+            var record = record
+            record.usage = UsageRecord(count: 2, lastClickedAt: secondDate)
+            return record
         }
-        """.write(to: fileURL, atomically: true, encoding: .utf8)
+        try saveVaultPayload(payload, root: root)
 
-        try expect(store.record(for: id)?.count == 1, "expected cached usage before invalidation")
+        try expect(store.record(for: bookmark.id)?.count == 1, "expected cached usage before invalidation")
         store.invalidateCache()
-        let reloaded = store.record(for: id)
+        let reloaded = store.record(for: bookmark.id)
         try expect(reloaded?.count == 2, "expected usage count after invalidation")
         try expect(reloaded?.lastClickedAt == secondDate, "expected usage date after invalidation")
 
         store.updateRootDirectory(try temporaryDirectory())
-        try expect(store.record(for: id) == nil, "expected root change to clear usage cache")
+        try expect(store.record(for: bookmark.id) == nil, "expected root change to clear usage cache")
     }
 
     private static func testBookmarkStoreCacheInvalidation() throws {
         let root = try temporaryDirectory()
         let store = BookmarkStore(rootDirectory: root)
-        let bookmark = try store.add(title: "Cached", url: "https://cached.example")
+        _ = try store.add(title: "Cached", url: "https://cached.example")
         try expect(try store.bookmarks().map(\.title) == ["Cached"], "expected initial cached bookmark")
 
-        let fileURL = ObeliskPrivateStorage.plaintextFileURL(rootDirectory: root, logicalName: "bookmarks.json")
-        try FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try """
-        {
-          "version": 1,
-          "bookmarks": [
-            {
-              "id": "\(bookmark.id.uuidString)",
-              "title": "Externally Edited",
-              "url": "https://cached.example"
-            }
-          ]
+        var payload = try loadVaultPayload(root: root)
+        payload.bookmarks = payload.bookmarks.map { record in
+            var record = record
+            record.title = "Externally Edited"
+            return record
         }
-        """.write(to: fileURL, atomically: true, encoding: .utf8)
+        try saveVaultPayload(payload, root: root)
 
         try expect(try store.bookmarks().map(\.title) == ["Cached"], "expected cached bookmark before invalidation")
         store.invalidateCache()
@@ -813,14 +773,12 @@ struct SmokeTests {
 
         try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: true, logicalNames: ["bookmarks.json"])
 
-        try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected plaintext source to be removed")
-        try expect(FileManager.default.fileExists(atPath: privateURL.path), "expected encrypted destination to exist")
-        let rawText = try String(contentsOf: privateURL, encoding: .utf8)
-        try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted destination envelope")
-
         LocalJSONEncryption.isEnabled = true
         let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
         try expect(loaded.map(\.url) == ["https://normalize.example"], "expected migrated encrypted bookmark to load")
+        try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected plaintext source to be removed after v2 migration")
+        try expect(!FileManager.default.fileExists(atPath: privateURL.path), "expected legacy encrypted destination to be removed after v2 migration")
+        try expect(FileManager.default.fileExists(atPath: ObeliskVaultStore(rootDirectory: root).payloadURL.path), "expected v2 payload to exist")
     }
 
     private static func testStorageNormalizeRemovesDuplicateJSONFile() throws {
@@ -828,46 +786,16 @@ struct SmokeTests {
         defer { LocalJSONEncryption.isEnabled = previous }
 
         let root = try temporaryDirectory()
-        let legacyURL = ObeliskPrivateStorage.plaintextFileURL(rootDirectory: root, logicalName: "usage.json")
-        let privateURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "usage.json")
-        let olderUsage = """
-        {
-          "00000000-0000-0000-0000-000000000302" : {
-            "count" : 4,
-            "lastClickedAt" : "1970-01-01T00:05:00Z"
-          }
-        }
-        """
-        let newerUsage = """
-        {
-          "00000000-0000-0000-0000-000000000302" : {
-            "count" : 7,
-            "lastClickedAt" : "1970-01-01T00:06:00Z"
-          }
-        }
-        """
-        try FileManager.default.createDirectory(
-            at: legacyURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try olderUsage.write(to: legacyURL, atomically: true, encoding: .utf8)
-        try SecureJSONFileCodec().writeData(Data(newerUsage.utf8), to: privateURL, encrypted: true)
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSince1970: 100)],
-            ofItemAtPath: legacyURL.path
-        )
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSince1970: 200)],
-            ofItemAtPath: privateURL.path
-        )
+        let bookmark = try BookmarkStore(rootDirectory: root).add(title: "Usage", url: "https://usage.example")
+        let store = UsageStore(rootDirectory: root)
+        store.saveAll([bookmark.id: UsageRecord(count: 4, lastClickedAt: Date(timeIntervalSince1970: 300))])
 
-        try ObeliskStorageMigrator.normalizeJSONFiles(in: root, encrypted: false, logicalNames: ["usage.json"])
+        var payload = try loadVaultPayload(root: root)
+        payload.bookmarks[0].usage = UsageRecord(count: 7, lastClickedAt: Date(timeIntervalSince1970: 360))
+        try saveVaultPayload(payload, root: root)
 
-        try expect(FileManager.default.fileExists(atPath: legacyURL.path), "expected plaintext target to remain")
-        try expect(!FileManager.default.fileExists(atPath: privateURL.path), "expected encrypted duplicate to be removed")
-        LocalJSONEncryption.isEnabled = false
-        let id = try expectUUID("00000000-0000-0000-0000-000000000302")
-        try expect(UsageStore(rootDirectory: root).record(for: id)?.count == 7, "expected newest duplicate usage to win")
+        store.invalidateCache()
+        try expect(store.record(for: bookmark.id)?.count == 7, "expected usage to reload from v2 payload after invalidation")
     }
 
     private static func testBookmarkStoreReadsCurrentEncryptedFileWhenPreferenceIsStaleFalse() throws {
@@ -878,15 +806,42 @@ struct SmokeTests {
         LocalJSONEncryption.isEnabled = true
         let encryptedStore = BookmarkStore(rootDirectory: root)
         let bookmark = try encryptedStore.add(title: "Current", url: "https://current.example")
-        let encryptedURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json")
         let plaintextURL = ObeliskPrivateStorage.plaintextFileURL(rootDirectory: root, logicalName: "bookmarks.json")
-        try expect(FileManager.default.fileExists(atPath: encryptedURL.path), "expected encrypted current-format bookmark file")
+        let payloadURL = ObeliskVaultStore(rootDirectory: root).payloadURL
+        try expect(FileManager.default.fileExists(atPath: payloadURL.path), "expected encrypted current-format payload file")
 
         LocalJSONEncryption.isEnabled = false
         let loaded = try BookmarkStore(rootDirectory: root).bookmarks()
 
         try expect(loaded.map(\.id) == [bookmark.id], "expected stale disabled encryption preference to read current encrypted file")
         try expect(!FileManager.default.fileExists(atPath: plaintextURL.path), "expected stale preference not to create an empty plaintext bookmark file")
+    }
+
+    private static func testStorageNormalizeDoesNotReviveLegacyJSONWhenV2PayloadExists() throws {
+        let previous = LocalJSONEncryption.isEnabled
+        defer { LocalJSONEncryption.isEnabled = previous }
+
+        let root = try temporaryDirectory()
+        LocalJSONEncryption.isEnabled = true
+        let store = BookmarkStore(rootDirectory: root)
+        let bookmark = try store.add(title: "Payload Wins", url: "https://payload-wins.example")
+        let legacyURL = ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json")
+        try SecureJSONFileCodec().writeData(
+            Data("""
+            {
+              "version": 1,
+              "bookmarks": []
+            }
+            """.utf8),
+            to: legacyURL,
+            encrypted: true
+        )
+
+        try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: true)
+
+        let payload = try loadVaultPayload(root: root)
+        try expect(payload.bookmarks.map(\.id) == [bookmark.id], "expected v2 payload to remain the source of truth")
+        try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected v2 normalization to remove stale legacy bookmark sidecar")
     }
 
     private static func testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists() throws {
@@ -961,10 +916,7 @@ struct SmokeTests {
 
         LocalJSONEncryption.isEnabled = true
         try expect(try BookmarkStore(rootDirectory: root).bookmarks().isEmpty, "expected intentional empty database to stay valid")
-        try expect(
-            FileManager.default.fileExists(atPath: ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json").path),
-            "expected empty database to migrate to encrypted storage"
-        )
+        try expect(FileManager.default.fileExists(atPath: ObeliskVaultStore(rootDirectory: root).payloadURL.path), "expected empty database to migrate to encrypted payload")
     }
 
     private static func testVaultDirectoryIsMarkedAsPackage() throws {
@@ -978,7 +930,7 @@ struct SmokeTests {
         try expect(values.isPackage == true, "expected vault directory to be marked as a Finder package")
     }
 
-    private static func testPlaintextStorageUsesVaultRoot() throws {
+    private static func testVaultPayloadUsesVaultRoot() throws {
         let previous = LocalJSONEncryption.isEnabled
         defer { LocalJSONEncryption.isEnabled = previous }
 
@@ -987,9 +939,9 @@ struct SmokeTests {
         let store = BookmarkStore(rootDirectory: root)
         _ = try store.add(title: "Plain", url: "https://plain.example")
 
-        let plaintextURL = ObeliskPrivateStorage.plaintextFileURL(rootDirectory: root, logicalName: "bookmarks.json")
-        try expect(store.fileURL == plaintextURL, "expected plaintext active file to live in vault root")
-        try expect(FileManager.default.fileExists(atPath: plaintextURL.path), "expected plaintext bookmark JSON in vault root")
+        let payloadURL = ObeliskVaultStore(rootDirectory: root).payloadURL
+        try expect(store.fileURL == payloadURL, "expected active bookmark file to be the v2 payload")
+        try expect(FileManager.default.fileExists(atPath: payloadURL.path), "expected encrypted payload in vault root")
     }
 
     private static func testStorageNormalizeDecryptsMixedFaviconState() throws {
@@ -1657,8 +1609,6 @@ struct SmokeTests {
     }
 
     private static func testUsageGroupingFilters() throws {
-        let root = try temporaryDirectory()
-        let usageStore = UsageStore(rootDirectory: root)
         let frequent = Bookmark(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
             title: "Frequent",
@@ -1697,25 +1647,30 @@ struct SmokeTests {
         )
 
         let now = Date(timeIntervalSince1970: 1_000_000)
-        usageStore.saveAll([
+        let usage = [
             frequent.id: UsageRecord(count: 5, lastClickedAt: now),
             lowCount.id: UsageRecord(count: 1, lastClickedAt: now),
             staleLowScore.id: UsageRecord(count: 2, lastClickedAt: now.addingTimeInterval(-60 * 86_400))
-        ])
+        ]
 
         let bookmarks = [frequent, lowCount, legacy]
         try expect(
-            usageStore.topFrequent(among: bookmarks + [staleLowScore], limit: 5, now: now).map(\.id) == [frequent.id],
+            UsageStore().topFrequent(
+                among: bookmarks + [staleLowScore],
+                usage: usage,
+                limit: 5,
+                now: now
+            ).map(\.id) == [frequent.id],
             "expected only count >= 3 bookmark in frequent group"
         )
         try expect(
-            usageStore.recent(among: bookmarks, limit: 5).map(\.id) == [lowCount.id, frequent.id],
+            UsageStore().recent(among: bookmarks, limit: 5).map(\.id) == [lowCount.id, frequent.id],
             "expected recent group to skip legacy dates"
         )
         try expect(
             UsageStore.frecencySorted(
                 among: [noUsageBeta, staleLowScore, frequent, lowCount, legacy, noUsageAlpha],
-                usage: usageStore.load(),
+                usage: usage,
                 now: now
             ).map(\.id) == [
                 frequent.id,
@@ -1744,7 +1699,7 @@ struct SmokeTests {
 
         try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted envelope marker")
         try expect(!rawText.contains("private.example"), "expected encrypted file to hide bookmark URL")
-        try expect(store.fileURL.pathExtension == "bin", "expected encrypted bookmark store to use an obscured bin file")
+        try expect(store.fileURL.lastPathComponent == ObeliskVaultStore.payloadFileName, "expected bookmark store to use v2 payload")
         try expect(store.fileURL.deletingLastPathComponent() == root, "expected encrypted bookmark store to use vault root")
         try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected encrypted bookmark store to avoid legacy filename")
         try expect(try store.bookmarks().map(\.id) == [bookmark.id], "expected encrypted bookmark to read back")
@@ -1752,9 +1707,9 @@ struct SmokeTests {
         LocalJSONEncryption.isEnabled = false
         let database = try store.load()
         try store.save(database)
-        let plaintext = try String(contentsOf: store.fileURL, encoding: .utf8)
-        try expect(plaintext.contains("private.example"), "expected disabled encryption to write plaintext JSON")
-        try expect(!FileManager.default.fileExists(atPath: ObeliskPrivateStorage.privateFileURL(rootDirectory: root, logicalName: "bookmarks.json").path), "expected plaintext save to remove encrypted duplicate")
+        let stillEncrypted = try String(contentsOf: store.fileURL, encoding: .utf8)
+        try expect(stillEncrypted.contains("obelisk.encrypted-json.v1"), "expected v2 payload to remain encrypted when legacy preference is disabled")
+        try expect(!stillEncrypted.contains("private.example"), "expected v2 payload to keep hiding bookmark URL")
     }
 
     private static func testEncryptedBookmarkStateStoreRoundTrip() throws {
@@ -1777,7 +1732,7 @@ struct SmokeTests {
         let raw = try Data(contentsOf: stateURL)
         let rawText = String(decoding: raw, as: UTF8.self)
 
-        try expect(stateURL.pathExtension == "bin", "expected encrypted bookmark state to use an obscured bin file")
+        try expect(stateURL.lastPathComponent == ObeliskVaultStore.payloadFileName, "expected bookmark state to use v2 payload")
         try expect(!FileManager.default.fileExists(atPath: legacyURL.path), "expected encrypted state to avoid legacy filename")
         try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted state envelope marker")
         try expect(!rawText.contains(bookmark.id.uuidString), "expected encrypted state to hide bookmark id")
@@ -1838,15 +1793,15 @@ struct SmokeTests {
 
         let root = try temporaryDirectory()
         LocalJSONEncryption.isEnabled = false
+        let bookmark = try BookmarkStore(rootDirectory: root).add(title: "Grouped", url: "https://grouped.example")
         let groupStore = BookmarkGroupStore(rootDirectory: root)
-        let bookmarkID = UUID()
         var workID: UUID?
 
         try groupStore.update { database in
             let work = BookmarkCollection(name: "工作", sortOrder: 0)
             workID = work.id
             database.collections = [work]
-            database.membershipByBookmarkId[bookmarkID] = work.id
+            database.membershipByBookmarkId[bookmark.id] = work.id
         }
 
         for encrypted in [true, false, true] {
@@ -1857,25 +1812,15 @@ struct SmokeTests {
             let loaded = groupStore.load()
             try expect(loaded.collections.count == 1, "expected encryption toggle to preserve collection count")
             try expect(loaded.collections.first?.name == "工作", "expected encryption toggle to preserve collection name")
-            try expect(loaded.membershipByBookmarkId[bookmarkID] == workID, "expected encryption toggle to preserve membership")
+            try expect(loaded.membershipByBookmarkId[bookmark.id] == workID, "expected encryption toggle to preserve membership")
 
             let groupsURL = groupStore.fileURL
-            if encrypted {
-                try expect(groupsURL.deletingLastPathComponent() == root, "expected encrypted groups under vault root")
-                try expect(groupsURL.pathExtension == "bin", "expected encrypted groups to use obscured bin file")
-                let raw = try Data(contentsOf: groupsURL)
-                let rawText = String(decoding: raw, as: UTF8.self)
-                try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted groups envelope marker")
-                try expect(!rawText.contains("工作"), "expected encrypted groups to hide collection name")
-            } else {
-                try expect(
-                    groupsURL == ObeliskPrivateStorage.plaintextFileURL(
-                        rootDirectory: root,
-                        logicalName: "bookmark_groups.json"
-                    ),
-                    "expected plaintext groups under vault root"
-                )
-            }
+            try expect(groupsURL.deletingLastPathComponent() == root, "expected groups under vault root")
+            try expect(groupsURL.lastPathComponent == ObeliskVaultStore.payloadFileName, "expected groups to use v2 payload")
+            let raw = try Data(contentsOf: groupsURL)
+            let rawText = String(decoding: raw, as: UTF8.self)
+            try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected groups payload envelope marker")
+            try expect(!rawText.contains("工作"), "expected groups payload to hide collection name")
         }
     }
 
@@ -2092,13 +2037,13 @@ struct SmokeTests {
             result.destinationURL.deletingLastPathComponent() == backupParent,
             "expected plaintext backup to live directly inside the selected directory"
         )
-        let bookmarksURL = result.destinationURL.appendingPathComponent("bookmarks.json")
-        try expect(FileManager.default.fileExists(atPath: bookmarksURL.path), "expected plaintext bookmarks backup")
+        let payloadURL = result.destinationURL.appendingPathComponent("payload.json")
+        try expect(FileManager.default.fileExists(atPath: payloadURL.path), "expected plaintext payload backup")
         try expect(
             !FileManager.default.fileExists(atPath: result.destinationURL.appendingPathComponent("Data").path),
             "expected plaintext backup not to wrap files in Data"
         )
-        let raw = try String(contentsOf: bookmarksURL, encoding: .utf8)
+        let raw = try String(contentsOf: payloadURL, encoding: .utf8)
         try expect(raw.contains("backup-me.example"), "expected backup to contain bookmark URL")
         try expect(!raw.contains("obelisk.encrypted-json.v1"), "expected backup to be plaintext JSON")
     }
@@ -2302,6 +2247,7 @@ struct SmokeTests {
 
     private static func testBookmarkCollectionMembership() throws {
         let root = try temporaryDirectory()
+        let bookmark = try BookmarkStore(rootDirectory: root).add(title: "Member", url: "https://member.example")
         let groupStore = BookmarkGroupStore(rootDirectory: root)
         var workID: UUID?
 
@@ -2311,18 +2257,17 @@ struct SmokeTests {
             database.collections = [work]
         }
 
-        let bookmarkID = UUID()
         try groupStore.update { database in
-            database.membershipByBookmarkId[bookmarkID] = workID
+            database.membershipByBookmarkId[bookmark.id] = workID
         }
 
         let loaded = groupStore.load()
         try expect(loaded.collections.count == 1, "expected one collection")
         try expect(loaded.collections.first?.name == "工作", "expected collection name to round-trip")
-        try expect(loaded.membershipByBookmarkId[bookmarkID] == workID, "expected membership to round-trip")
+        try expect(loaded.membershipByBookmarkId[bookmark.id] == workID, "expected membership to round-trip")
 
-        try groupStore.removeMembership(for: [bookmarkID])
-        try expect(groupStore.load().membershipByBookmarkId[bookmarkID] == nil, "expected membership removal")
+        try groupStore.removeMembership(for: [bookmark.id])
+        try expect(groupStore.load().membershipByBookmarkId[bookmark.id] == nil, "expected membership removal")
     }
 
     private static func temporaryDirectory() throws -> URL {
@@ -2384,13 +2329,12 @@ struct SmokeTests {
         }
     }
 
-    private static func expectBookmarkJSONContainsOnlyCoreFields(_ raw: String) throws {
-        for forbidden in ["archivedAt", "isHidden", "isPinned", "titleOptimized", "createdAt"] {
-            try expect(!raw.contains(forbidden), "expected bookmark JSON to omit \(forbidden)")
-        }
-        for required in ["id", "title", "url"] {
-            try expect(raw.contains(required), "expected bookmark JSON to contain \(required)")
-        }
+    private static func loadVaultPayload(root: URL) throws -> ObeliskVaultPayload {
+        try ObeliskVaultStore(rootDirectory: root).loadPayload()
+    }
+
+    private static func saveVaultPayload(_ payload: ObeliskVaultPayload, root: URL) throws {
+        try ObeliskVaultStore(rootDirectory: root).savePayload(payload)
     }
 
     private static func faviconIndexJSON(key: String, fetchedAt: String) -> String {

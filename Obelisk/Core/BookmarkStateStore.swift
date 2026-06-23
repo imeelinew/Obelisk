@@ -77,28 +77,20 @@ public struct BookmarkStateDatabase: Codable, Equatable {
 public final class BookmarkStateStore {
     public private(set) var rootDirectory: URL
     public var fileURL: URL {
-        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "bookmark_state.json")
+        ObeliskVaultStore(rootDirectory: rootDirectory).payloadURL
     }
 
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
-    private let secureCodec: SecureJSONFileCodec
+    private var vaultStore: ObeliskVaultStore
     private var cachedState: BookmarkStateDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
-        self.secureCodec = SecureJSONFileCodec()
-
-        self.encoder = JSONEncoder()
-        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        self.encoder.dateEncodingStrategy = .iso8601
-
-        self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .iso8601
+        self.vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
     }
 
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
+        vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
         invalidateCache()
     }
 
@@ -111,18 +103,12 @@ public final class BookmarkStateStore {
             return cachedState
         }
 
-        let url = ObeliskPrivateStorage.existingReadableFileURL(
-            rootDirectory: rootDirectory,
-            logicalName: "bookmark_state.json"
-        )
-        guard
-            let data = try? secureCodec.readData(from: url),
-            let state = try? decoder.decode(BookmarkStateDatabase.self, from: data)
-        else {
+        guard let payload = try? vaultStore.loadPayload() else {
             let empty = BookmarkStateDatabase()
             cachedState = empty
             return empty
         }
+        let state = Self.state(from: payload)
         cachedState = state
         return state
     }
@@ -144,21 +130,51 @@ public final class BookmarkStateStore {
     }
 
     private func saveUnlocked(_ state: BookmarkStateDatabase) throws {
-        try FileManager.default.createDirectory(
-            at: rootDirectory,
-            withIntermediateDirectories: true
-        )
+        var payload = try vaultStore.loadPayload()
+        let validIds = Set(payload.bookmarks.map(\.id))
+        let hiddenIds = state.hiddenIds.intersection(validIds)
+        let manualArchivedIds = state.manualArchivedIds.intersection(validIds)
+        let pinnedIds = state.pinnedIds.intersection(validIds)
+        let titleOptimizedIds = state.titleOptimizedIds.intersection(validIds)
 
-        let data = try encoder.encode(state)
-        try secureCodec.writeData(
-            data,
-            to: fileURL,
-            encrypted: LocalJSONEncryption.isEnabled
-        )
-        for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmark_state.json") {
-            try? LocalFileAccess.removeItem(at: staleURL)
+        payload.bookmarks = payload.bookmarks.map { bookmark in
+            var bookmark = bookmark
+            bookmark.createdAt = state.createdAtById[bookmark.id] ?? bookmark.createdAt
+            bookmark.isHidden = hiddenIds.contains(bookmark.id)
+            bookmark.titleOptimized = titleOptimizedIds.contains(bookmark.id)
+            bookmark.archivedAt = manualArchivedIds.contains(bookmark.id)
+                ? (bookmark.archivedAt ?? Date.distantPast)
+                : nil
+            bookmark.isPinned = pinnedIds.contains(bookmark.id)
+                && !bookmark.isHidden
+                && bookmark.archivedAt == nil
+            bookmark.originalTitle = state.originalTitleById[bookmark.id] ?? bookmark.originalTitle
+            return bookmark
         }
-        cachedState = state
+        try vaultStore.savePayload(payload)
+        cachedState = Self.state(from: payload)
+    }
+
+    private static func state(from payload: ObeliskVaultPayload) -> BookmarkStateDatabase {
+        BookmarkStateDatabase(
+            version: 2,
+            hiddenIds: Set(payload.bookmarks.filter(\.isHidden).map(\.id)),
+            manualArchivedIds: Set(payload.bookmarks.filter { $0.archivedAt != nil }.map(\.id)),
+            pinnedIds: Set(payload.bookmarks.filter { $0.isPinned && !$0.isHidden && $0.archivedAt == nil }.map(\.id)),
+            createdAtById: Dictionary(
+                uniqueKeysWithValues: payload.bookmarks.compactMap { bookmark in
+                    guard bookmark.createdAt > .distantPast else { return nil }
+                    return (bookmark.id, bookmark.createdAt)
+                }
+            ),
+            titleOptimizedIds: Set(payload.bookmarks.filter(\.titleOptimized).map(\.id)),
+            originalTitleById: Dictionary(
+                uniqueKeysWithValues: payload.bookmarks.compactMap { bookmark in
+                    guard let title = bookmark.originalTitle, !title.isEmpty else { return nil }
+                    return (bookmark.id, title)
+                }
+            )
+        )
     }
 }
 

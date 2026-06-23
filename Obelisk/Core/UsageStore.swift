@@ -13,7 +13,7 @@ public struct UsageRecord: Codable, Equatable {
 
 private let usageLog = Logger(subsystem: "com.eli.Obelisk", category: "UsageStore")
 
-/// Tracks per-bookmark click usage in a sidecar file (`usage.json`).
+/// Tracks per-bookmark click usage inside the encrypted vault payload.
 ///
 /// Frequency score uses a simple time-decay formula:
 /// `score = count * 0.95 ^ daysSinceLastClick`
@@ -21,28 +21,20 @@ private let usageLog = Logger(subsystem: "com.eli.Obelisk", category: "UsageStor
 public final class UsageStore {
     public private(set) var rootDirectory: URL
     public var fileURL: URL {
-        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "usage.json")
+        ObeliskVaultStore(rootDirectory: rootDirectory).payloadURL
     }
 
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
-    private let secureCodec: SecureJSONFileCodec
+    private var vaultStore: ObeliskVaultStore
     private var cachedUsage: [UUID: UsageRecord]?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
-        self.secureCodec = SecureJSONFileCodec()
-
-        self.encoder = JSONEncoder()
-        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        self.encoder.dateEncodingStrategy = .iso8601
-
-        self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .iso8601
+        self.vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
     }
 
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
+        vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
         invalidateCache()
     }
 
@@ -55,24 +47,11 @@ public final class UsageStore {
             return cachedUsage
         }
 
-        let url = ObeliskPrivateStorage.existingReadableFileURL(
-            rootDirectory: rootDirectory,
-            logicalName: "usage.json"
-        )
-        guard
-            let data = try? secureCodec.readData(from: url),
-            let raw = try? decoder.decode([String: UsageRecord].self, from: data)
-        else {
+        guard let payload = try? vaultStore.loadPayload() else {
             cachedUsage = [:]
             return [:]
         }
-
-        var result: [UUID: UsageRecord] = [:]
-        for (key, value) in raw {
-            if let id = UUID(uuidString: key) {
-                result[id] = value
-            }
-        }
+        let result = Self.usage(from: payload)
         cachedUsage = result
         return result
     }
@@ -181,26 +160,29 @@ public final class UsageStore {
 
     public func saveAll(_ dict: [UUID: UsageRecord]) {
         cachedUsage = dict
-        let payload = Dictionary(uniqueKeysWithValues: dict.map { ($0.key.uuidString, $0.value) })
         do {
             try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
-                try FileManager.default.createDirectory(
-                    at: fileURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                let data = try encoder.encode(payload)
-                try secureCodec.writeData(
-                    data,
-                    to: fileURL,
-                    encrypted: LocalJSONEncryption.isEnabled
-                )
-                for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "usage.json") {
-                    try? LocalFileAccess.removeItem(at: staleURL)
+                var payload = try vaultStore.loadPayload()
+                payload.bookmarks = payload.bookmarks.map { bookmark in
+                    var bookmark = bookmark
+                    bookmark.usage = dict[bookmark.id]
+                    return bookmark
                 }
+                try vaultStore.savePayload(payload)
+                cachedUsage = Self.usage(from: payload)
             }
         } catch {
             usageLog.error("Failed to persist usage data: \(error.localizedDescription)")
         }
+    }
+
+    private static func usage(from payload: ObeliskVaultPayload) -> [UUID: UsageRecord] {
+        Dictionary(
+            uniqueKeysWithValues: payload.bookmarks.compactMap { bookmark in
+                guard let usage = bookmark.usage else { return nil }
+                return (bookmark.id, usage)
+            }
+        )
     }
 
     private static func isOrderedByName(_ lhs: Bookmark, before rhs: Bookmark) -> Bool {

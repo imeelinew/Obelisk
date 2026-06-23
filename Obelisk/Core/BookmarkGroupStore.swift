@@ -72,26 +72,20 @@ public final class BookmarkGroupStore {
     public private(set) var rootDirectory: URL
 
     public var fileURL: URL {
-        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "bookmark_groups.json")
+        ObeliskVaultStore(rootDirectory: rootDirectory).payloadURL
     }
 
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
-    private let secureCodec: SecureJSONFileCodec
+    private var vaultStore: ObeliskVaultStore
     private var cachedDatabase: BookmarkGroupDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
-        self.secureCodec = SecureJSONFileCodec()
-
-        self.encoder = JSONEncoder()
-        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-
-        self.decoder = JSONDecoder()
+        self.vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
     }
 
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
+        vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
         invalidateCache()
     }
 
@@ -104,18 +98,12 @@ public final class BookmarkGroupStore {
             return cachedDatabase
         }
 
-        let url = ObeliskPrivateStorage.existingReadableFileURL(
-            rootDirectory: rootDirectory,
-            logicalName: "bookmark_groups.json"
-        )
-        guard
-            let data = try? secureCodec.readData(from: url),
-            let database = try? decoder.decode(BookmarkGroupDatabase.self, from: data)
-        else {
+        guard let payload = try? vaultStore.loadPayload() else {
             let empty = BookmarkGroupDatabase()
             cachedDatabase = empty
             return empty
         }
+        let database = Self.database(from: payload)
         cachedDatabase = database
         return database
     }
@@ -138,21 +126,24 @@ public final class BookmarkGroupStore {
     }
 
     private func saveUnlocked(_ database: BookmarkGroupDatabase) throws {
-        try FileManager.default.createDirectory(
-            at: rootDirectory,
-            withIntermediateDirectories: true
-        )
-
-        let data = try encoder.encode(database)
-        try secureCodec.writeData(
-            data,
-            to: fileURL,
-            encrypted: LocalJSONEncryption.isEnabled
-        )
-        for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "bookmark_groups.json") {
-            try? LocalFileAccess.removeItem(at: staleURL)
+        var payload = try vaultStore.loadPayload()
+        let collections = database.collections.sorted {
+            if $0.sortOrder != $1.sortOrder {
+                return $0.sortOrder < $1.sortOrder
+            }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
-        cachedDatabase = database
+        let validGroupIds = Set(collections.map(\.id))
+        let membership = database.membershipByBookmarkId.filter { validGroupIds.contains($0.value) }
+
+        payload.groups = collections
+        payload.bookmarks = payload.bookmarks.map { bookmark in
+            var bookmark = bookmark
+            bookmark.groupId = membership[bookmark.id]
+            return bookmark
+        }
+        try vaultStore.savePayload(payload)
+        cachedDatabase = Self.database(from: payload)
     }
 
     public func collectionId(for bookmarkId: UUID) -> UUID? {
@@ -166,5 +157,20 @@ public final class BookmarkGroupStore {
                 database.membershipByBookmarkId.removeValue(forKey: id)
             }
         }
+    }
+
+    private static func database(from payload: ObeliskVaultPayload) -> BookmarkGroupDatabase {
+        let groupIds = Set(payload.groups.map(\.id))
+        let membership = Dictionary(
+            uniqueKeysWithValues: payload.bookmarks.compactMap { bookmark -> (UUID, UUID)? in
+                guard let groupId = bookmark.groupId, groupIds.contains(groupId) else { return nil }
+                return (bookmark.id, groupId)
+            }
+        )
+        return BookmarkGroupDatabase(
+            version: BookmarkGroupDatabase.currentVersion,
+            collections: payload.groups,
+            membershipByBookmarkId: membership
+        )
     }
 }

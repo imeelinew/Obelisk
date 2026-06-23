@@ -202,33 +202,33 @@ final class LLMConfigStore {
 
     private(set) var rootDirectory: URL
     private let remoteAPIKeyStore = KeychainAPIKeyStore(account: remoteKeychainAccount)
+    private var vaultStore: ObeliskVaultStore
     var configURL: URL {
-        ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: "llm.json")
+        vaultStore.payloadURL
     }
 
     init(rootDirectory: URL) {
         self.rootDirectory = rootDirectory
+        self.vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
     }
 
     func loadProfiles() -> LLMProfilesSettings {
-        let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
-            rootDirectory: rootDirectory,
-            logicalName: "llm.json"
-        )
-        let data = try? SecureJSONFileCodec().readData(from: readableURL)
+        let legacyData = readLegacyConfigData()
 
         var settings: LLMProfilesSettings
-        if let data,
-           let decoded = try? JSONDecoder().decode(LLMProfilesSettings.self, from: data) {
+        if let decoded = try? vaultStore.loadPayload().llmProfiles {
             settings = decoded
-        } else if let data,
-                  let legacy = try? JSONDecoder().decode(LLMConfig.self, from: data) {
+        } else if let legacyData,
+                  let decoded = try? JSONDecoder().decode(LLMProfilesSettings.self, from: legacyData) {
+            settings = decoded
+        } else if let legacyData,
+                  let legacy = try? JSONDecoder().decode(LLMConfig.self, from: legacyData) {
             settings = LLMProfilesSettings(activeSource: .remote, remote: legacy, local: .lmStudioPreset)
         } else {
             settings = LLMProfilesSettings()
         }
 
-        settings.remote.apiKey = loadRemoteAPIKey(legacyData: data)
+        settings.remote.apiKey = loadRemoteAPIKey(legacyData: legacyData)
 
         var shouldPurgeLegacyLocalKeychain = false
         if settings.local.apiKey.isEmpty,
@@ -239,7 +239,7 @@ final class LLMConfigStore {
                 try save(settings)
                 shouldPurgeLegacyLocalKeychain = true
             } catch {
-                // Keep keychain copy if llm.json write failed.
+                    // Keep the keychain copy if the vault payload write failed.
             }
         } else if settings.local.apiKey.isEmpty {
             settings.local.apiKey = LLMConfig.lmStudioPreset.apiKey
@@ -270,21 +270,10 @@ final class LLMConfigStore {
         var fileSettings = settings
         fileSettings.remote.apiKey = ""
 
-        try FileManager.default.createDirectory(
-            at: configURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(fileSettings)
-        try SecureJSONFileCodec().writeData(
-            data,
-            to: configURL,
-            encrypted: LocalJSONEncryption.isEnabled
-        )
-        for staleURL in ObeliskPrivateStorage.inactiveFileURLs(rootDirectory: rootDirectory, logicalName: "llm.json") {
-            try? LocalFileAccess.removeItem(at: staleURL)
-        }
+        var payload = try vaultStore.loadPayload()
+        payload.llmProfiles = fileSettings
+        try vaultStore.savePayload(payload)
+        removeLegacyConfigFiles()
     }
 
     func save(_ config: LLMConfig) throws {
@@ -318,6 +307,27 @@ final class LLMConfigStore {
         }
 
         return ""
+    }
+
+    private func readLegacyConfigData() -> Data? {
+        let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
+            rootDirectory: rootDirectory,
+            logicalName: "llm.json"
+        )
+        guard FileManager.default.fileExists(atPath: readableURL.path) else {
+            return nil
+        }
+        return try? SecureJSONFileCodec().readData(from: readableURL)
+    }
+
+    private func removeLegacyConfigFiles() {
+        let urls = [
+            ObeliskPrivateStorage.privateFileURL(rootDirectory: rootDirectory, logicalName: "llm.json"),
+            ObeliskPrivateStorage.plaintextFileURL(rootDirectory: rootDirectory, logicalName: "llm.json")
+        ]
+        for url in urls {
+            try? LocalFileAccess.removeItem(at: url)
+        }
     }
 
     private func purgeLocalAPIKeyFromKeychain() {

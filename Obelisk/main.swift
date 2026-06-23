@@ -13,6 +13,14 @@ private let faviconLog = Logger(subsystem: "com.eli.Obelisk", category: "Favicon
 private let inputSourceLog = Logger(subsystem: "com.eli.Obelisk", category: "InputSource")
 private let isUITesting = CommandLine.arguments.contains("-uiTesting")
 
+@objc
+private protocol StandardMenuActionSelectors {
+    func print(_ sender: Any?)
+    func setSearchString(_ sender: Any?)
+    func undo(_ sender: Any?)
+    func redo(_ sender: Any?)
+}
+
 private func configureUITestingEnvironmentIfNeeded() {
     guard isUITesting else { return }
 
@@ -435,33 +443,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let newItem = NSMenuItem(title: NSLocalizedString("New Bookmark", comment: "File menu"), action: #selector(newBookmarkFromMenu(_:)), keyEquivalent: "n")
         newItem.target = self
         fileMenu.addItem(newItem)
-        fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Open…", comment: "File menu"), action: Selector(("openDocument:")), keyEquivalent: "o"))
+        fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Open…", comment: "File menu"), action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o"))
         let openRecentItem = NSMenuItem(title: NSLocalizedString("Open Recent", comment: "File menu"), action: nil, keyEquivalent: "")
         let openRecentSubmenu = NSMenu(title: NSLocalizedString("Open Recent", comment: "File menu"))
         openRecentSubmenu.autoenablesItems = false
-        openRecentSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Clear Menu", comment: "File menu"), action: Selector(("clearRecentDocuments:")), keyEquivalent: ""))
+        openRecentSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Clear Menu", comment: "File menu"), action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: ""))
         openRecentItem.submenu = openRecentSubmenu
         fileMenu.addItem(openRecentItem)
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Close", comment: "File menu"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
-        fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Save", comment: "File menu"), action: Selector(("saveDocument:")), keyEquivalent: "s"))
-        let saveAsItem = NSMenuItem(title: NSLocalizedString("Save As…", comment: "File menu"), action: Selector(("saveDocumentAs:")), keyEquivalent: "s")
+        fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Save", comment: "File menu"), action: #selector(NSDocument.save(_:)), keyEquivalent: "s"))
+        let saveAsItem = NSMenuItem(title: NSLocalizedString("Save As…", comment: "File menu"), action: #selector(NSDocument.saveAs(_:)), keyEquivalent: "s")
         saveAsItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(saveAsItem)
-        fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Revert To Saved", comment: "File menu"), action: Selector(("revertDocumentToSaved:")), keyEquivalent: ""))
+        fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Revert To Saved", comment: "File menu"), action: #selector(NSDocument.revertToSaved(_:)), keyEquivalent: ""))
         fileMenu.addItem(.separator())
-        let pageSetupItem = NSMenuItem(title: NSLocalizedString("Page Setup…", comment: "File menu"), action: Selector(("runPageLayout:")), keyEquivalent: "p")
+        let pageSetupItem = NSMenuItem(title: NSLocalizedString("Page Setup…", comment: "File menu"), action: #selector(NSDocument.runPageLayout(_:)), keyEquivalent: "p")
         pageSetupItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(pageSetupItem)
-        fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Print…", comment: "File menu"), action: Selector(("print:")), keyEquivalent: "p"))
+        fileMenu.addItem(NSMenuItem(title: NSLocalizedString("Print…", comment: "File menu"), action: #selector(StandardMenuActionSelectors.print(_:)), keyEquivalent: "p"))
         fileMenuItem.submenu = fileMenu
 
         // MARK: Edit menu
         let editMenuItem = NSMenuItem()
         mainMenu.addItem(editMenuItem)
         let editMenu = NSMenu(title: NSLocalizedString("Edit", comment: "Edit menu title"))
-        editMenu.addItem(NSMenuItem(title: NSLocalizedString("Undo", comment: "Edit menu"), action: Selector(("undo:")), keyEquivalent: "z"))
-        let redoItem = NSMenuItem(title: NSLocalizedString("Redo", comment: "Edit menu"), action: Selector(("redo:")), keyEquivalent: "z")
+        editMenu.addItem(NSMenuItem(title: NSLocalizedString("Undo", comment: "Edit menu"), action: #selector(StandardMenuActionSelectors.undo(_:)), keyEquivalent: "z"))
+        let redoItem = NSMenuItem(title: NSLocalizedString("Redo", comment: "Edit menu"), action: #selector(StandardMenuActionSelectors.redo(_:)), keyEquivalent: "z")
         redoItem.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(redoItem)
         editMenu.addItem(.separator())
@@ -469,7 +477,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         editMenu.addItem(NSMenuItem(title: NSLocalizedString("Copy", comment: "Edit menu"), action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
         editMenu.addItem(NSMenuItem(title: NSLocalizedString("Paste", comment: "Edit menu"), action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(.separator())
-        editMenu.addItem(NSMenuItem(title: NSLocalizedString("Delete", comment: "Edit menu"), action: Selector(("delete:")), keyEquivalent: "\u{8}"))
+        editMenu.addItem(NSMenuItem(title: NSLocalizedString("Delete", comment: "Edit menu"), action: #selector(NSText.delete(_:)), keyEquivalent: "\u{8}"))
         editMenu.addItem(NSMenuItem(title: NSLocalizedString("Select All", comment: "Edit menu"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         editMenu.addItem(.separator())
 
@@ -477,20 +485,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let findItem = NSMenuItem(title: NSLocalizedString("Find", comment: "Edit menu"), action: nil, keyEquivalent: "")
         let findSubmenu = NSMenu(title: NSLocalizedString("Find", comment: "Edit menu"))
         findSubmenu.autoenablesItems = false
-        let findPanelItem = NSMenuItem(title: NSLocalizedString("Find…", comment: "Edit menu"), action: Selector(("performFindPanelAction:")), keyEquivalent: "f")
+        let findPanelItem = NSMenuItem(title: NSLocalizedString("Find…", comment: "Edit menu"), action: #selector(NSTextView.performFindPanelAction(_:)), keyEquivalent: "f")
         findPanelItem.tag = 1
         findSubmenu.addItem(findPanelItem)
-        let findNextItem = NSMenuItem(title: NSLocalizedString("Find Next", comment: "Edit menu"), action: Selector(("performFindPanelAction:")), keyEquivalent: "g")
+        let findNextItem = NSMenuItem(title: NSLocalizedString("Find Next", comment: "Edit menu"), action: #selector(NSTextView.performFindPanelAction(_:)), keyEquivalent: "g")
         findNextItem.tag = 2
         findSubmenu.addItem(findNextItem)
-        let findPrevItem = NSMenuItem(title: NSLocalizedString("Find Previous", comment: "Edit menu"), action: Selector(("performFindPanelAction:")), keyEquivalent: "g")
+        let findPrevItem = NSMenuItem(title: NSLocalizedString("Find Previous", comment: "Edit menu"), action: #selector(NSTextView.performFindPanelAction(_:)), keyEquivalent: "g")
         findPrevItem.tag = 3
         findPrevItem.keyEquivalentModifierMask = [.command, .shift]
         findSubmenu.addItem(findPrevItem)
-        let useSelectionItem = NSMenuItem(title: NSLocalizedString("Use Selection for Find", comment: "Edit menu"), action: Selector(("setSearchString:")), keyEquivalent: "e")
+        let useSelectionItem = NSMenuItem(title: NSLocalizedString("Use Selection for Find", comment: "Edit menu"), action: #selector(StandardMenuActionSelectors.setSearchString(_:)), keyEquivalent: "e")
         useSelectionItem.keyEquivalentModifierMask = [.command, .option]
         findSubmenu.addItem(useSelectionItem)
-        let jumpToSelectionItem = NSMenuItem(title: NSLocalizedString("Jump to Selection", comment: "Edit menu"), action: Selector(("centerSelectionInVisibleArea:")), keyEquivalent: "j")
+        let jumpToSelectionItem = NSMenuItem(title: NSLocalizedString("Jump to Selection", comment: "Edit menu"), action: #selector(NSResponder.centerSelectionInVisibleArea(_:)), keyEquivalent: "j")
         jumpToSelectionItem.keyEquivalentModifierMask = [.command, .option]
         findSubmenu.addItem(jumpToSelectionItem)
         findItem.submenu = findSubmenu
@@ -500,12 +508,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let spellingItem = NSMenuItem(title: NSLocalizedString("Spelling and Grammar", comment: "Edit menu"), action: nil, keyEquivalent: "")
         let spellingSubmenu = NSMenu(title: NSLocalizedString("Spelling and Grammar", comment: "Edit menu"))
         spellingSubmenu.autoenablesItems = false
-        spellingSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Check Spelling Now", comment: "Edit menu"), action: Selector(("checkSpelling:")), keyEquivalent: ";"))
-        let checkSpellingItem = NSMenuItem(title: NSLocalizedString("Check Spelling While Typing", comment: "Edit menu"), action: Selector(("toggleContinuousSpellChecking:")), keyEquivalent: ":")
+        spellingSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Check Spelling Now", comment: "Edit menu"), action: #selector(NSText.checkSpelling(_:)), keyEquivalent: ";"))
+        let checkSpellingItem = NSMenuItem(title: NSLocalizedString("Check Spelling While Typing", comment: "Edit menu"), action: #selector(NSTextView.toggleContinuousSpellChecking(_:)), keyEquivalent: ":")
         checkSpellingItem.keyEquivalentModifierMask = [.command, .shift]
         spellingSubmenu.addItem(checkSpellingItem)
         spellingSubmenu.addItem(.separator())
-        let showSpellingItem = NSMenuItem(title: NSLocalizedString("Show Spelling and Grammar", comment: "Edit menu"), action: Selector(("showGuessPanel:")), keyEquivalent: ":")
+        let showSpellingItem = NSMenuItem(title: NSLocalizedString("Show Spelling and Grammar", comment: "Edit menu"), action: #selector(NSText.showGuessPanel(_:)), keyEquivalent: ":")
         showSpellingItem.keyEquivalentModifierMask = [.command, .shift]
         spellingSubmenu.addItem(showSpellingItem)
         spellingItem.submenu = spellingSubmenu
@@ -515,13 +523,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let substitutionsItem = NSMenuItem(title: NSLocalizedString("Substitutions", comment: "Edit menu"), action: nil, keyEquivalent: "")
         let substitutionsSubmenu = NSMenu(title: NSLocalizedString("Substitutions", comment: "Edit menu"))
         substitutionsSubmenu.autoenablesItems = false
-        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Show Substitutions", comment: "Edit menu"), action: Selector(("orderFrontSubstitutionsPanel:")), keyEquivalent: ""))
+        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Show Substitutions", comment: "Edit menu"), action: #selector(NSTextView.orderFrontSubstitutionsPanel(_:)), keyEquivalent: ""))
         substitutionsSubmenu.addItem(.separator())
-        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Smart Copy/Paste", comment: "Edit menu"), action: Selector(("toggleSmartInsertDelete:")), keyEquivalent: ""))
-        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Smart Quotes", comment: "Edit menu"), action: Selector(("toggleAutomaticQuoteSubstitution:")), keyEquivalent: ""))
-        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Smart Dashes", comment: "Edit menu"), action: Selector(("toggleAutomaticDashSubstitution:")), keyEquivalent: ""))
-        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Smart Links", comment: "Edit menu"), action: Selector(("toggleAutomaticLinkDetection:")), keyEquivalent: ""))
-        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Text Replacement", comment: "Edit menu"), action: Selector(("toggleAutomaticTextReplacement:")), keyEquivalent: ""))
+        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Smart Copy/Paste", comment: "Edit menu"), action: #selector(NSTextView.toggleSmartInsertDelete(_:)), keyEquivalent: ""))
+        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Smart Quotes", comment: "Edit menu"), action: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:)), keyEquivalent: ""))
+        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Smart Dashes", comment: "Edit menu"), action: #selector(NSTextView.toggleAutomaticDashSubstitution(_:)), keyEquivalent: ""))
+        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Smart Links", comment: "Edit menu"), action: #selector(NSTextView.toggleAutomaticLinkDetection(_:)), keyEquivalent: ""))
+        substitutionsSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Text Replacement", comment: "Edit menu"), action: #selector(NSTextView.toggleAutomaticTextReplacement(_:)), keyEquivalent: ""))
         substitutionsItem.submenu = substitutionsSubmenu
         editMenu.addItem(substitutionsItem)
 
@@ -529,8 +537,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let speechItem = NSMenuItem(title: NSLocalizedString("Speech", comment: "Edit menu"), action: nil, keyEquivalent: "")
         let speechSubmenu = NSMenu(title: NSLocalizedString("Speech", comment: "Edit menu"))
         speechSubmenu.autoenablesItems = false
-        speechSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Start Speaking", comment: "Edit menu"), action: Selector(("startSpeaking:")), keyEquivalent: ""))
-        speechSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Stop Speaking", comment: "Edit menu"), action: Selector(("stopSpeaking:")), keyEquivalent: ""))
+        speechSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Start Speaking", comment: "Edit menu"), action: #selector(NSTextView.startSpeaking(_:)), keyEquivalent: ""))
+        speechSubmenu.addItem(NSMenuItem(title: NSLocalizedString("Stop Speaking", comment: "Edit menu"), action: #selector(NSTextView.stopSpeaking(_:)), keyEquivalent: ""))
         speechItem.submenu = speechSubmenu
         editMenu.addItem(speechItem)
 

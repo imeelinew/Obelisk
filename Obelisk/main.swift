@@ -615,8 +615,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     private func showStatusMenu(_ menu: NSMenu) {
-        statusItem.menu = menu
-        statusItem.button?.performClick(nil)
+        guard let button = statusItem.button else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
     }
 
     private func clearLegacySpotlightIndex() {

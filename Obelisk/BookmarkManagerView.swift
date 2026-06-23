@@ -3390,7 +3390,7 @@ private struct BookmarkGridCard: View {
         let _ = faviconLoader.version
         let favicon = faviconLoader.image(for: bookmark.url)
 
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
                 faviconView(favicon)
 
@@ -3405,12 +3405,11 @@ private struct BookmarkGridCard: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(bookmark.title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
 
                 Text(displayURL)
                     .font(.system(size: 11))
@@ -3421,15 +3420,12 @@ private struct BookmarkGridCard: View {
 
             Spacer(minLength: 0)
 
-            VStack(alignment: .leading, spacing: 5) {
-                if let collectionTitle {
-                    cardPill(collectionTitle, systemImage: "folder.fill")
-                }
-                cardPill(dateTitle, systemImage: "calendar")
+            if let collectionTitle {
+                cardPill(collectionTitle, systemImage: "folder.fill")
             }
         }
         .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
-        .padding(13)
+        .padding(10)
         .background(cardBackground)
         .overlay(cardBorder)
         .scaleEffect(isPressed ? 0.985 : 1)
@@ -3496,14 +3492,6 @@ private struct BookmarkGridCard: View {
             return bookmark.url
         }
         return host
-    }
-
-    private var dateTitle: String {
-        guard bookmark.createdAt > .distantPast else { return "未知日期" }
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.setLocalizedDateFormatFromTemplate("MMMd")
-        return formatter.string(from: bookmark.createdAt)
     }
 
     private func faviconView(_ favicon: NSImage?) -> some View {

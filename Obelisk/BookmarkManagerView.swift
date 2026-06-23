@@ -225,6 +225,7 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarkListSortMode.collectionsStorageKey) private var collectionListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage(BookmarkListSortMode.hiddenStorageKey) private var hiddenBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage("bookmarkDisplayMode") private var bookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
+    @AppStorage("hiddenBookmarkDisplayMode") private var hiddenBookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
     @AppStorage(BookmarkMenuSectionOrder.storageKey) private var menuBarSectionOrderRaw = ""
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
@@ -551,6 +552,26 @@ struct BookmarkManagerView: View {
 
     private var dateGridBookmarkSections: [BookmarkDateSection] {
         BookmarkDateSection.sections(from: visibleBookmarks)
+    }
+
+    private var hiddenBookmarkDisplayMode: BookmarkDisplayMode {
+        get {
+            BookmarkDisplayMode(rawValue: hiddenBookmarkDisplayModeRaw) ?? .list
+        }
+        nonmutating set {
+            hiddenBookmarkDisplayModeRaw = newValue.rawValue
+        }
+    }
+
+    private var hiddenBookmarkDisplayModeBinding: Binding<BookmarkDisplayMode> {
+        Binding(
+            get: { hiddenBookmarkDisplayMode },
+            set: { hiddenBookmarkDisplayMode = $0 }
+        )
+    }
+
+    private var hiddenBookmarkDateGridSections: [BookmarkDateSection] {
+        BookmarkDateSection.sections(from: hiddenBookmarks)
     }
 
     private func collectionTitle(for bookmark: Bookmark) -> String? {
@@ -1835,6 +1856,7 @@ struct BookmarkManagerView: View {
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
+                    hiddenStateActionTitle: "移到隐藏书签",
                     onSetArchived: { bookmark in setArchived(true, for: bookmark) },
                     pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
@@ -1897,6 +1919,28 @@ struct BookmarkManagerView: View {
 
             if bookmarkDisplayMode == .dateGrid {
                 Text("\(visibleBookmarks.count) 个书签")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var hiddenBookmarkDisplayModePicker: some View {
+        HStack(spacing: 10) {
+            Picker("", selection: hiddenBookmarkDisplayModeBinding) {
+                ForEach([BookmarkDisplayMode.dateGrid, .list]) { mode in
+                    Label(mode.title, systemImage: mode.systemImage)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 154)
+
+            Spacer(minLength: 0)
+
+            if hiddenBookmarkDisplayMode == .dateGrid {
+                Text("\(hiddenBookmarks.count) 个书签")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -2017,8 +2061,44 @@ struct BookmarkManagerView: View {
                 } description: {
                     Text("按 ⌥H 可以把当前浏览器标签添加为隐藏书签。")
                 }
+            } else if hiddenBookmarkDisplayMode == .dateGrid {
+                VStack(spacing: 0) {
+                    hiddenBookmarkDisplayModePicker
+                        .padding(.leading, 0)
+                        .padding(.trailing, 18)
+                        .padding(.top, 12)
+                        .padding(.bottom, 8)
+
+                    BookmarkDateGridView(
+                        sections: hiddenBookmarkDateGridSections,
+                        selection: $selection,
+                        faviconLoader: faviconLoader,
+                        showsURLHostOnly: showsURLHostOnly,
+                        collectionTitle: { bookmark in collectionTitle(for: bookmark) },
+                        onOpen: { bookmark in openHiddenBookmark(bookmark) },
+                        onCopyURL: { bookmark in copyURL(bookmark) },
+                        onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                        onEdit: { bookmark in presentation = .edit(bookmark) },
+                        onDelete: { ids in requestDelete(ids: ids) },
+                        onSetHidden: { bookmark in setHidden(false, for: bookmark) },
+                        hiddenStateActionTitle: "恢复到书签",
+                        onSetArchived: { bookmark in setArchived(true, for: bookmark) },
+                        pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                        onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                        collectionAssignOptions: collectionAssignOptions,
+                        onAssignCollection: { bookmarkIds, collectionId in
+                            assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                        }
+                    )
+                }
             } else {
                 VStack(alignment: .leading, spacing: 0) {
+                    hiddenBookmarkDisplayModePicker
+                        .padding(.leading, 0)
+                        .padding(.trailing, 18)
+                        .padding(.top, 12)
+                        .padding(.bottom, 8)
+
                     hiddenBookmarkSortMenu
                         .padding(.leading, 16)
                         .padding(.top, 8)
@@ -3287,6 +3367,7 @@ private struct BookmarkDateGridView: View {
     let onEdit: (Bookmark) -> Void
     let onDelete: (Set<Bookmark.ID>) -> Void
     let onSetHidden: (Bookmark) -> Void
+    let hiddenStateActionTitle: String
     let onSetArchived: (Bookmark) -> Void
     let pinStateActionTitle: (Bookmark) -> String
     let onSetPinned: (Bookmark) -> Void
@@ -3341,6 +3422,7 @@ private struct BookmarkDateGridView: View {
                                     onSetHidden: {
                                         onSetHidden(bookmark)
                                     },
+                                    hiddenStateActionTitle: hiddenStateActionTitle,
                                     onSetArchived: {
                                         onSetArchived(bookmark)
                                     },
@@ -3378,6 +3460,7 @@ private struct BookmarkGridCard: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onSetHidden: () -> Void
+    let hiddenStateActionTitle: String
     let onSetArchived: () -> Void
     let pinStateActionTitle: String
     let onSetPinned: () -> Void
@@ -3385,6 +3468,8 @@ private struct BookmarkGridCard: View {
     let onAssignCollection: (UUID?) -> Void
 
     @State private var isPressed = false
+    @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let _ = faviconLoader.version
@@ -3421,7 +3506,7 @@ private struct BookmarkGridCard: View {
             Spacer(minLength: 0)
 
             if let collectionTitle {
-                cardPill(collectionTitle, systemImage: "folder.fill")
+                cardPill(collectionTitle)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
@@ -3460,7 +3545,7 @@ private struct BookmarkGridCard: View {
                     }
                 }
             }
-            Button("移到隐藏书签", action: onSetHidden)
+            Button(hiddenStateActionTitle, action: onSetHidden)
             Button("归档", action: onSetArchived)
             Divider()
             Button("删除", role: .destructive, action: onDelete)
@@ -3469,9 +3554,33 @@ private struct BookmarkGridCard: View {
         .accessibilityLabel(bookmark.title)
     }
 
+    private var cardBackgroundColor: Color {
+        switch colorScheme {
+        case .dark:
+            return Color(red: 39 / 255, green: 41 / 255, blue: 54 / 255)
+        default:
+            return Color(red: 247 / 255, green: 247 / 255, blue: 247 / 255)
+        }
+    }
+
+    private var cardTransparentBackgroundColor: Color {
+        switch colorScheme {
+        case .dark:
+            return Color.white.opacity(0.04)
+        default:
+            return Color.black.opacity(0.04)
+        }
+    }
+
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 10)
-            .fill(isSelected ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor))
+        let fill: Color
+        if windowTransparencyEnabled {
+            fill = isSelected ? Color.accentColor.opacity(0.20) : cardTransparentBackgroundColor
+        } else {
+            fill = isSelected ? Color.accentColor.opacity(0.14) : cardBackgroundColor
+        }
+        return RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(fill)
             .shadow(
                 color: .black.opacity(isSelected ? 0.12 : 0.07),
                 radius: isSelected ? 8 : 4,
@@ -3507,16 +3616,10 @@ private struct BookmarkGridCard: View {
             }
         }
         .frame(width: 24, height: 24)
-        .padding(7)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
-        )
     }
 
-    private func cardPill(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
+    private func cardPill(_ title: String) -> some View {
+        Text(title)
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)

@@ -91,7 +91,7 @@ private enum BookmarkDisplayMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .list: return "列表"
-        case .dateGrid: return "日期"
+        case .dateGrid: return "表格"
         }
     }
 
@@ -1884,7 +1884,7 @@ struct BookmarkManagerView: View {
     private var bookmarkDisplayModePicker: some View {
         HStack(spacing: 10) {
             Picker("", selection: bookmarkDisplayModeBinding) {
-                ForEach(BookmarkDisplayMode.allCases) { mode in
+                ForEach([BookmarkDisplayMode.dateGrid, .list]) { mode in
                     Label(mode.title, systemImage: mode.systemImage)
                         .tag(mode)
                 }
@@ -3428,13 +3428,13 @@ private struct BookmarkGridCard: View {
                 cardPill(dateTitle, systemImage: "calendar")
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
         .padding(13)
         .background(cardBackground)
         .overlay(cardBorder)
         .scaleEffect(isPressed ? 0.985 : 1)
         .animation(.easeOut(duration: 0.12), value: isPressed)
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 10))
         .onTapGesture {
             onSelect()
         }
@@ -3474,7 +3474,7 @@ private struct BookmarkGridCard: View {
     }
 
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 8)
+        RoundedRectangle(cornerRadius: 10)
             .fill(isSelected ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor))
             .shadow(
                 color: .black.opacity(isSelected ? 0.12 : 0.07),
@@ -3484,7 +3484,7 @@ private struct BookmarkGridCard: View {
     }
 
     private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: 8)
+        RoundedRectangle(cornerRadius: 10)
             .stroke(
                 isSelected ? Color.accentColor.opacity(0.75) : Color(nsColor: .separatorColor).opacity(0.42),
                 lineWidth: isSelected ? 1.4 : 1

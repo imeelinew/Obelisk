@@ -23,6 +23,7 @@ public enum ObeliskPlaintextDataBackup {
     }
 
     private static let jsonLogicalNames = ObeliskStorageMigrator.logicalJSONFiles
+    private static let payloadBackupFileName = "payload.json"
     private static let backupFolderPrefix = "Backup-"
 
     public static func createBackup(
@@ -42,17 +43,25 @@ public enum ObeliskPlaintextDataBackup {
         let codec = SecureJSONFileCodec()
         var exportedJSONFiles: [String] = []
 
-        for logicalName in jsonLogicalNames {
-            guard let plaintext = try readPlaintextJSON(
-                logicalName: logicalName,
-                from: rootDirectory,
-                codec: codec
-            ) else {
-                continue
+        if let payloadData = try readVaultPayloadJSON(from: rootDirectory) {
+            try LocalFileAccess.writeData(
+                payloadData,
+                to: destinationRoot.appendingPathComponent(payloadBackupFileName)
+            )
+            exportedJSONFiles.append(payloadBackupFileName)
+        } else {
+            for logicalName in jsonLogicalNames {
+                guard let plaintext = try readPlaintextJSON(
+                    logicalName: logicalName,
+                    from: rootDirectory,
+                    codec: codec
+                ) else {
+                    continue
+                }
+                let destinationURL = destinationRoot.appendingPathComponent(logicalName)
+                try LocalFileAccess.writeData(plaintext, to: destinationURL)
+                exportedJSONFiles.append(logicalName)
             }
-            let destinationURL = destinationRoot.appendingPathComponent(logicalName)
-            try LocalFileAccess.writeData(plaintext, to: destinationURL)
-            exportedJSONFiles.append(logicalName)
         }
 
         let faviconCount = try exportFavicons(
@@ -107,6 +116,18 @@ public enum ObeliskPlaintextDataBackup {
             throw lastError
         }
         return nil
+    }
+
+    private static func readVaultPayloadJSON(from rootDirectory: URL) throws -> Data? {
+        let vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
+        guard vaultStore.hasV2Payload else {
+            return nil
+        }
+        let payload = try vaultStore.loadPayload()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(payload)
     }
 
     private static func candidateJSONURLs(rootDirectory: URL, logicalName: String) -> [URL] {

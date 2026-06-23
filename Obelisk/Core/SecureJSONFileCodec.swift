@@ -199,6 +199,15 @@ public enum ObeliskStorageMigrator {
         encrypted: Bool,
         keyStore: KeychainEncryptionKeyStore = KeychainEncryptionKeyStore()
     ) throws {
+        let vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
+        if vaultStore.hasV2Payload {
+            _ = try vaultStore.loadPayload()
+            try vaultStore.removeLegacyPayloadFiles()
+            try normalizeFavicons(in: rootDirectory, encrypted: encrypted, keyStore: keyStore)
+            removeEmptyStorageDirectories(in: rootDirectory)
+            return
+        }
+
         try validateEncryptedPayloadsAreReadable(in: rootDirectory, keyStore: keyStore)
         try normalizeJSONFiles(in: rootDirectory, encrypted: encrypted, keyStore: keyStore)
         try normalizeFavicons(in: rootDirectory, encrypted: encrypted, keyStore: keyStore)

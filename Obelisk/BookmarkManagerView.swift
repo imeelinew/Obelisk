@@ -199,6 +199,7 @@ struct BookmarkManagerView: View {
     @State private var llmConfigMessage: String?
     @State private var isTestingLLMConfig = false
     @State private var hiddenBookmarksUnlocked = false
+    @State private var quickLookController = QuickLookController()
     @AppStorage(SidebarIconTheme.storageKey) private var sidebarIconThemeRaw = SidebarIconTheme.colorful.rawValue
     private let sidebarIconTileSize = 22.0
     private let sidebarIconSymbolSize = 11.0
@@ -1542,6 +1543,19 @@ struct BookmarkManagerView: View {
             // so we'd miss the initial request without this check. Subsequent
             // presses (window already open) hit .onChange below.
             consumePendingAddRequestIfNeeded()
+
+            let modelRef = model
+            let selectionBinding = $selection
+            let presentationBinding = $presentation
+            quickLookController.selection = { selectionBinding.wrappedValue }
+            quickLookController.bookmarkLookup = { id in
+                modelRef.bookmarks.first { $0.id == id }
+            }
+            quickLookController.isSheetPresented = { presentationBinding.wrappedValue != nil }
+            quickLookController.install()
+        }
+        .onDisappear {
+            quickLookController.uninstall()
         }
         .onChange(of: addRequest.seq) { _, _ in
             consumePendingAddRequestIfNeeded()

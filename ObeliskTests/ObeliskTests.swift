@@ -20,6 +20,7 @@ struct SmokeTests {
         }
 
         try testDefaultRootDirectoryUsesVault()
+        try testDefaultRootDirectoryUsesApplicationSupport()
         try testDuplicateProtection()
         try testWebURLValidation()
         try testLegacyCreatedAtFallback()
@@ -112,10 +113,25 @@ struct SmokeTests {
             }
         }
 
-        let expected = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents")
-            .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
+        let expected = BookmarkStore.applicationSupportRootDirectory()
         try expect(BookmarkStore.defaultRootDirectory() == expected, "expected default storage root to use Obelisk.obelisk")
+        try expect(expected.lastPathComponent == ObeliskPrivateStorage.vaultDirectoryName, "expected default storage root to remain an Obelisk vault")
+    }
+
+    private static func testDefaultRootDirectoryUsesApplicationSupport() throws {
+        let previousOverride = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"]
+        unsetenv("UNIBOOKMARK_HOME")
+        defer {
+            if let previousOverride {
+                setenv("UNIBOOKMARK_HOME", previousOverride, 1)
+            } else {
+                unsetenv("UNIBOOKMARK_HOME")
+            }
+        }
+
+        let root = BookmarkStore.defaultRootDirectory()
+        try expect(root.path.contains("/Library/Application Support/"), "expected default storage root to live in Application Support")
+        try expect(root.deletingLastPathComponent().lastPathComponent == "com.eli.Obelisk", "expected default storage root to use the app bundle identifier folder")
     }
 
     private static func testIntelligenceIconContract() throws {

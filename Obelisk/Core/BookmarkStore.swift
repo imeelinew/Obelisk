@@ -117,10 +117,33 @@ public final class BookmarkStore {
             return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
         }
 
-        return FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents")
+        return applicationSupportRootDirectory()
+    }
+
+    public static func applicationSupportRootDirectory() -> URL {
+        applicationSupportBaseDirectory()
+            .appendingPathComponent("com.eli.Obelisk", isDirectory: true)
             .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
+    }
+
+    private static func applicationSupportBaseDirectory() -> URL {
+        let fileManager = FileManager.default
+        if let url = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) {
+            return url
+        }
+
+        if let url = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            return url
+        }
+
+        return fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
     }
 
     public func updateRootDirectory(_ rootDirectory: URL) {

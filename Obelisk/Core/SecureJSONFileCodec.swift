@@ -945,9 +945,7 @@ public final class KeychainEncryptionKeyStore {
            !override.isEmpty {
             return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents")
-            .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
+        return BookmarkStore.defaultRootDirectory()
     }
 
     private func allKeychainKeyCandidates() -> [Data] {

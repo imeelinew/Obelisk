@@ -47,7 +47,7 @@ Browser bookmarks are usually tied to one browser, buried in sidebars or nested 
 - **Menu bar first**: open pinned, recently added, and full bookmark lists without switching windows.
 - **Native settings window**: search, organize, hide, and archive bookmarks in a macOS-style window.
 - **Hidden bookmarks**: protect sensitive bookmarks with device-owner authentication.
-- **Local encrypted storage**: bookmark data lives in `Obelisk.obelisk` under your local `Documents` folder.
+- **Local encrypted storage**: bookmark data lives in `Obelisk.obelisk` under your local `Application Support` folder.
 - **AI optimization**: Obelisk supports BYOK for automatic title optimization and auto-grouping. I call this Intelligence. As your collection grows over time, the automatic cleanup stays convenient and easy to scan.
 
 ## Menu Bar

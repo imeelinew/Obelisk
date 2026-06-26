@@ -34,6 +34,8 @@ struct NativeBookmarkList: NSViewRepresentable {
     var sections: [BookmarkListSection]
     @Binding var selection: Set<Bookmark.ID>
     var focusFirstBookmarkRequest: Int = 0
+    var focusSelectedBookmarkRequest: Int = 0
+    var onCancel: (() -> Void)?
     var selectedCollectionId: Binding<UUID?>?
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
@@ -116,6 +118,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             context.coordinator.syncSelectionToTable()
         }
         context.coordinator.handleFocusFirstBookmarkRequestIfNeeded()
+        context.coordinator.handleFocusSelectedBookmarkRequestIfNeeded()
     }
 
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("BookmarkColumn")
@@ -131,6 +134,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         private var hoveredRow: Int = -1
         fileprivate var cachedFaviconVersion: Int = -1
         private var handledFocusFirstBookmarkRequest = 0
+        private var handledFocusSelectedBookmarkRequest = 0
 
         init(_ parent: NativeBookmarkList) {
             self.parent = parent
@@ -383,6 +387,24 @@ struct NativeBookmarkList: NSViewRepresentable {
             parent.onOpen?(bookmark)
         }
 
+        func bookmarkMenuTableViewCancel(_ tableView: BookmarkMenuTableView) -> Bool {
+            guard let onCancel = parent.onCancel else { return false }
+            onCancel()
+            return true
+        }
+
+        func bookmarkMenuTableView(
+            _ tableView: BookmarkMenuTableView,
+            nextSelectableRowAfter row: Int
+        ) -> Int? {
+            let startRow = max(row + 1, 0)
+            guard startRow < items.count else { return nil }
+
+            return items.indices[startRow...].first { candidate in
+                items[candidate].bookmark != nil || selectedCollectionId(for: candidate) != nil
+            }
+        }
+
         func numberOfRows(in tableView: NSTableView) -> Int {
             items.count
         }
@@ -610,6 +632,30 @@ struct NativeBookmarkList: NSViewRepresentable {
             tableView.scrollRowToVisible(row)
         }
 
+        func handleFocusSelectedBookmarkRequestIfNeeded() {
+            guard parent.focusSelectedBookmarkRequest > 0,
+                  parent.focusSelectedBookmarkRequest != handledFocusSelectedBookmarkRequest,
+                  let tableView
+            else {
+                return
+            }
+
+            let rowIndexes = NativeBookmarkSelectionResolver.rowIndexes(
+                for: parent.selection,
+                selectedRowKeys: selectedRowKeys,
+                selectedCollectionId: parent.selectedCollectionId?.wrappedValue,
+                in: items
+            )
+            guard !rowIndexes.isEmpty else { return }
+
+            handledFocusSelectedBookmarkRequest = parent.focusSelectedBookmarkRequest
+            tableView.window?.makeFirstResponder(tableView)
+            tableView.selectRowIndexes(rowIndexes, byExtendingSelection: false)
+            if let row = rowIndexes.first {
+                tableView.scrollRowToVisible(row)
+            }
+        }
+
         private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
 
         func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
@@ -773,6 +819,12 @@ struct NativeBookmarkSelectionState: Equatable {
 enum NativeBookmarkSelectionResolver {
     static func firstBookmarkRowIndex(in items: [NativeBookmarkListItem]) -> Int? {
         items.firstIndex { $0.bookmark != nil }
+    }
+
+    static func nextBookmarkRowIndex(after row: Int, in items: [NativeBookmarkListItem]) -> Int? {
+        let startRow = max(row + 1, 0)
+        guard startRow < items.count else { return nil }
+        return items.indices[startRow...].first { items[$0].bookmark != nil }
     }
 
     static func selection(
@@ -964,6 +1016,24 @@ protocol BookmarkMenuTableViewDelegate: AnyObject {
     func bookmarkMenuTableViewEditSelection(_ tableView: BookmarkMenuTableView)
     func bookmarkMenuTableViewDeleteSelection(_ tableView: BookmarkMenuTableView)
     func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView)
+    func bookmarkMenuTableViewCancel(_ tableView: BookmarkMenuTableView) -> Bool
+    func bookmarkMenuTableView(
+        _ tableView: BookmarkMenuTableView,
+        nextSelectableRowAfter row: Int
+    ) -> Int?
+}
+
+extension BookmarkMenuTableViewDelegate {
+    func bookmarkMenuTableViewCancel(_ tableView: BookmarkMenuTableView) -> Bool {
+        false
+    }
+
+    func bookmarkMenuTableView(
+        _ tableView: BookmarkMenuTableView,
+        nextSelectableRowAfter row: Int
+    ) -> Int? {
+        nil
+    }
 }
 
 /// Centralized hover tracking. Per-row NSTrackingAreas are unreliable inside
@@ -1032,6 +1102,17 @@ class BookmarkMenuTableView: NSTableView {
             return
         }
 
+        if modifiers.isEmpty,
+           event.keyCode == UInt16(kVK_Escape),
+           menuDelegate?.bookmarkMenuTableViewCancel(self) == true {
+            return
+        }
+
+        if modifiers.isEmpty, event.keyCode == UInt16(kVK_Tab) {
+            moveSelectionDownLikeArrow()
+            return
+        }
+
         if modifiers.isEmpty, event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) {
             menuDelegate?.bookmarkMenuTableViewDeleteSelection(self)
             return
@@ -1043,6 +1124,23 @@ class BookmarkMenuTableView: NSTableView {
         }
 
         super.keyDown(with: event)
+    }
+
+    override func insertTab(_ sender: Any?) {
+        moveSelectionDownLikeArrow()
+    }
+
+    override func insertTabIgnoringFieldEditor(_ sender: Any?) {
+        moveSelectionDownLikeArrow()
+    }
+
+    private func moveSelectionDownLikeArrow() {
+        let currentRow = selectedRowIndexes.max() ?? -1
+        guard let nextRow = menuDelegate?.bookmarkMenuTableView(self, nextSelectableRowAfter: currentRow) else {
+            return
+        }
+        selectRowIndexes(IndexSet(integer: nextRow), byExtendingSelection: false)
+        scrollRowToVisible(nextRow)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

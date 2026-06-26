@@ -3061,6 +3061,7 @@ struct NativeSearchField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var focusesOnAppear = false
+    var focusRequest = 0
     var onEscape: (() -> Void)?
     var onTab: (() -> Void)?
     var onEnter: ((String) -> Void)?
@@ -3079,6 +3080,7 @@ struct NativeSearchField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSSearchField {
         let searchField = FocusableSearchField()
         searchField.focusesOnAppear = focusesOnAppear
+        searchField.focusRequest = focusRequest
         searchField.onEscape = onEscape
         searchField.onTab = onTab
         searchField.onEnter = onEnter
@@ -3097,6 +3099,7 @@ struct NativeSearchField: NSViewRepresentable {
     func updateNSView(_ searchField: NSSearchField, context: Context) {
         if let searchField = searchField as? FocusableSearchField {
             searchField.focusesOnAppear = focusesOnAppear
+            searchField.focusRequest = focusRequest
             searchField.onEscape = onEscape
             searchField.onTab = onTab
             searchField.onEnter = onEnter
@@ -3120,7 +3123,9 @@ struct NativeSearchField: NSViewRepresentable {
         var onTab: (() -> Void)?
         var onEnter: ((String) -> Void)?
         var onDownArrow: (() -> Void)?
+        var focusRequest = 0
         private var didFocus = false
+        private var handledFocusRequest = 0
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -3161,11 +3166,25 @@ struct NativeSearchField: NSViewRepresentable {
         }
 
         func focusIfNeeded() {
-            guard focusesOnAppear, !didFocus, window != nil else { return }
+            guard window != nil else { return }
+            let shouldFocusOnAppear = focusesOnAppear && !didFocus
+            let shouldFocusForRequest = focusRequest > 0 && focusRequest != handledFocusRequest
+            guard shouldFocusOnAppear || shouldFocusForRequest else { return }
+
             DispatchQueue.main.async { [weak self] in
-                guard let self, !self.didFocus, let window = self.window else { return }
-                window.makeFirstResponder(self)
-                self.didFocus = true
+                guard let self, let window = self.window else { return }
+                let shouldFocusOnAppear = self.focusesOnAppear && !self.didFocus
+                let shouldFocusForRequest = self.focusRequest > 0 &&
+                    self.focusRequest != self.handledFocusRequest
+                guard shouldFocusOnAppear || shouldFocusForRequest else { return }
+
+                window.makeKey()
+                if window.makeFirstResponder(self) {
+                    self.didFocus = true
+                    if self.focusRequest > 0 {
+                        self.handledFocusRequest = self.focusRequest
+                    }
+                }
             }
         }
     }

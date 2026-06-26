@@ -130,6 +130,8 @@ struct MenuBarBookmarkSearchView: View {
     @State private var searchText = ""
     @State private var selection: Set<Bookmark.ID> = []
     @State private var focusFirstBookmarkRequest = 0
+    @State private var focusSelectedBookmarkRequest = 0
+    @State private var focusSearchFieldRequest = 0
 
     private var searchSections: [BookmarkListSection] {
         searchSections(matching: searchText)
@@ -162,8 +164,9 @@ struct MenuBarBookmarkSearchView: View {
                 text: $searchText,
                 placeholder: "搜索",
                 focusesOnAppear: true,
-                onEscape: onClose,
-                onTab: focusFirstSearchResult,
+                focusRequest: focusSearchFieldRequest,
+                onEscape: clearSearchAndFocusField,
+                onTab: focusNextSearchResult,
                 onEnter: openFirstSearchResult,
                 onDownArrow: focusFirstSearchResult
             )
@@ -187,12 +190,14 @@ struct MenuBarBookmarkSearchView: View {
                     sections: searchSections,
                     selection: $selection,
                     focusFirstBookmarkRequest: focusFirstBookmarkRequest,
+                    focusSelectedBookmarkRequest: focusSelectedBookmarkRequest,
+                    onCancel: clearSearchAndFocusField,
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: { bookmark in
-                        onClose()
                         onOpen(bookmark)
+                        onClose()
                     }
                 )
             }
@@ -201,6 +206,7 @@ struct MenuBarBookmarkSearchView: View {
         .onAppear(perform: updateCommandBridge)
         .onDisappear {
             commandBridge.openHandler = nil
+            commandBridge.resetHandler = nil
         }
         .onChange(of: searchText) { _, _ in
             updateCommandBridge()
@@ -211,15 +217,44 @@ struct MenuBarBookmarkSearchView: View {
     }
 
     private func focusFirstSearchResult() {
-        guard firstSearchResult != nil else { return }
+        guard let firstSearchResult else { return }
+        selection = [firstSearchResult.id]
         focusFirstBookmarkRequest += 1
+    }
+
+    private func focusNextSearchResult() {
+        guard !selection.isEmpty else {
+            focusFirstSearchResult()
+            return
+        }
+
+        let items = searchSections.flattenedItems
+        let currentRow = items.firstIndex { item in
+            guard let bookmark = item.bookmark else { return false }
+            return selection.contains(bookmark.id)
+        } ?? -1
+        guard
+            let nextRow = NativeBookmarkSelectionResolver.nextBookmarkRowIndex(after: currentRow, in: items),
+            let bookmark = items[nextRow].bookmark
+        else {
+            return
+        }
+
+        selection = [bookmark.id]
+        focusSelectedBookmarkRequest += 1
+    }
+
+    private func clearSearchAndFocusField() {
+        searchText = ""
+        selection.removeAll()
+        focusSearchFieldRequest += 1
     }
 
     private func openFirstSearchResult(matching query: String) {
         searchText = query
         guard let firstSearchResult = firstSearchResult(matching: query) else { return }
-        onClose()
         onOpen(firstSearchResult)
+        onClose()
     }
 
     private func openSelectedOrFirstSearchResult(query: String?) {
@@ -231,13 +266,16 @@ struct MenuBarBookmarkSearchView: View {
             ?? query.flatMap(firstSearchResult(matching:))
             ?? firstSearchResult
         guard let bookmark else { return }
-        onClose()
         onOpen(bookmark)
+        onClose()
     }
 
     private func updateCommandBridge() {
         commandBridge.openHandler = { query in
             openSelectedOrFirstSearchResult(query: query)
+        }
+        commandBridge.resetHandler = {
+            clearSearchAndFocusField()
         }
     }
 }
@@ -245,8 +283,13 @@ struct MenuBarBookmarkSearchView: View {
 @MainActor
 final class MenuBarSearchCommandBridge {
     var openHandler: ((String?) -> Void)?
+    var resetHandler: (() -> Void)?
 
     func open(query: String?) {
         openHandler?(query)
+    }
+
+    func reset() {
+        resetHandler?()
     }
 }

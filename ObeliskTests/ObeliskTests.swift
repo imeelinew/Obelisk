@@ -31,7 +31,10 @@ struct SmokeTests {
         try testHiddenBookmarkKeywordExclusion()
         try testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate()
         try testNativeBookmarkListFirstBookmarkRowSkipsHeaders()
+        try testMenuBarSearchKeyCommandHandlesEscapeAndEnterOnly()
         try testNativeSearchFieldEnterUsesFieldEditorText()
+        try testNativeSearchFieldEscapeUsesFirstCommand()
+        try testMenuBarSearchCommandBridgeOpensOnce()
         try testBookmarkMenuTableViewReturnOpensSelection()
         try testArchivePersistence()
         try testManualArchiveIndependentOfAutoArchiveSetting()
@@ -594,6 +597,56 @@ struct SmokeTests {
     }
 
     @MainActor
+    private static func testMenuBarSearchKeyCommandHandlesEscapeAndEnterOnly() throws {
+        try expect(
+            MenuBarSearchKeyCommand.command(
+                for: keyEvent(keyCode: UInt16(kVK_Escape), characters: "\u{1b}"),
+                hasMarkedText: false
+            ) == .close,
+            "expected Escape to close the menu bar search popover"
+        )
+        try expect(
+            MenuBarSearchKeyCommand.command(
+                for: keyEvent(keyCode: UInt16(kVK_Return), characters: "\r"),
+                hasMarkedText: false
+            ) == .open,
+            "expected Return to open the current menu bar search result"
+        )
+        try expect(
+            MenuBarSearchKeyCommand.command(
+                for: keyEvent(
+                    keyCode: UInt16(kVK_ANSI_KeypadEnter),
+                    characters: "\r",
+                    modifierFlags: .numericPad
+                ),
+                hasMarkedText: false
+            ) == .open,
+            "expected keypad Enter to open the current menu bar search result"
+        )
+        try expect(
+            MenuBarSearchKeyCommand.command(
+                for: keyEvent(keyCode: UInt16(kVK_Space), characters: " "),
+                hasMarkedText: false
+            ) == .passThrough,
+            "expected Space to remain normal search-field input"
+        )
+        try expect(
+            MenuBarSearchKeyCommand.command(
+                for: keyEvent(keyCode: UInt16(kVK_Return), characters: "\r", modifierFlags: .command),
+                hasMarkedText: false
+            ) == .passThrough,
+            "expected modified Return to pass through"
+        )
+        try expect(
+            MenuBarSearchKeyCommand.command(
+                for: keyEvent(keyCode: UInt16(kVK_Return), characters: "\r"),
+                hasMarkedText: true
+            ) == .passThrough,
+            "expected Return during marked text composition to pass through"
+        )
+    }
+
+    @MainActor
     private static func testNativeSearchFieldEnterUsesFieldEditorText() throws {
         var text = ""
         var enteredQuery: String?
@@ -620,6 +673,51 @@ struct SmokeTests {
         try expect(handled, "expected search field Enter command to be handled")
         try expect(text == "youtube", "expected Enter command to sync current field-editor text")
         try expect(enteredQuery == "youtube", "expected Enter callback to receive current field-editor text")
+    }
+
+    @MainActor
+    private static func testNativeSearchFieldEscapeUsesFirstCommand() throws {
+        var text = ""
+        var closeCount = 0
+        let binding = Binding<String>(
+            get: { text },
+            set: { text = $0 }
+        )
+        let coordinator = NativeSearchField.Coordinator(
+            text: binding,
+            onEscape: { closeCount += 1 },
+            onTab: nil,
+            onEnter: nil,
+            onDownArrow: nil
+        )
+        let textView = NSTextView()
+        textView.string = "foo bar"
+
+        let handled = coordinator.control(
+            NSSearchField(),
+            textView: textView,
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
+        )
+
+        try expect(handled, "expected search field Escape command to be handled")
+        try expect(text == "foo bar", "expected Escape command to sync current field-editor text")
+        try expect(closeCount == 1, "expected first Escape command to close exactly once")
+    }
+
+    @MainActor
+    private static func testMenuBarSearchCommandBridgeOpensOnce() throws {
+        let bridge = MenuBarSearchCommandBridge()
+        var openCount = 0
+        var openedQuery: String?
+        bridge.openHandler = { query in
+            openCount += 1
+            openedQuery = query
+        }
+
+        bridge.open(query: "foo bar")
+
+        try expect(openCount == 1, "expected menu bar search command bridge to open exactly once")
+        try expect(openedQuery == "foo bar", "expected menu bar search command bridge to preserve query text")
     }
 
     @MainActor

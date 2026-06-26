@@ -104,6 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         openManager()
     }
 
+    func applicationDidResignActive(_ notification: Notification) {
+        dismissMenuBarSearchPopover()
+    }
+
     /// Global shortcuts (user-customizable in Settings) fetch the frontmost
     /// browser tab via AppleScript, or fall back to a clipboard http(s) URL.
     private func installKeyboardShortcutHandlers() {
@@ -276,7 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let hosting = NSHostingController(rootView: contentView)
 
         let popover = NSPopover()
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
         popover.contentViewController = hosting
@@ -286,8 +290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         searchInputSourceSwitcher.switchToUSEnglish()
-        DispatchQueue.main.async { [searchInputSourceSwitcher] in
+        DispatchQueue.main.async { [weak popover, searchInputSourceSwitcher] in
             searchInputSourceSwitcher.switchToUSEnglish()
+            Self.focusSearchField(in: popover?.contentViewController?.view)
         }
     }
 
@@ -312,19 +317,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                 return event
             }
 
-            let modifiers = event.modifierFlags
-                .intersection(.deviceIndependentFlagsMask)
-                .subtracting(.numericPad)
-            guard modifiers.isEmpty else { return event }
-            guard event.keyCode == UInt16(kVK_Return) || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) else {
+            let popoverWindow = self.searchPopover?.contentViewController?.view.window
+            let eventWindow = event.window ?? popoverWindow
+            switch MenuBarSearchKeyCommand.command(
+                for: event,
+                hasMarkedText: Self.firstResponderHasMarkedText(in: eventWindow)
+            ) {
+            case .close:
+                commandBridge.reset()
+                return nil
+            case .open:
+                commandBridge.open(query: Self.currentText(
+                    in: eventWindow,
+                    fallbackView: self.searchPopover?.contentViewController?.view
+                ))
+                return nil
+            case .passThrough:
                 return event
             }
-            guard !Self.firstResponderHasMarkedText(in: event.window) else {
-                return event
-            }
-
-            commandBridge.open(query: Self.currentText(in: event.window))
-            return nil
         }
     }
 
@@ -339,19 +349,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         return firstResponder.hasMarkedText()
     }
 
-    private static func currentText(in window: NSWindow?) -> String? {
-        guard let firstResponder = window?.firstResponder else { return nil }
-        if let textView = firstResponder as? NSTextView {
-            return textView.string
+    private static func currentText(in window: NSWindow?, fallbackView: NSView?) -> String? {
+        if let firstResponder = window?.firstResponder {
+            if let textView = firstResponder as? NSTextView {
+                return textView.string
+            }
+            if let searchField = firstResponder as? NSSearchField {
+                return searchField.stringValue
+            }
+            if let view = firstResponder as? NSView,
+               let searchField = sequence(first: view, next: \.superview)
+                .compactMap({ $0 as? NSSearchField })
+                .first {
+                return searchField.stringValue
+            }
         }
-        if let searchField = firstResponder as? NSSearchField {
-            return searchField.stringValue
+
+        return searchField(in: fallbackView)?.stringValue
+    }
+
+    private static func focusSearchField(in view: NSView?, remainingAttempts: Int = 6) {
+        guard let view else { return }
+        if let searchField = searchField(in: view), let window = searchField.window {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKey()
+            if window.makeFirstResponder(searchField) {
+                return
+            }
         }
-        if let view = firstResponder as? NSView,
-           let searchField = sequence(first: view, next: \.superview)
-            .compactMap({ $0 as? NSSearchField })
-            .first {
-            return searchField.stringValue
+
+        guard remainingAttempts > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            focusSearchField(in: view, remainingAttempts: remainingAttempts - 1)
+        }
+    }
+
+    private static func searchField(in view: NSView?) -> NSSearchField? {
+        guard let view else { return nil }
+        if let searchField = view as? NSSearchField {
+            return searchField
+        }
+        for subview in view.subviews {
+            if let searchField = searchField(in: subview) {
+                return searchField
+            }
         }
         return nil
     }
@@ -593,6 +634,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         if let button = statusItem.button {
             button.image = AppIcon.menuBarImage()
             button.title = ""
+            button.refusesFirstResponder = true
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -601,6 +643,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         dismissNotificationPopover()
+
+        if searchPopover?.isShown == true {
+            if let event = NSApp.currentEvent,
+               event.type == .keyDown || event.type == .keyUp {
+                let popoverView = searchPopover?.contentViewController?.view
+                let popoverWindow = popoverView?.window
+                switch MenuBarSearchKeyCommand.command(
+                    for: event,
+                    hasMarkedText: Self.firstResponderHasMarkedText(in: popoverWindow)
+                ) {
+                case .close:
+                    searchCommandBridge?.reset()
+                case .open:
+                    searchCommandBridge?.open(query: Self.currentText(
+                        in: popoverWindow,
+                        fallbackView: popoverView
+                    ))
+                case .passThrough:
+                    Self.focusSearchField(in: popoverView)
+                }
+            } else {
+                dismissMenuBarSearchPopover()
+            }
+            return
+        }
+
         dismissMenuBarSearchPopover()
 
         guard let menu = statusMenu else {
@@ -883,6 +951,29 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
+
+@MainActor
+enum MenuBarSearchKeyCommand: Equatable {
+    case close
+    case open
+    case passThrough
+
+    static func command(for event: NSEvent, hasMarkedText: Bool) -> MenuBarSearchKeyCommand {
+        let modifiers = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting(.numericPad)
+        guard modifiers.isEmpty, !hasMarkedText else { return .passThrough }
+
+        switch event.keyCode {
+        case UInt16(kVK_Escape):
+            return .close
+        case UInt16(kVK_Return), UInt16(kVK_ANSI_KeypadEnter):
+            return .open
+        default:
+            return .passThrough
+        }
+    }
+}
 
 @MainActor
 private final class InputSourceSwitcher {

@@ -202,12 +202,17 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard row != hoveredRow else { return }
             let previous = hoveredRow
             hoveredRow = row
+
+            guard let tableView else { return }
+            let rowCount = tableView.numberOfRows
             if previous >= 0,
-               let view = tableView?.rowView(atRow: previous, makeIfNecessary: false) as? HoverableRowView {
+               previous < rowCount,
+               let view = tableView.rowView(atRow: previous, makeIfNecessary: false) as? HoverableRowView {
                 view.isHovered = false
             }
             if row >= 0,
-               let view = tableView?.rowView(atRow: row, makeIfNecessary: false) as? HoverableRowView {
+               row < rowCount,
+               let view = tableView.rowView(atRow: row, makeIfNecessary: false) as? HoverableRowView {
                 view.isHovered = true
             }
         }

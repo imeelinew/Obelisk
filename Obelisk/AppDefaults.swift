@@ -9,14 +9,10 @@ enum ObeliskAppDefaults {
     private static let sidebarIconSymbolSizeKey = "debugSidebarIconSymbolSize"
     private static let sidebarIconCornerRadiusKey = "debugSidebarIconCornerRadius"
     private static let professionalSidebarIconSizeKey = "debugProfessionalSidebarIconSize"
-    private static let professionalSidebarLabelSpacingKey = "debugProfessionalSidebarLabelSpacing"
-    private static let professionalSidebarLeadingInsetKey = "debugProfessionalSidebarLeadingInset"
     private static let defaultSidebarIconTileSize: Double = 22
     private static let defaultSidebarIconSymbolSize: Double = 11
     private static let defaultSidebarIconCornerRadius: Double = 6
     private static let defaultProfessionalSidebarIconSize: Double = 15
-    private static let defaultProfessionalSidebarLabelSpacing: Double = 12
-    private static let defaultProfessionalSidebarLeadingInset: Double = 6
 
     static func register(
         in defaults: UserDefaults = .standard,
@@ -29,8 +25,6 @@ enum ObeliskAppDefaults {
             sidebarIconSymbolSizeKey: defaultSidebarIconSymbolSize,
             sidebarIconCornerRadiusKey: defaultSidebarIconCornerRadius,
             professionalSidebarIconSizeKey: defaultProfessionalSidebarIconSize,
-            professionalSidebarLabelSpacingKey: defaultProfessionalSidebarLabelSpacing,
-            professionalSidebarLeadingInsetKey: defaultProfessionalSidebarLeadingInset,
             openHiddenBookmarksIncognitoKey: true,
             LocalJSONEncryption.enabledKey: true,
             LocalJSONEncryption.disabledByAuthenticatedUserKey: false
@@ -55,23 +49,8 @@ enum ObeliskAppDefaults {
                 || defaults.double(forKey: professionalSidebarIconSizeKey) == 13 {
                 defaults.set(defaultProfessionalSidebarIconSize, forKey: professionalSidebarIconSizeKey)
             }
-            if defaults.object(forKey: professionalSidebarLabelSpacingKey) == nil {
-                defaults.set(defaultProfessionalSidebarLabelSpacing, forKey: professionalSidebarLabelSpacingKey)
-            }
-            if defaults.object(forKey: professionalSidebarLeadingInsetKey) == nil
-                || defaults.double(forKey: professionalSidebarLeadingInsetKey) == 0 {
-                defaults.set(defaultProfessionalSidebarLeadingInset, forKey: professionalSidebarLeadingInsetKey)
-            }
             version = 1
             defaults.set(version, forKey: professionalSidebarDebugDefaultsVersionKey)
-        }
-
-        if version < 2 {
-            // v1 误把间距 12 迁成 2；恢复为 12，与当前默认一致。
-            if defaults.double(forKey: professionalSidebarLabelSpacingKey) == 2 {
-                defaults.set(defaultProfessionalSidebarLabelSpacing, forKey: professionalSidebarLabelSpacingKey)
-            }
-            defaults.set(professionalSidebarDebugDefaultsVersion, forKey: professionalSidebarDebugDefaultsVersionKey)
         }
 
         if version < 3 {
@@ -79,8 +58,6 @@ enum ObeliskAppDefaults {
             defaults.set(defaultSidebarIconSymbolSize, forKey: sidebarIconSymbolSizeKey)
             defaults.set(defaultSidebarIconCornerRadius, forKey: sidebarIconCornerRadiusKey)
             defaults.set(defaultProfessionalSidebarIconSize, forKey: professionalSidebarIconSizeKey)
-            defaults.set(defaultProfessionalSidebarLabelSpacing, forKey: professionalSidebarLabelSpacingKey)
-            defaults.set(defaultProfessionalSidebarLeadingInset, forKey: professionalSidebarLeadingInsetKey)
             defaults.set(professionalSidebarDebugDefaultsVersion, forKey: professionalSidebarDebugDefaultsVersionKey)
         }
     }

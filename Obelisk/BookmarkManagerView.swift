@@ -205,8 +205,6 @@ struct BookmarkManagerView: View {
     private let sidebarIconSymbolSize = 11.0
     private let sidebarIconCornerRadius = 6.0
     private let professionalSidebarIconSize = 15.0
-    private let professionalSidebarLabelSpacing = 12.0
-    private let professionalSidebarLeadingInset = 6.0
     @AppStorage("showHiddenBookmarksPage") private var showHiddenBookmarksPage = false
     @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
@@ -1486,8 +1484,6 @@ struct BookmarkManagerView: View {
         .environment(\.sidebarIconSymbolSize, sidebarIconSymbolSize)
         .environment(\.sidebarIconCornerRadius, sidebarIconCornerRadius)
         .environment(\.professionalSidebarIconSize, professionalSidebarIconSize)
-        .environment(\.professionalSidebarLabelSpacing, professionalSidebarLabelSpacing)
-        .environment(\.professionalSidebarLeadingInset, professionalSidebarLeadingInset)
         .toolbar {
             ToolbarSpacer(.flexible)
             settingsToolbar
@@ -1668,9 +1664,7 @@ struct BookmarkManagerView: View {
         List(selection: settingsPageBinding) {
             // 顶部：书签 / 隐藏书签 直接铺开，不带分组标题。
             ForEach(visibleSettingsPages.filter { $0.group == .content }) { page in
-                NavigationLink(value: page) {
-                    SidebarPageLabel(page: page, badgeCount: sidebarBadgeCount(for: page))
-                }
+                settingsSidebarRow(for: page)
             }
 
             // 其余按 group 分 Section，跳过 .content 避免重复。
@@ -1679,14 +1673,13 @@ struct BookmarkManagerView: View {
                 if !pages.isEmpty {
                     Section(group.rawValue) {
                         ForEach(pages) { page in
-                            NavigationLink(value: page) {
-                                SidebarPageLabel(page: page, badgeCount: sidebarBadgeCount(for: page))
-                            }
+                            settingsSidebarRow(for: page)
                         }
                     }
                 }
             }
         }
+        .listStyle(.sidebar)
         .navigationTitle("设置")
         .navigationSplitViewColumnWidth(min: 150, ideal: 180)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
@@ -1720,6 +1713,17 @@ struct BookmarkManagerView: View {
         default:
             return nil
         }
+    }
+
+    @ViewBuilder
+    private func settingsSidebarRow(for page: SettingsPage) -> some View {
+        NavigationLink(value: page) {
+            SidebarPageLabel(
+                page: page,
+                badgeCount: sidebarBadgeCount(for: page)
+            )
+        }
+        .listRowBackground(Color.clear)
     }
 
     private var bookmarkSortMenu: some View {
@@ -2978,82 +2982,93 @@ private struct SidebarPageLabel: View {
     let page: BookmarkManagerView.SettingsPage
     var badgeCount: Int?
     @Environment(\.sidebarIconTheme) private var theme
-    @Environment(\.professionalSidebarLabelSpacing) private var professionalLabelSpacing
-    @Environment(\.professionalSidebarLeadingInset) private var professionalLeadingInset
-
-    private var labelSpacing: CGFloat {
-        theme == .professional ? professionalLabelSpacing : 12
-    }
-
-    var body: some View {
-        HStack(spacing: labelSpacing) {
-            SidebarCategoryIcon(page: page)
-
-            Text(page.title)
-
-            Spacer(minLength: 8)
-
-            if let badgeCount {
-                Text("\(badgeCount)")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .padding(.trailing, 6)
-            }
-        }
-        .padding(.leading, theme == .professional ? professionalLeadingInset : 0)
-    }
-}
-
-private struct SidebarCategoryIcon: View {
-    let page: BookmarkManagerView.SettingsPage
-    @Environment(\.sidebarIconTheme) private var theme
-    @Environment(\.sidebarIconTileSize) private var tileSize
-    @Environment(\.sidebarIconSymbolSize) private var symbolSize
-    @Environment(\.sidebarIconCornerRadius) private var cornerRadius
     @Environment(\.professionalSidebarIconSize) private var professionalIconSize
 
     var body: some View {
         Group {
             switch theme {
             case .professional:
-                if page == .ai {
-                    IntelligenceSymbolIcon(size: professionalIconSize)
-                } else {
-                    Image(systemName: page.professionalSymbolName)
-                        .font(.system(size: professionalIconSize, weight: .semibold))
-                        .symbolRenderingMode(.monochrome)
-                        .foregroundStyle(.primary)
+                HStack(spacing: 8) {
+                    Label {
+                        Text(page.title)
+                    } icon: {
+                        Image(systemName: page.professionalSymbolName)
+                            .font(.system(size: professionalIconSize, weight: .semibold))
+                    }
+                        .lineLimit(1)
+
+                    Spacer(minLength: 8)
+
+                    sidebarBadgeText
                 }
             case .colorful:
-                if page == .ai {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(Color.white.opacity(0.94))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                    .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
-                            }
-
-                        IntelligenceSymbolIcon(size: symbolSize + 2)
-                    }
-                    .shadow(color: Color.black.opacity(0.10), radius: 1.5, y: 0.5)
-                } else {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(page.iconGradient)
-
-                        Image(systemName: page.symbolName)
-                            .font(.system(size: symbolSize, weight: .semibold))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.white)
-                    }
+                HStack(spacing: 12) {
+                    SidebarCategoryIcon(page: page)
+                    sidebarTitleRow
                 }
             }
         }
-        .frame(
-            width: theme == .professional ? professionalIconSize : tileSize,
-            height: theme == .professional ? professionalIconSize : tileSize
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var sidebarTitleRow: some View {
+        HStack {
+            Text(page.title)
+
+            Spacer(minLength: 8)
+
+            if badgeCount != nil {
+                sidebarBadgeText
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sidebarBadgeText: some View {
+        if let badgeCount {
+            Text("\(badgeCount)")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .padding(.trailing, 6)
+        }
+    }
+}
+
+private struct SidebarCategoryIcon: View {
+    let page: BookmarkManagerView.SettingsPage
+    @Environment(\.sidebarIconTileSize) private var tileSize
+    @Environment(\.sidebarIconSymbolSize) private var symbolSize
+    @Environment(\.sidebarIconCornerRadius) private var cornerRadius
+
+    var body: some View {
+        Group {
+            if page == .ai {
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.white.opacity(0.94))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                        }
+
+                    IntelligenceSymbolIcon(size: symbolSize + 2)
+                }
+                .shadow(color: Color.black.opacity(0.10), radius: 1.5, y: 0.5)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(page.iconGradient)
+
+                    Image(systemName: page.symbolName)
+                        .font(.system(size: symbolSize, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .frame(width: tileSize, height: tileSize)
     }
 }
 
@@ -3274,14 +3289,6 @@ private struct ProfessionalSidebarIconSizeKey: EnvironmentKey {
     static let defaultValue: Double = 15
 }
 
-private struct ProfessionalSidebarLabelSpacingKey: EnvironmentKey {
-    static let defaultValue: Double = 12
-}
-
-private struct ProfessionalSidebarLeadingInsetKey: EnvironmentKey {
-    static let defaultValue: Double = 6
-}
-
 private extension EnvironmentValues {
     var sidebarIconTheme: SidebarIconTheme {
         get { self[SidebarIconThemeKey.self] }
@@ -3306,16 +3313,6 @@ private extension EnvironmentValues {
     var professionalSidebarIconSize: Double {
         get { self[ProfessionalSidebarIconSizeKey.self] }
         set { self[ProfessionalSidebarIconSizeKey.self] = newValue }
-    }
-
-    var professionalSidebarLabelSpacing: Double {
-        get { self[ProfessionalSidebarLabelSpacingKey.self] }
-        set { self[ProfessionalSidebarLabelSpacingKey.self] = newValue }
-    }
-
-    var professionalSidebarLeadingInset: Double {
-        get { self[ProfessionalSidebarLeadingInsetKey.self] }
-        set { self[ProfessionalSidebarLeadingInsetKey.self] = newValue }
     }
 }
 

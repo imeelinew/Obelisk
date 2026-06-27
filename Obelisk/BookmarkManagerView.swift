@@ -387,18 +387,18 @@ struct BookmarkManagerView: View {
 
         var professionalSymbolName: String {
             switch self {
-            case .bookmarks:       return "bookmark"
+            case .bookmarks:       return "bookmark.fill"
             case .search:          return "magnifyingglass"
-            case .collections:     return "folder"
-            case .hiddenBookmarks: return "eye.slash"
-            case .archive:         return "archivebox"
-            case .appearance:      return "paintpalette"
+            case .collections:     return "folder.fill"
+            case .hiddenBookmarks: return "eye.slash.fill"
+            case .archive:         return "archivebox.fill"
+            case .appearance:      return "paintpalette.fill"
             case .menuBar:         return "menubar.rectangle"
             case .shortcuts:       return "command"
             case .ai:              return IntelligenceSymbolIcon.symbolName
-            case .privacy:         return "lock"
-            case .settings:        return "gearshape"
-            case .developer:       return "wrench"
+            case .privacy:         return "lock.fill"
+            case .settings:        return "gearshape.fill"
+            case .developer:       return "wrench.fill"
             }
         }
 

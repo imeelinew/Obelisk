@@ -1,16 +1,16 @@
 {
-  "fill" : {
-    "automatic-gradient" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
-  },
+  "fill" : "automatic",
   "groups" : [
     {
       "layers" : [
         {
           "blend-mode" : "normal",
+          "fill" : "none",
           "glass" : true,
+          "hidden" : false,
           "image-name" : "pyramid.fill.svg",
           "name" : "pyramid.fill",
-          "opacity" : 1,
+          "opacity" : 0.95,
           "position" : {
             "scale" : 24,
             "translation-in-points" : [
@@ -27,6 +27,31 @@
       "translucency" : {
         "enabled" : true,
         "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "image-name" : "pyramid.fill 2.svg",
+          "name" : "pyramid.fill 2",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 30,
+            "translation-in-points" : [
+              5.526963975007845,
+              -13.476570000000038
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.6
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.2
       }
     }
   ],

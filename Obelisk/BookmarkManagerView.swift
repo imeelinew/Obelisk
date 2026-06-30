@@ -402,6 +402,40 @@ struct BookmarkManagerView: View {
             }
         }
 
+        var professionalIconResourceName: String {
+            switch self {
+            case .bookmarks:       return "bookmark"
+            case .search:          return "search"
+            case .collections:     return "folder-bookmark"
+            case .hiddenBookmarks: return "eye-off"
+            case .archive:         return "archive"
+            case .appearance:      return "palette"
+            case .menuBar:         return "app-window"
+            case .shortcuts:       return "command"
+            case .ai:              return "astroid"
+            case .privacy:         return "hat-glasses"
+            case .settings:        return "settings"
+            case .developer:       return "wrench"
+            }
+        }
+
+        var professionalIconColor: Color {
+            switch self {
+            case .bookmarks:       return Color(red: 0.00, green: 0.48, blue: 1.00)
+            case .search:          return Color(red: 0.00, green: 0.48, blue: 1.00)
+            case .collections:     return Color(red: 0.00, green: 0.60, blue: 0.32)
+            case .hiddenBookmarks: return Color(red: 0.36, green: 0.34, blue: 0.84)
+            case .archive:         return Color(red: 0.00, green: 0.62, blue: 0.72)
+            case .appearance:      return Color(red: 0.56, green: 0.18, blue: 0.96)
+            case .menuBar:         return Color(red: 0.00, green: 0.58, blue: 0.90)
+            case .shortcuts:       return Color(red: 0.12, green: 0.44, blue: 0.86)
+            case .ai:              return Color(red: 0.93, green: 0.62, blue: 0.00)
+            case .privacy:         return Color(red: 0.36, green: 0.34, blue: 0.84)
+            case .settings:        return Color(red: 0.00, green: 0.48, blue: 1.00)
+            case .developer:       return Color(red: 0.95, green: 0.43, blue: 0.05)
+            }
+        }
+
         var iconGradient: LinearGradient {
             switch self {
             case .bookmarks:
@@ -1684,6 +1718,8 @@ struct BookmarkManagerView: View {
         .navigationSplitViewColumnWidth(min: 150, ideal: 180)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .background {
+            SidebarSourceListStyleInstaller(enabled: sidebarIconTheme == .professional)
+
             if windowTransparencyEnabled {
                 Color.clear
                 TransparentListBackgroundInstaller()
@@ -1717,13 +1753,22 @@ struct BookmarkManagerView: View {
 
     @ViewBuilder
     private func settingsSidebarRow(for page: SettingsPage) -> some View {
-        NavigationLink(value: page) {
-            SidebarPageLabel(
-                page: page,
-                badgeCount: sidebarBadgeCount(for: page)
-            )
+        if sidebarIconTheme == .professional {
+            NavigationLink(value: page) {
+                SidebarPageLabel(
+                    page: page,
+                    badgeCount: sidebarBadgeCount(for: page)
+                )
+            }
+        } else {
+            NavigationLink(value: page) {
+                SidebarPageLabel(
+                    page: page,
+                    badgeCount: sidebarBadgeCount(for: page)
+                )
+            }
+            .listRowBackground(Color.clear)
         }
-        .listRowBackground(Color.clear)
     }
 
     private var bookmarkSortMenu: some View {
@@ -2992,8 +3037,10 @@ private struct SidebarPageLabel: View {
                     Label {
                         Text(page.title)
                     } icon: {
-                        Image(systemName: page.professionalSymbolName)
-                            .font(.system(size: professionalIconSize, weight: .semibold))
+                        ProfessionalSidebarIcon(
+                            page: page,
+                            size: CGFloat(professionalIconSize + 3)
+                        )
                     }
                         .lineLimit(1)
 
@@ -3033,6 +3080,47 @@ private struct SidebarPageLabel: View {
                 .foregroundStyle(.secondary)
                 .padding(.trailing, 6)
         }
+    }
+}
+
+private struct ProfessionalSidebarIcon: View {
+    let page: BookmarkManagerView.SettingsPage
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let image = Self.resourceImage(named: page.professionalIconResourceName) {
+                Image(nsImage: image)
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+            } else {
+                Image(systemName: page.professionalSymbolName)
+                    .font(.system(size: size - 2, weight: .semibold))
+                    .symbolRenderingMode(.monochrome)
+            }
+        }
+        .foregroundStyle(page.professionalIconColor)
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private static func resourceImage(named name: String) -> NSImage? {
+        let resourceURLs = [
+            Bundle.main.resourceURL?.appendingPathComponent("\(name).svg"),
+            Bundle.main.resourceURL?.appendingPathComponent("SidebarIcons/\(name).svg"),
+            Bundle.main.resourceURL?.appendingPathComponent("Resources/SidebarIcons/\(name).svg")
+        ]
+
+        for url in resourceURLs.compactMap({ $0 }) {
+            if let image = NSImage(contentsOf: url) {
+                let copy = image.copy() as? NSImage ?? image
+                copy.isTemplate = true
+                return copy
+            }
+        }
+
+        return nil
     }
 }
 

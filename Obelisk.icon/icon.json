@@ -10,7 +10,7 @@
           "hidden" : false,
           "image-name" : "pyramid.fill.svg",
           "name" : "pyramid.fill",
-          "opacity" : 0.95,
+          "opacity" : 0.8,
           "position" : {
             "scale" : 24,
             "translation-in-points" : [

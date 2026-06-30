@@ -1513,11 +1513,6 @@ struct BookmarkManagerView: View {
         } detail: {
             settingsDetail
         }
-        .environment(\.sidebarIconTheme, sidebarIconTheme)
-        .environment(\.sidebarIconTileSize, sidebarIconTileSize)
-        .environment(\.sidebarIconSymbolSize, sidebarIconSymbolSize)
-        .environment(\.sidebarIconCornerRadius, sidebarIconCornerRadius)
-        .environment(\.professionalSidebarIconSize, professionalSidebarIconSize)
         .toolbar {
             ToolbarSpacer(.flexible)
             settingsToolbar
@@ -1695,36 +1690,18 @@ struct BookmarkManagerView: View {
     }
 
     private var settingsSidebar: some View {
-        List(selection: settingsPageBinding) {
-            // 顶部：书签 / 隐藏书签 直接铺开，不带分组标题。
-            ForEach(visibleSettingsPages.filter { $0.group == .content }) { page in
-                settingsSidebarRow(for: page)
-            }
-
-            // 其余按 group 分 Section，跳过 .content 避免重复。
-            ForEach(SettingsPage.Group.allCases.filter { $0 != .content }) { group in
-                let pages = visibleSettingsPages.filter { $0.group == group }
-                if !pages.isEmpty {
-                    Section(group.rawValue) {
-                        ForEach(pages) { page in
-                            settingsSidebarRow(for: page)
-                        }
-                    }
-                }
-            }
-        }
-        .listStyle(.sidebar)
+        AppKitSettingsSidebar(
+            pages: visibleSettingsPages,
+            selectedPage: settingsPageBinding,
+            badgeCount: sidebarBadgeCount(for:),
+            iconTheme: sidebarIconTheme,
+            colorfulIconSize: sidebarIconTileSize,
+            colorfulSymbolSize: sidebarIconSymbolSize,
+            colorfulCornerRadius: sidebarIconCornerRadius,
+            professionalIconSize: professionalSidebarIconSize
+        )
         .navigationTitle("设置")
         .navigationSplitViewColumnWidth(min: 150, ideal: 180)
-        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
-        .background {
-            SidebarSourceListStyleInstaller(enabled: sidebarIconTheme == .professional)
-
-            if windowTransparencyEnabled {
-                Color.clear
-                TransparentListBackgroundInstaller()
-            }
-        }
     }
 
     private var visibleSettingsPages: [SettingsPage] {
@@ -1748,26 +1725,6 @@ struct BookmarkManagerView: View {
             return archivedBookmarks.count
         default:
             return nil
-        }
-    }
-
-    @ViewBuilder
-    private func settingsSidebarRow(for page: SettingsPage) -> some View {
-        if sidebarIconTheme == .professional {
-            NavigationLink(value: page) {
-                SidebarPageLabel(
-                    page: page,
-                    badgeCount: sidebarBadgeCount(for: page)
-                )
-            }
-        } else {
-            NavigationLink(value: page) {
-                SidebarPageLabel(
-                    page: page,
-                    badgeCount: sidebarBadgeCount(for: page)
-                )
-            }
-            .listRowBackground(Color.clear)
         }
     }
 
@@ -3023,143 +2980,6 @@ struct BookmarkManagerView: View {
     }
 }
 
-private struct SidebarPageLabel: View {
-    let page: BookmarkManagerView.SettingsPage
-    var badgeCount: Int?
-    @Environment(\.sidebarIconTheme) private var theme
-    @Environment(\.professionalSidebarIconSize) private var professionalIconSize
-
-    var body: some View {
-        Group {
-            switch theme {
-            case .professional:
-                HStack(spacing: 8) {
-                    Label {
-                        Text(page.title)
-                    } icon: {
-                        ProfessionalSidebarIcon(
-                            page: page,
-                            size: CGFloat(professionalIconSize + 3)
-                        )
-                    }
-                        .lineLimit(1)
-
-                    Spacer(minLength: 8)
-
-                    sidebarBadgeText
-                }
-            case .colorful:
-                HStack(spacing: 12) {
-                    SidebarCategoryIcon(page: page)
-                    sidebarTitleRow
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    @ViewBuilder
-    private var sidebarTitleRow: some View {
-        HStack {
-            Text(page.title)
-
-            Spacer(minLength: 8)
-
-            if badgeCount != nil {
-                sidebarBadgeText
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var sidebarBadgeText: some View {
-        if let badgeCount {
-            Text("\(badgeCount)")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .padding(.trailing, 6)
-        }
-    }
-}
-
-private struct ProfessionalSidebarIcon: View {
-    let page: BookmarkManagerView.SettingsPage
-    let size: CGFloat
-
-    var body: some View {
-        Group {
-            if let image = Self.resourceImage(named: page.professionalIconResourceName) {
-                Image(nsImage: image)
-                    .resizable()
-                    .renderingMode(.template)
-                    .scaledToFit()
-            } else {
-                Image(systemName: page.professionalSymbolName)
-                    .font(.system(size: size - 2, weight: .semibold))
-                    .symbolRenderingMode(.monochrome)
-            }
-        }
-        .foregroundStyle(page.professionalIconColor)
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-
-    private static func resourceImage(named name: String) -> NSImage? {
-        let resourceURLs = [
-            Bundle.main.resourceURL?.appendingPathComponent("\(name).svg"),
-            Bundle.main.resourceURL?.appendingPathComponent("SidebarIcons/\(name).svg"),
-            Bundle.main.resourceURL?.appendingPathComponent("Resources/SidebarIcons/\(name).svg")
-        ]
-
-        for url in resourceURLs.compactMap({ $0 }) {
-            if let image = NSImage(contentsOf: url) {
-                let copy = image.copy() as? NSImage ?? image
-                copy.isTemplate = true
-                return copy
-            }
-        }
-
-        return nil
-    }
-}
-
-private struct SidebarCategoryIcon: View {
-    let page: BookmarkManagerView.SettingsPage
-    @Environment(\.sidebarIconTileSize) private var tileSize
-    @Environment(\.sidebarIconSymbolSize) private var symbolSize
-    @Environment(\.sidebarIconCornerRadius) private var cornerRadius
-
-    var body: some View {
-        Group {
-            if page == .ai {
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color.white.opacity(0.94))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
-                        }
-
-                    IntelligenceSymbolIcon(size: symbolSize + 2)
-                }
-                .shadow(color: Color.black.opacity(0.10), radius: 1.5, y: 0.5)
-            } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(page.iconGradient)
-
-                    Image(systemName: page.symbolName)
-                        .font(.system(size: symbolSize, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.white)
-                }
-            }
-        }
-        .frame(width: tileSize, height: tileSize)
-    }
-}
-
 struct NativeSearchField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
@@ -3354,53 +3174,6 @@ struct NativeSearchField: NSViewRepresentable {
                 onEnter?(sender.stringValue)
             }
         }
-    }
-}
-
-private struct SidebarIconThemeKey: EnvironmentKey {
-    static let defaultValue: SidebarIconTheme = .colorful
-}
-
-private struct SidebarIconTileSizeKey: EnvironmentKey {
-    static let defaultValue: Double = 32
-}
-
-private struct SidebarIconSymbolSizeKey: EnvironmentKey {
-    static let defaultValue: Double = 15
-}
-
-private struct SidebarIconCornerRadiusKey: EnvironmentKey {
-    static let defaultValue: Double = 8
-}
-
-private struct ProfessionalSidebarIconSizeKey: EnvironmentKey {
-    static let defaultValue: Double = 15
-}
-
-private extension EnvironmentValues {
-    var sidebarIconTheme: SidebarIconTheme {
-        get { self[SidebarIconThemeKey.self] }
-        set { self[SidebarIconThemeKey.self] = newValue }
-    }
-
-    var sidebarIconTileSize: Double {
-        get { self[SidebarIconTileSizeKey.self] }
-        set { self[SidebarIconTileSizeKey.self] = newValue }
-    }
-
-    var sidebarIconSymbolSize: Double {
-        get { self[SidebarIconSymbolSizeKey.self] }
-        set { self[SidebarIconSymbolSizeKey.self] = newValue }
-    }
-
-    var sidebarIconCornerRadius: Double {
-        get { self[SidebarIconCornerRadiusKey.self] }
-        set { self[SidebarIconCornerRadiusKey.self] = newValue }
-    }
-
-    var professionalSidebarIconSize: Double {
-        get { self[ProfessionalSidebarIconSizeKey.self] }
-        set { self[ProfessionalSidebarIconSizeKey.self] = newValue }
     }
 }
 

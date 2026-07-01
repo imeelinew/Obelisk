@@ -73,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var searchCommandBridge: MenuBarSearchCommandBridge?
     private var searchKeyMonitor: Any?
     private var statusMenu: NSMenu?
+    private var suppressStatusItemClickUntil: Date?
     private var pendingUndo: PendingBookmarkUndo?
     private var pendingUndoExpirationWorkItem: DispatchWorkItem?
 
@@ -642,6 +643,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        if shouldSuppressStatusItemClickAfterMenuClose() {
+            return
+        }
+
         dismissNotificationPopover()
 
         if searchPopover?.isShown == true {
@@ -685,6 +690,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private func showStatusMenu(_ menu: NSMenu) {
         guard let button = statusItem.button else { return }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
+    }
+
+    private func shouldSuppressStatusItemClickAfterMenuClose() -> Bool {
+        guard let suppressStatusItemClickUntil else { return false }
+        self.suppressStatusItemClickUntil = nil
+        return Date() <= suppressStatusItemClickUntil
     }
 
     private func clearLegacySpotlightIndex() {
@@ -856,6 +867,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func menuDidClose(_ menu: NSMenu) {
         statusItem.menu = nil
+        if mouseIsOverStatusItemButton {
+            suppressStatusItemClickUntil = Date().addingTimeInterval(0.25)
+        }
+    }
+
+    private var mouseIsOverStatusItemButton: Bool {
+        guard let button = statusItem.button else { return false }
+        let pointInWindow = button.window?.convertPoint(fromScreen: NSEvent.mouseLocation) ?? .zero
+        let pointInButton = button.convert(pointInWindow, from: nil)
+        return button.bounds.contains(pointInButton)
     }
 
     func popoverDidClose(_ notification: Notification) {

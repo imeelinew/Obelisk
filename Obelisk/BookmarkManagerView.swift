@@ -1936,12 +1936,6 @@ struct BookmarkManagerView: View {
             .frame(width: 154)
 
             Spacer(minLength: 0)
-
-            if bookmarkDisplayMode == .dateGrid {
-                Text("\(visibleBookmarks.count) 个书签")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 
@@ -1958,12 +1952,6 @@ struct BookmarkManagerView: View {
             .frame(width: 154)
 
             Spacer(minLength: 0)
-
-            if hiddenBookmarkDisplayMode == .dateGrid {
-                Text("\(hiddenBookmarks.count) 个书签")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 

@@ -454,10 +454,23 @@ private final class SettingsSidebarPageCell: NSTableCellView {
 }
 
 private final class SettingsSidebarColorIconView: NSView {
+    private let iconImageView = NSImageView()
     private var page: BookmarkManagerView.SettingsPage = .bookmarks
     private var iconSize: CGFloat = 22
     private var symbolSize: CGFloat = 11
     private var cornerRadius: CGFloat = 6
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        iconImageView.imageScaling = .scaleProportionallyDown
+        iconImageView.contentTintColor = .white
+        addSubview(iconImageView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     func configure(
         page: BookmarkManagerView.SettingsPage,
@@ -469,36 +482,41 @@ private final class SettingsSidebarColorIconView: NSView {
         self.iconSize = size
         self.symbolSize = symbolSize
         self.cornerRadius = cornerRadius
+        iconImageView.image = page.professionalAppKitIcon
+        iconImageView.contentTintColor = .white
         needsDisplay = true
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+
+        let rect = iconRect
+        let drawSize = symbolSize + 2
+        iconImageView.frame = NSRect(
+            x: rect.midX - drawSize / 2,
+            y: rect.midY - drawSize / 2,
+            width: drawSize,
+            height: drawSize
+        )
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let rect = bounds.insetBy(dx: max(0, (bounds.width - iconSize) / 2), dy: max(0, (bounds.height - iconSize) / 2))
+        let rect = iconRect
         let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
 
-        if page == .ai {
-            NSColor.white.withAlphaComponent(0.94).setFill()
-            path.fill()
-            NSColor.black.withAlphaComponent(0.08).setStroke()
-            path.lineWidth = 0.5
-            path.stroke()
-        } else if let gradient = NSGradient(colors: page.appKitGradientColors) {
+        if let gradient = NSGradient(colors: page.appKitGradientColors) {
             gradient.draw(in: path, angle: 315)
         }
+    }
 
-        guard let image = NSImage(systemSymbolName: page.symbolName, accessibilityDescription: nil) else { return }
-        image.isTemplate = true
-        let symbolRect = NSRect(
-            x: rect.midX - symbolSize / 2,
-            y: rect.midY - symbolSize / 2,
-            width: symbolSize,
-            height: symbolSize
+    private var iconRect: NSRect {
+        bounds.insetBy(
+            dx: max(0, (bounds.width - iconSize) / 2),
+            dy: max(0, (bounds.height - iconSize) / 2)
         )
-        let tint: NSColor = page == .ai ? .labelColor : .white
-        tint.set()
-        image.draw(in: symbolRect, from: .zero, operation: .sourceIn, fraction: 1)
     }
 }
 

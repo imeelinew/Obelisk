@@ -43,8 +43,8 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         win.collectionBehavior = [.fullScreenNone, .fullScreenDisallowsTiling]
         win.isReleasedWhenClosed = false
-        let defaultWindowFrameSize = NSSize(width: 860, height: 748)
-        let minimumContentSize = NSSize(width: 860, height: 748)
+        let defaultWindowFrameSize = NSSize(width: 1100, height: 956)
+        let minimumContentSize = NSSize(width: 1100, height: 956)
         win.minSize = win.frameRect(forContentRect: NSRect(origin: .zero, size: minimumContentSize)).size
         win.setFrame(NSRect(origin: win.frame.origin, size: defaultWindowFrameSize), display: false)
         win.center()

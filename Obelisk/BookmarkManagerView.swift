@@ -225,6 +225,7 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarkListSortMode.hiddenStorageKey) private var hiddenBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage("bookmarkDisplayMode") private var bookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
     @AppStorage("hiddenBookmarkDisplayMode") private var hiddenBookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
+    @AppStorage("collectionBookmarkDisplayMode") private var collectionBookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
     @AppStorage(BookmarkMenuSectionOrder.storageKey) private var menuBarSectionOrderRaw = ""
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
@@ -583,8 +584,8 @@ struct BookmarkManagerView: View {
         )
     }
 
-    private var dateGridBookmarkSections: [BookmarkDateSection] {
-        BookmarkDateSection.sections(from: visibleBookmarks)
+    private var dateGridBookmarkSections: [BookmarkGridSection] {
+        BookmarkGridSection.dateSections(from: visibleBookmarks)
     }
 
     private var hiddenBookmarkDisplayMode: BookmarkDisplayMode {
@@ -603,8 +604,8 @@ struct BookmarkManagerView: View {
         )
     }
 
-    private var hiddenBookmarkDateGridSections: [BookmarkDateSection] {
-        BookmarkDateSection.sections(from: hiddenBookmarks)
+    private var hiddenBookmarkDateGridSections: [BookmarkGridSection] {
+        BookmarkGridSection.dateSections(from: hiddenBookmarks)
     }
 
     private func collectionTitle(for bookmark: Bookmark) -> String? {
@@ -618,6 +619,34 @@ struct BookmarkManagerView: View {
             includeEmptyCollections: true,
             showsSortControlOnFirstSection: true
         )
+    }
+
+    private var collectionBookmarkDisplayMode: BookmarkDisplayMode {
+        get {
+            BookmarkDisplayMode(rawValue: collectionBookmarkDisplayModeRaw) ?? .list
+        }
+        nonmutating set {
+            collectionBookmarkDisplayModeRaw = newValue.rawValue
+        }
+    }
+
+    private var collectionBookmarkDisplayModeBinding: Binding<BookmarkDisplayMode> {
+        Binding(
+            get: { collectionBookmarkDisplayMode },
+            set: { collectionBookmarkDisplayMode = $0 }
+        )
+    }
+
+    private var collectionGridSections: [BookmarkGridSection] {
+        collectionBookmarkSections.map { section in
+            BookmarkGridSection(
+                id: section.id,
+                title: section.title ?? "分组",
+                subtitle: "\(section.bookmarks.count) 个书签",
+                bookmarks: section.bookmarks,
+                collectionId: section.collectionId
+            )
+        }
     }
 
     private var searchFilterOptions: [SearchFilter] {
@@ -1864,7 +1893,7 @@ struct BookmarkManagerView: View {
                     Text("隐藏书签和归档书签不会显示在这里。")
                 }
             } else if bookmarkDisplayMode == .dateGrid {
-                BookmarkDateGridView(
+                BookmarkSectionGridView(
                     sections: dateGridBookmarkSections,
                     selection: $selection,
                     faviconLoader: faviconLoader,
@@ -1955,6 +1984,22 @@ struct BookmarkManagerView: View {
         }
     }
 
+    private var collectionBookmarkDisplayModePicker: some View {
+        HStack(spacing: 10) {
+            Picker("", selection: collectionBookmarkDisplayModeBinding) {
+                ForEach([BookmarkDisplayMode.dateGrid, .list]) { mode in
+                    Label(mode.title, systemImage: mode.systemImage)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 154)
+
+            Spacer(minLength: 0)
+        }
+    }
+
     private var searchPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             NativeSearchField(text: $searchText, placeholder: "搜索")
@@ -2008,13 +2053,46 @@ struct BookmarkManagerView: View {
     }
 
     private var collectionsManagementPage: some View {
-        Group {
+        VStack(spacing: 0) {
+            if !model.collections.isEmpty {
+                collectionBookmarkDisplayModePicker
+                    .padding(.leading, 0)
+                    .padding(.trailing, 18)
+                    .padding(.top, 12)
+                    .padding(.bottom, 8)
+            }
+
             if model.collections.isEmpty {
                 ContentUnavailableView {
                     Label("还没有分组", systemImage: "folder")
                 } description: {
                     Text("点击工具栏 + 创建分组。")
                 }
+            } else if collectionBookmarkDisplayMode == .dateGrid {
+                BookmarkSectionGridView(
+                    sections: collectionGridSections,
+                    selection: $selection,
+                    selectedCollectionId: $selectedCollectionId,
+                    faviconLoader: faviconLoader,
+                    showsURLHostOnly: showsURLHostOnly,
+                    collectionTitle: { _ in nil },
+                    onOpen: { bookmark in openBookmark(bookmark) },
+                    onCopyURL: { bookmark in copyURL(bookmark) },
+                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onEdit: { bookmark in presentation = .edit(bookmark) },
+                    onDelete: { ids in requestDelete(ids: ids) },
+                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
+                    hiddenStateActionTitle: "移到隐藏书签",
+                    onSetArchived: { bookmark in setArchived(true, for: bookmark) },
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                    collectionAssignOptions: collectionAssignOptions,
+                    onAssignCollection: { bookmarkIds, collectionId in
+                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                    },
+                    onRenameCollection: { id in beginRenameCollection(id: id) },
+                    onDeleteCollection: { id in beginDeleteCollection(id: id) }
+                )
             } else if collectionBookmarkSections.allSatisfy({ $0.bookmarks.isEmpty }) {
                 NativeBookmarkList(
                     sections: collectionBookmarkSections,
@@ -2077,7 +2155,7 @@ struct BookmarkManagerView: View {
                         .padding(.top, 12)
                         .padding(.bottom, 8)
 
-                    BookmarkDateGridView(
+                    BookmarkSectionGridView(
                         sections: hiddenBookmarkDateGridSections,
                         selection: $selection,
                         faviconLoader: faviconLoader,
@@ -3173,13 +3251,14 @@ private extension View {
     }
 }
 
-private struct BookmarkDateSection: Identifiable, Equatable {
+private struct BookmarkGridSection: Identifiable, Equatable {
     let id: String
     let title: String
     let subtitle: String
     let bookmarks: [Bookmark]
+    var collectionId: UUID? = nil
 
-    static func sections(from bookmarks: [Bookmark], calendar: Calendar = .current) -> [BookmarkDateSection] {
+    static func dateSections(from bookmarks: [Bookmark], calendar: Calendar = .current) -> [BookmarkGridSection] {
         let sorted = bookmarks.sorted { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
                 return lhs.createdAt > rhs.createdAt
@@ -3192,9 +3271,9 @@ private struct BookmarkDateSection: Identifiable, Equatable {
             return calendar.startOfDay(for: bookmark.createdAt)
         }
 
-        let datedSections = grouped.keys.compactMap { $0 }.sorted(by: >).compactMap { day -> BookmarkDateSection? in
+        let datedSections = grouped.keys.compactMap { $0 }.sorted(by: >).compactMap { day -> BookmarkGridSection? in
             guard let bookmarks = grouped[day], !bookmarks.isEmpty else { return nil }
-            return BookmarkDateSection(
+            return BookmarkGridSection(
                 id: "day-\(day.timeIntervalSinceReferenceDate)",
                 title: title(for: day, calendar: calendar),
                 subtitle: "\(bookmarks.count) 个书签",
@@ -3205,7 +3284,7 @@ private struct BookmarkDateSection: Identifiable, Equatable {
         let unknownBookmarks = grouped[nil] ?? []
         guard !unknownBookmarks.isEmpty else { return datedSections }
         return datedSections + [
-            BookmarkDateSection(
+            BookmarkGridSection(
                 id: "unknown",
                 title: "未知日期",
                 subtitle: "\(unknownBookmarks.count) 个书签",
@@ -3234,9 +3313,10 @@ private struct BookmarkDateSection: Identifiable, Equatable {
     }
 }
 
-private struct BookmarkDateGridView: View {
-    let sections: [BookmarkDateSection]
+private struct BookmarkSectionGridView: View {
+    let sections: [BookmarkGridSection]
     @Binding var selection: Set<Bookmark.ID>
+    var selectedCollectionId: Binding<UUID?>? = nil
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
     let collectionTitle: (Bookmark) -> String?
@@ -3252,6 +3332,8 @@ private struct BookmarkDateGridView: View {
     let onSetPinned: (Bookmark) -> Void
     let collectionAssignOptions: [BookmarkCollectionAssignOption]
     let onAssignCollection: (Set<Bookmark.ID>, UUID?) -> Void
+    var onRenameCollection: ((UUID) -> Void)? = nil
+    var onDeleteCollection: ((UUID) -> Void)? = nil
 
     private let columns = [
         GridItem(.adaptive(minimum: 168, maximum: 224), spacing: 12, alignment: .top)
@@ -3262,15 +3344,7 @@ private struct BookmarkDateGridView: View {
             LazyVStack(alignment: .leading, spacing: 22) {
                 ForEach(sections) { section in
                     VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(section.title)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.primary)
-                            Text(section.subtitle)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.secondary)
-                            Spacer(minLength: 0)
-                        }
+                        sectionHeader(section)
 
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                             ForEach(section.bookmarks) { bookmark in
@@ -3281,6 +3355,7 @@ private struct BookmarkDateGridView: View {
                                     showsURLHostOnly: showsURLHostOnly,
                                     collectionTitle: collectionTitle(bookmark),
                                     onSelect: {
+                                        selectedCollectionId?.wrappedValue = nil
                                         selection = [bookmark.id]
                                     },
                                     onOpen: {
@@ -3322,6 +3397,51 @@ private struct BookmarkDateGridView: View {
             .padding(.horizontal, 18)
             .padding(.top, 6)
             .padding(.bottom, 20)
+        }
+    }
+
+    private func sectionHeader(_ section: BookmarkGridSection) -> some View {
+        let isSelected = section.collectionId != nil && selectedCollectionId?.wrappedValue == section.collectionId
+
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(section.title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+            Text(section.subtitle)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, section.collectionId == nil ? 0 : 8)
+        .padding(.vertical, section.collectionId == nil ? 0 : 5)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.14))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard let collectionId = section.collectionId else { return }
+            selection.removeAll()
+            selectedCollectionId?.wrappedValue = collectionId
+        }
+        .contextMenu {
+            if let collectionId = section.collectionId {
+                if let onRenameCollection {
+                    Button("重命名分组") {
+                        onRenameCollection(collectionId)
+                    }
+                }
+                if onRenameCollection != nil, onDeleteCollection != nil {
+                    Divider()
+                }
+                if let onDeleteCollection {
+                    Button("删除分组", role: .destructive) {
+                        onDeleteCollection(collectionId)
+                    }
+                }
+            }
         }
     }
 }

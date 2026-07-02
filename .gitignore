@@ -40,3 +40,7 @@ favicons/
 # Local build/package outputs
 *.app/
 *.zip
+
+# Local Lazygit binary/download
+/lazygit
+/lazygit.tar.gz

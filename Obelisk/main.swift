@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         NSApp.setActivationPolicy(.regular)
         installMainMenu()
         configureStatusItem()
+        installDefaultsObserver()
         clearLegacySpotlightIndex()
         clearLegacyICloudDefaults()
         bookmarksModel.onChange = { [weak self] in
@@ -107,7 +108,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
         usageStore.flushPendingWrites()
+    }
+
+    private func installDefaultsObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(defaultsDidChange(_:)),
+            name: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard
+        )
+    }
+
+    @objc private func defaultsDidChange(_ notification: Notification) {
+        configureStatusItem()
     }
 
     /// Global shortcuts (user-customizable in Settings) fetch the frontmost
@@ -1064,4 +1079,3 @@ private final class InputSourceSwitcher {
         return CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque(rawValue).takeUnretainedValue())
     }
 }
-

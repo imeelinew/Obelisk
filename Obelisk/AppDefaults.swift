@@ -21,6 +21,7 @@ enum ObeliskAppDefaults {
         let hadStoredEncryptionPreference = defaults.object(forKey: LocalJSONEncryption.enabledKey) != nil
         defaults.register(defaults: [
             SidebarIconTheme.storageKey: SidebarIconTheme.colorful.rawValue,
+            MenuBarIconStyle.storageKey: MenuBarIconStyle.outline.rawValue,
             sidebarIconTileSizeKey: defaultSidebarIconTileSize,
             sidebarIconSymbolSizeKey: defaultSidebarIconSymbolSize,
             sidebarIconCornerRadiusKey: defaultSidebarIconCornerRadius,

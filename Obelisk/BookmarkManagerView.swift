@@ -72,6 +72,7 @@ struct BookmarkManagerView: View {
     @State private var hiddenBookmarksUnlocked = false
     @State private var quickLookController = QuickLookController()
     @AppStorage(SidebarIconTheme.storageKey) private var sidebarIconThemeRaw = SidebarIconTheme.colorful.rawValue
+    @AppStorage(MenuBarIconStyle.storageKey) private var menuBarIconStyleRaw = MenuBarIconStyle.outline.rawValue
     private let sidebarIconTileSize = 22.0
     private let sidebarIconSymbolSize = 11.0
     private let sidebarIconCornerRadius = 6.0
@@ -950,6 +951,17 @@ struct BookmarkManagerView: View {
         Binding(
             get: { sidebarIconTheme },
             set: { sidebarIconThemeRaw = $0.rawValue }
+        )
+    }
+
+    private var menuBarIconStyle: MenuBarIconStyle {
+        MenuBarIconStyle(rawValue: menuBarIconStyleRaw) ?? .outline
+    }
+
+    private var menuBarIconStyleBinding: Binding<MenuBarIconStyle> {
+        Binding(
+            get: { menuBarIconStyle },
+            set: { menuBarIconStyleRaw = $0.rawValue }
         )
     }
 
@@ -2095,6 +2107,16 @@ struct BookmarkManagerView: View {
             }
 
             Section("菜单栏") {
+                LabeledContent("图标样式") {
+                    Picker("图标样式", selection: menuBarIconStyleBinding) {
+                        ForEach(MenuBarIconStyle.allCases) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
                 menuLimitStepper("最近添加数量", desc: "Obelisk「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
             }
         }
@@ -2786,4 +2808,3 @@ struct BookmarkManagerView: View {
         }
     }
 }
-

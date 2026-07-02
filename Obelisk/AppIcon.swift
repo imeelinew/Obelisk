@@ -2,11 +2,25 @@ import AppKit
 
 enum AppIcon {
     static func menuBarImage() -> NSImage {
+        let rawStyle = UserDefaults.standard.string(forKey: MenuBarIconStyle.storageKey)
+        let style = rawStyle.flatMap(MenuBarIconStyle.init(rawValue:)) ?? .outline
+        return menuBarImage(style: style)
+    }
+
+    static func menuBarImage(style: MenuBarIconStyle) -> NSImage {
         let iconSize = NSSize(width: 17, height: 17)
         let canvasExtraHeight: CGFloat = 2
         let verticalNudge: CGFloat = 1
+        let symbolName: String
 
-        let symbol = NSImage(systemSymbolName: "pyramid", accessibilityDescription: nil)?
+        switch style {
+        case .outline:
+            symbolName = "pyramid"
+        case .filled:
+            symbolName = "pyramid.fill"
+        }
+
+        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .medium))
             ?? resourceImage(name: "PyramidSymbol", extension: "svg")
             ?? image(size: iconSize)

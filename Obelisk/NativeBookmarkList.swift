@@ -110,8 +110,10 @@ struct NativeBookmarkList: NSViewRepresentable {
         context.coordinator.parent = self
         let nextItems = sections.flattenedItems
         if context.coordinator.items != nextItems ||
-           context.coordinator.cachedFaviconVersion != faviconVersion {
+           context.coordinator.cachedFaviconVersion != faviconVersion ||
+           context.coordinator.cachedShowsURLHostOnly != showsURLHostOnly {
             context.coordinator.cachedFaviconVersion = faviconVersion
+            context.coordinator.cachedShowsURLHostOnly = showsURLHostOnly
             context.coordinator.items = nextItems
             context.coordinator.reloadTable()
         } else {
@@ -133,12 +135,18 @@ struct NativeBookmarkList: NSViewRepresentable {
         private var selectedRowKeys: Set<NativeBookmarkRowSelectionKey> = []
         private var hoveredRow: Int = -1
         fileprivate var cachedFaviconVersion: Int = -1
+        fileprivate var cachedShowsURLHostOnly = false
         private var handledFocusFirstBookmarkRequest = 0
         private var handledFocusSelectedBookmarkRequest = 0
 
         init(_ parent: NativeBookmarkList) {
             self.parent = parent
             self.items = parent.sections.flattenedItems
+            self.cachedShowsURLHostOnly = parent.showsURLHostOnly
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
         }
 
         func reloadTable() {

@@ -270,9 +270,9 @@ final class LLMConfigStore {
         var fileSettings = settings
         fileSettings.remote.apiKey = ""
 
-        var payload = try vaultStore.loadPayload()
-        payload.llmProfiles = fileSettings
-        try vaultStore.savePayload(payload)
+        try vaultStore.updatePayload { payload in
+            payload.llmProfiles = fileSettings
+        }
         removeLegacyConfigFiles()
     }
 

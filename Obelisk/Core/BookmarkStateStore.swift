@@ -81,7 +81,6 @@ public final class BookmarkStateStore {
     }
 
     private var vaultStore: ObeliskVaultStore
-    private var cachedState: BookmarkStateDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
@@ -91,46 +90,36 @@ public final class BookmarkStateStore {
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
         vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
-        invalidateCache()
     }
 
     public func invalidateCache() {
-        cachedState = nil
+        vaultStore.invalidateCache()
     }
 
     public func load() -> BookmarkStateDatabase {
-        if let cachedState {
-            return cachedState
-        }
-
         guard let payload = try? vaultStore.loadPayload() else {
-            let empty = BookmarkStateDatabase()
-            cachedState = empty
-            return empty
+            return BookmarkStateDatabase()
         }
-        let state = Self.state(from: payload)
-        cachedState = state
-        return state
+        return Self.state(from: payload)
     }
 
     public func save(_ state: BookmarkStateDatabase) throws {
-        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
-            try saveUnlocked(state)
+        try vaultStore.updatePayload { payload in
+            Self.apply(state, to: &payload)
         }
     }
 
     public func update(_ body: (inout BookmarkStateDatabase) -> Void) throws {
-        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
-            var state = load()
+        try vaultStore.updatePayload { payload in
+            var state = Self.state(from: payload)
             let prior = state
             body(&state)
             guard state != prior else { return }
-            try saveUnlocked(state)
+            Self.apply(state, to: &payload)
         }
     }
 
-    private func saveUnlocked(_ state: BookmarkStateDatabase) throws {
-        var payload = try vaultStore.loadPayload()
+    private static func apply(_ state: BookmarkStateDatabase, to payload: inout ObeliskVaultPayload) {
         let validIds = Set(payload.bookmarks.map(\.id))
         let hiddenIds = state.hiddenIds.intersection(validIds)
         let manualArchivedIds = state.manualArchivedIds.intersection(validIds)
@@ -151,8 +140,6 @@ public final class BookmarkStateStore {
             bookmark.originalTitle = state.originalTitleById[bookmark.id] ?? bookmark.originalTitle
             return bookmark
         }
-        try vaultStore.savePayload(payload)
-        cachedState = Self.state(from: payload)
     }
 
     private static func state(from payload: ObeliskVaultPayload) -> BookmarkStateDatabase {

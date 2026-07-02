@@ -18,6 +18,11 @@ private let usageLog = Logger(subsystem: "com.eli.Obelisk", category: "UsageStor
 /// Frequency score uses a simple time-decay formula:
 /// `score = count * 0.95 ^ daysSinceLastClick`
 /// — a bookmark clicked once every ~14 days roughly holds its score.
+///
+/// Clicks are the hottest write path in the app, so `record` does not touch
+/// disk: it accumulates in `pendingRecords` (merged into every `load`) and a
+/// debounced flush persists them. Call `flushPendingWrites()` before the
+/// process exits.
 public final class UsageStore {
     public private(set) var rootDirectory: URL
     public var fileURL: URL {
@@ -25,45 +30,79 @@ public final class UsageStore {
     }
 
     private var vaultStore: ObeliskVaultStore
-    private var cachedUsage: [UUID: UsageRecord]?
 
-    public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
+    /// Usage recorded but not yet persisted. Values here override the
+    /// on-disk payload until flushed.
+    private var pendingRecords: [UUID: UsageRecord] = [:]
+    private var scheduledFlush: DispatchWorkItem?
+    private let flushDelay: TimeInterval
+
+    public init(
+        rootDirectory: URL = BookmarkStore.defaultRootDirectory(),
+        flushDelay: TimeInterval = 3
+    ) {
         self.rootDirectory = rootDirectory
         self.vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
+        self.flushDelay = flushDelay
     }
 
     public func updateRootDirectory(_ rootDirectory: URL) {
+        flushPendingWrites()
         self.rootDirectory = rootDirectory
         vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
-        invalidateCache()
     }
 
     public func invalidateCache() {
-        cachedUsage = nil
+        vaultStore.invalidateCache()
     }
 
     public func load() -> [UUID: UsageRecord] {
-        if let cachedUsage {
-            return cachedUsage
-        }
-
         guard let payload = try? vaultStore.loadPayload() else {
-            cachedUsage = [:]
-            return [:]
+            return pendingRecords
         }
-        let result = Self.usage(from: payload)
-        cachedUsage = result
-        return result
+        var usage = Self.usage(from: payload)
+        usage.merge(pendingRecords) { _, pending in pending }
+        return usage
     }
 
     public func record(id: UUID, at date: Date = Date()) {
-        var dict = load()
-        let prior = dict[id]
-        dict[id] = UsageRecord(
+        let prior = load()[id]
+        pendingRecords[id] = UsageRecord(
             count: (prior?.count ?? 0) + 1,
             lastClickedAt: date
         )
-        save(dict)
+        scheduleFlush()
+    }
+
+    /// Persists any pending usage immediately. Safe to call when idle.
+    public func flushPendingWrites() {
+        scheduledFlush?.cancel()
+        scheduledFlush = nil
+        guard !pendingRecords.isEmpty else { return }
+        let pending = pendingRecords
+        do {
+            try vaultStore.updatePayload { payload in
+                payload.bookmarks = payload.bookmarks.map { bookmark in
+                    var bookmark = bookmark
+                    if let record = pending[bookmark.id] {
+                        bookmark.usage = record
+                    }
+                    return bookmark
+                }
+            }
+            pendingRecords = [:]
+        } catch {
+            usageLog.error("Failed to flush usage data: \(error.localizedDescription)")
+        }
+    }
+
+    private func scheduleFlush() {
+        scheduledFlush?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.flushPendingWrites()
+        }
+        scheduledFlush = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + flushDelay, execute: work)
     }
 
     public func record(for id: UUID) -> UsageRecord? {
@@ -159,18 +198,17 @@ public final class UsageStore {
     }
 
     public func saveAll(_ dict: [UUID: UsageRecord]) {
-        cachedUsage = dict
+        scheduledFlush?.cancel()
+        scheduledFlush = nil
         do {
-            try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
-                var payload = try vaultStore.loadPayload()
+            try vaultStore.updatePayload { payload in
                 payload.bookmarks = payload.bookmarks.map { bookmark in
                     var bookmark = bookmark
                     bookmark.usage = dict[bookmark.id]
                     return bookmark
                 }
-                try vaultStore.savePayload(payload)
-                cachedUsage = Self.usage(from: payload)
             }
+            pendingRecords = [:]
         } catch {
             usageLog.error("Failed to persist usage data: \(error.localizedDescription)")
         }

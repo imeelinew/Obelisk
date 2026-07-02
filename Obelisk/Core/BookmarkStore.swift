@@ -97,7 +97,6 @@ public final class BookmarkStore {
     }
 
     private var vaultStore: ObeliskVaultStore
-    private var cachedDatabase: BookmarkDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
@@ -153,34 +152,29 @@ public final class BookmarkStore {
     }
 
     public func invalidateCache() {
-        cachedDatabase = nil
+        vaultStore.invalidateCache()
     }
 
     public func load() throws -> BookmarkDatabase {
-        if let cachedDatabase {
-            return cachedDatabase
-        }
-
         try ensureStoreExists()
         let payload = try vaultStore.loadPayload()
-        let database = BookmarkDatabase(
+        return BookmarkDatabase(
             version: payload.schemaVersion,
             bookmarks: payload.bookmarks.map(\.bookmark)
         )
-        cachedDatabase = database
-        return database
     }
 
     public func save(_ database: BookmarkDatabase) throws {
-        try FileManager.default.createDirectory(
-            at: rootDirectory,
-            withIntermediateDirectories: true
-        )
-        ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(rootDirectory)
+        try withFileLock {
+            try FileManager.default.createDirectory(
+                at: rootDirectory,
+                withIntermediateDirectories: true
+            )
+            ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(rootDirectory)
 
-        let payload = try payloadByMerging(bookmarks: database.bookmarks)
-        try vaultStore.savePayload(payload)
-        cachedDatabase = BookmarkDatabase(version: database.version, bookmarks: payload.bookmarks.map(\.bookmark))
+            let payload = try payloadByMerging(bookmarks: database.bookmarks)
+            try vaultStore.savePayload(payload)
+        }
     }
 
     @discardableResult

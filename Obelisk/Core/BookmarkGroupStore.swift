@@ -76,7 +76,6 @@ public final class BookmarkGroupStore {
     }
 
     private var vaultStore: ObeliskVaultStore
-    private var cachedDatabase: BookmarkGroupDatabase?
 
     public init(rootDirectory: URL = BookmarkStore.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
@@ -86,47 +85,37 @@ public final class BookmarkGroupStore {
     public func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
         vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
-        invalidateCache()
     }
 
     public func invalidateCache() {
-        cachedDatabase = nil
+        vaultStore.invalidateCache()
     }
 
     public func load() -> BookmarkGroupDatabase {
-        if let cachedDatabase {
-            return cachedDatabase
-        }
-
         guard let payload = try? vaultStore.loadPayload() else {
-            let empty = BookmarkGroupDatabase()
-            cachedDatabase = empty
-            return empty
+            return BookmarkGroupDatabase()
         }
-        let database = Self.database(from: payload)
-        cachedDatabase = database
-        return database
+        return Self.database(from: payload)
     }
 
     public func save(_ database: BookmarkGroupDatabase) throws {
-        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
-            try saveUnlocked(database)
+        try vaultStore.updatePayload { payload in
+            Self.apply(database, to: &payload)
         }
     }
 
     public func update(_ body: (inout BookmarkGroupDatabase) -> Void) throws {
-        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
-            var database = load()
+        try vaultStore.updatePayload { payload in
+            var database = Self.database(from: payload)
             let prior = database
             body(&database)
             database.version = BookmarkGroupDatabase.currentVersion
             guard database != prior else { return }
-            try saveUnlocked(database)
+            Self.apply(database, to: &payload)
         }
     }
 
-    private func saveUnlocked(_ database: BookmarkGroupDatabase) throws {
-        var payload = try vaultStore.loadPayload()
+    private static func apply(_ database: BookmarkGroupDatabase, to payload: inout ObeliskVaultPayload) {
         let collections = database.collections.sorted {
             if $0.sortOrder != $1.sortOrder {
                 return $0.sortOrder < $1.sortOrder
@@ -142,8 +131,6 @@ public final class BookmarkGroupStore {
             bookmark.groupId = membership[bookmark.id]
             return bookmark
         }
-        try vaultStore.savePayload(payload)
-        cachedDatabase = Self.database(from: payload)
     }
 
     public func collectionId(for bookmarkId: UUID) -> UUID? {

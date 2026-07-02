@@ -14,6 +14,7 @@ enum BrowserCurrentTabFailure: Equatable {
     case invalidURL
     case automationPermissionRequired
     case scriptFailed(Int?)
+    case timedOut
 }
 
 enum BrowserCurrentTabResult: Equatable {
@@ -27,7 +28,16 @@ enum BrowserCurrentTabResult: Equatable {
 enum BrowserCurrentTab {
     static let noWindowSentinel = "__OBELISK_NO_BROWSER_WINDOW__"
 
-    static func fetch() -> BrowserCurrentTabResult {
+    /// AppleScript runs on this queue so a slow or hung browser can never
+    /// freeze the main thread. Serial on purpose: Apple Events to the same
+    /// target shouldn't interleave, and a hung script only wedges this queue.
+    private static let scriptQueue = DispatchQueue(
+        label: "com.eli.Obelisk.BrowserCurrentTab",
+        qos: .userInitiated
+    )
+
+    @MainActor
+    static func fetch(timeout: TimeInterval = 5) async -> BrowserCurrentTabResult {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier
         else {
@@ -38,7 +48,32 @@ enum BrowserCurrentTab {
             return .failure(.unsupportedFrontmostApplication(bundleID))
         }
 
-        return run(script)
+        return await withCheckedContinuation { continuation in
+            let resumeOnce = ResumeOnce(continuation: continuation)
+            scriptQueue.async {
+                resumeOnce.resume(with: run(script))
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                resumeOnce.resume(with: .failure(.timedOut))
+            }
+        }
+    }
+
+    private final class ResumeOnce: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<BrowserCurrentTabResult, Never>?
+
+        init(continuation: CheckedContinuation<BrowserCurrentTabResult, Never>) {
+            self.continuation = continuation
+        }
+
+        func resume(with result: BrowserCurrentTabResult) {
+            lock.lock()
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(returning: result)
+        }
     }
 
     /// Map known browser bundle IDs to their AppleScript dialect. Safari has

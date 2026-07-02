@@ -7,9 +7,13 @@ import SwiftUI
 import Testing
 @testable import Obelisk
 
+@Suite(.serialized)
 struct SmokeTests {
+    /// Every test runs against a throwaway UNIBOOKMARK_HOME with encryption
+    /// disabled, restoring process-global state afterwards. These globals are
+    /// why the suite is `.serialized`.
     @MainActor
-    static func main() async throws {
+    private static func withIsolatedEnvironment(_ body: @MainActor () async throws -> Void) async throws {
         let isolatedHome = try temporaryDirectory()
         setenv("UNIBOOKMARK_HOME", isolatedHome.path, 1)
         LocalJSONEncryption.isEnabled = false
@@ -18,79 +22,224 @@ struct SmokeTests {
             LocalJSONEncryption.isEnabled = false
             try? FileManager.default.removeItem(at: isolatedHome)
         }
+        try await body()
+    }
 
-        try testDefaultRootDirectoryUsesVault()
-        try testDefaultRootDirectoryUsesApplicationSupport()
-        try testDuplicateProtection()
-        try testWebURLValidation()
-        try testLegacyCreatedAtFallback()
-        try testLegacyHiddenFallback()
-        try testLegacyArchiveFallback()
-        try testLegacyBookmarkStateMigration()
-        try testHiddenBookmarkPersistence()
-        try testHiddenBookmarkKeywordExclusion()
-        try testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate()
-        try testNativeBookmarkListFirstBookmarkRowSkipsHeaders()
-        try testMenuBarSearchKeyCommandHandlesEscapeAndEnterOnly()
-        try testNativeSearchFieldEnterUsesFieldEditorText()
-        try testNativeSearchFieldEscapeUsesFirstCommand()
-        try testMenuBarSearchCommandBridgeOpensOnce()
-        try testBookmarkMenuTableViewReturnOpensSelection()
-        try testArchivePersistence()
-        try testManualArchiveIndependentOfAutoArchiveSetting()
-        try testPinnedBookmarkPersistence()
-        try testBookmarkSearchMatcherSupportsPinyin()
-        try testBookmarkSearchCandidatesExcludeHiddenAndIncludeArchived()
-        try testLibrarySectionsPrioritizePinnedBookmarks()
-        try testPinnedClearedByHiddenAndArchive()
-        try testStateCleanupOnDelete()
-        try testEmptyBookmarkLoadCreatesEmptyVaultPayload()
-        try testUsageStoreCacheInvalidation()
-        try testBookmarkStoreCacheInvalidation()
-        try testStorageNormalizeMigratesSingleStaleJSONFile()
-        try testStorageNormalizeRemovesDuplicateJSONFile()
-        try testBookmarkStoreReadsCurrentEncryptedFileWhenPreferenceIsStaleFalse()
-        try testStorageNormalizeDoesNotReviveLegacyJSONWhenV2PayloadExists()
-        try testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists()
-        try testStorageNormalizeAllowsIntentionalEmptyBookmarkDatabase()
-        try testVaultDirectoryIsMarkedAsPackage()
-        try testVaultPayloadUsesVaultRoot()
-        try testStorageNormalizeDecryptsMixedFaviconState()
-        try testStorageNormalizeEncryptsMixedFaviconState()
-        try testStorageNormalizeDecryptsMixedJSONAndFaviconState()
-        try testStorageNormalizeEncryptsMixedJSONAndFaviconState()
-        try testHiddenDuplicateProtection()
-        try testBatchDelete()
-        try testTitleOptimizationPersistence()
-        try testTitleOptimizationPreferences()
-        try testTitleOptimizationTranslationPrompt()
-        try await testBookmarksModelFiltersHiddenTitleOptimization()
-        try await testBookmarksModelTitleOptimizationOutcomeIncludesUpdatedTitle()
-        try testBookmarkIntelligenceAutomaticOptions()
-        try await testBookmarksModelCombinedOptimizationUsesUpdatedTitles()
-        try testBookmarkIntelligenceOutcomeSummary()
-        try await testBookmarksModelAutoGroupsUngroupedBookmarks()
-        try await testBookmarksModelAutoGroupingSkipsGroupedPinnedAndHiddenBookmarks()
-        try testBookmarkAutoGroupingSingleDescription()
-        try testUsageGroupingFilters()
-        try testEncryptedBookmarkStoreRoundTrip()
-        try testEncryptedBookmarkStateStoreRoundTrip()
-        try testEncryptionNormalizationPreservesBookmarksStateAndUsage()
-        try testBookmarkGroupsEncryptionRoundTrip()
-        try testBookmarkCollectionMembership()
-        try testEncryptionKeyRefusesOverwrite()
-        try testEncryptionKeyMissingWhenEncryptedPayloadsExist()
-        try testStorageNormalizeStopsWhenEncryptedPayloadKeyMissing()
-        try testStorageNormalizeStopsWhenOnlyNestedEncryptedPayloadKeyMissing()
-        try testStorageTransitionBackupFailureStopsNormalize()
-        try testKeychainMigrationSkipsEncryptionService()
-        try testPlaintextDataBackup()
-        try testFreshAppDefaultsEnableCoreWorkflows()
-        try testIntelligenceIconContract()
-        try testLocalJSONEncryptionDefaultsForceProductionEncryption()
-        try testBrowserCurrentTabParsingAndPermissionMapping()
-        try testHotkeyResolverFailsClosed()
-        try testPrivateBrowserOpenerPermissionMapping()
+    @MainActor @Test func defaultRootDirectoryUsesVault() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testDefaultRootDirectoryUsesVault() }
+    }
+    @MainActor @Test func defaultRootDirectoryUsesApplicationSupport() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testDefaultRootDirectoryUsesApplicationSupport() }
+    }
+    @MainActor @Test func duplicateProtection() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testDuplicateProtection() }
+    }
+    @MainActor @Test func webURLValidation() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testWebURLValidation() }
+    }
+    @MainActor @Test func legacyCreatedAtFallback() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testLegacyCreatedAtFallback() }
+    }
+    @MainActor @Test func legacyHiddenFallback() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testLegacyHiddenFallback() }
+    }
+    @MainActor @Test func legacyArchiveFallback() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testLegacyArchiveFallback() }
+    }
+    @MainActor @Test func legacyBookmarkStateMigration() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testLegacyBookmarkStateMigration() }
+    }
+    @MainActor @Test func hiddenBookmarkPersistence() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testHiddenBookmarkPersistence() }
+    }
+    @MainActor @Test func hiddenBookmarkKeywordExclusion() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testHiddenBookmarkKeywordExclusion() }
+    }
+    @MainActor @Test func nativeBookmarkListSelectionKeepsDuplicateRowsSeparate() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testNativeBookmarkListSelectionKeepsDuplicateRowsSeparate() }
+    }
+    @MainActor @Test func nativeBookmarkListFirstBookmarkRowSkipsHeaders() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testNativeBookmarkListFirstBookmarkRowSkipsHeaders() }
+    }
+    @MainActor @Test func menuBarSearchKeyCommandHandlesEscapeAndEnterOnly() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testMenuBarSearchKeyCommandHandlesEscapeAndEnterOnly() }
+    }
+    @MainActor @Test func nativeSearchFieldEnterUsesFieldEditorText() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testNativeSearchFieldEnterUsesFieldEditorText() }
+    }
+    @MainActor @Test func nativeSearchFieldEscapeUsesFirstCommand() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testNativeSearchFieldEscapeUsesFirstCommand() }
+    }
+    @MainActor @Test func menuBarSearchCommandBridgeOpensOnce() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testMenuBarSearchCommandBridgeOpensOnce() }
+    }
+    @MainActor @Test func bookmarkMenuTableViewReturnOpensSelection() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkMenuTableViewReturnOpensSelection() }
+    }
+    @MainActor @Test func archivePersistence() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testArchivePersistence() }
+    }
+    @MainActor @Test func manualArchiveIndependentOfAutoArchiveSetting() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testManualArchiveIndependentOfAutoArchiveSetting() }
+    }
+    @MainActor @Test func pinnedBookmarkPersistence() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testPinnedBookmarkPersistence() }
+    }
+    @MainActor @Test func bookmarkSearchMatcherSupportsPinyin() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkSearchMatcherSupportsPinyin() }
+    }
+    @MainActor @Test func bookmarkSearchCandidatesExcludeHiddenAndIncludeArchived() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkSearchCandidatesExcludeHiddenAndIncludeArchived() }
+    }
+    @MainActor @Test func librarySectionsPrioritizePinnedBookmarks() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testLibrarySectionsPrioritizePinnedBookmarks() }
+    }
+    @MainActor @Test func pinnedClearedByHiddenAndArchive() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testPinnedClearedByHiddenAndArchive() }
+    }
+    @MainActor @Test func stateCleanupOnDelete() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStateCleanupOnDelete() }
+    }
+    @MainActor @Test func emptyBookmarkLoadCreatesEmptyVaultPayload() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testEmptyBookmarkLoadCreatesEmptyVaultPayload() }
+    }
+    @MainActor @Test func usageStoreCacheInvalidation() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testUsageStoreCacheInvalidation() }
+    }
+    @MainActor @Test func bookmarkStoreCacheInvalidation() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkStoreCacheInvalidation() }
+    }
+    @MainActor @Test func storageNormalizeMigratesSingleStaleJSONFile() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeMigratesSingleStaleJSONFile() }
+    }
+    @MainActor @Test func storageNormalizeRemovesDuplicateJSONFile() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeRemovesDuplicateJSONFile() }
+    }
+    @MainActor @Test func bookmarkStoreReadsCurrentEncryptedFileWhenPreferenceIsStaleFalse() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkStoreReadsCurrentEncryptedFileWhenPreferenceIsStaleFalse() }
+    }
+    @MainActor @Test func storageNormalizeDoesNotReviveLegacyJSONWhenV2PayloadExists() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeDoesNotReviveLegacyJSONWhenV2PayloadExists() }
+    }
+    @MainActor @Test func storageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeKeepsBookmarksWhenNewerEmptyDuplicateExists() }
+    }
+    @MainActor @Test func storageNormalizeAllowsIntentionalEmptyBookmarkDatabase() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeAllowsIntentionalEmptyBookmarkDatabase() }
+    }
+    @MainActor @Test func vaultDirectoryIsMarkedAsPackage() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testVaultDirectoryIsMarkedAsPackage() }
+    }
+    @MainActor @Test func vaultPayloadUsesVaultRoot() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testVaultPayloadUsesVaultRoot() }
+    }
+    @MainActor @Test func storageNormalizeDecryptsMixedFaviconState() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeDecryptsMixedFaviconState() }
+    }
+    @MainActor @Test func storageNormalizeEncryptsMixedFaviconState() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeEncryptsMixedFaviconState() }
+    }
+    @MainActor @Test func storageNormalizeDecryptsMixedJSONAndFaviconState() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeDecryptsMixedJSONAndFaviconState() }
+    }
+    @MainActor @Test func storageNormalizeEncryptsMixedJSONAndFaviconState() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeEncryptsMixedJSONAndFaviconState() }
+    }
+    @MainActor @Test func hiddenDuplicateProtection() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testHiddenDuplicateProtection() }
+    }
+    @MainActor @Test func batchDelete() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBatchDelete() }
+    }
+    @MainActor @Test func titleOptimizationPersistence() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testTitleOptimizationPersistence() }
+    }
+    @MainActor @Test func titleOptimizationPreferences() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testTitleOptimizationPreferences() }
+    }
+    @MainActor @Test func titleOptimizationTranslationPrompt() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testTitleOptimizationTranslationPrompt() }
+    }
+    @MainActor @Test func bookmarksModelFiltersHiddenTitleOptimization() async throws {
+        try await Self.withIsolatedEnvironment { try await Self.testBookmarksModelFiltersHiddenTitleOptimization() }
+    }
+    @MainActor @Test func bookmarksModelTitleOptimizationOutcomeIncludesUpdatedTitle() async throws {
+        try await Self.withIsolatedEnvironment { try await Self.testBookmarksModelTitleOptimizationOutcomeIncludesUpdatedTitle() }
+    }
+    @MainActor @Test func bookmarkIntelligenceAutomaticOptions() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkIntelligenceAutomaticOptions() }
+    }
+    @MainActor @Test func bookmarksModelCombinedOptimizationUsesUpdatedTitles() async throws {
+        try await Self.withIsolatedEnvironment { try await Self.testBookmarksModelCombinedOptimizationUsesUpdatedTitles() }
+    }
+    @MainActor @Test func bookmarkIntelligenceOutcomeSummary() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkIntelligenceOutcomeSummary() }
+    }
+    @MainActor @Test func bookmarksModelAutoGroupsUngroupedBookmarks() async throws {
+        try await Self.withIsolatedEnvironment { try await Self.testBookmarksModelAutoGroupsUngroupedBookmarks() }
+    }
+    @MainActor @Test func bookmarksModelAutoGroupingSkipsGroupedPinnedAndHiddenBookmarks() async throws {
+        try await Self.withIsolatedEnvironment { try await Self.testBookmarksModelAutoGroupingSkipsGroupedPinnedAndHiddenBookmarks() }
+    }
+    @MainActor @Test func bookmarkAutoGroupingSingleDescription() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkAutoGroupingSingleDescription() }
+    }
+    @MainActor @Test func usageGroupingFilters() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testUsageGroupingFilters() }
+    }
+    @MainActor @Test func encryptedBookmarkStoreRoundTrip() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testEncryptedBookmarkStoreRoundTrip() }
+    }
+    @MainActor @Test func encryptedBookmarkStateStoreRoundTrip() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testEncryptedBookmarkStateStoreRoundTrip() }
+    }
+    @MainActor @Test func encryptionNormalizationPreservesBookmarksStateAndUsage() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testEncryptionNormalizationPreservesBookmarksStateAndUsage() }
+    }
+    @MainActor @Test func bookmarkGroupsEncryptionRoundTrip() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkGroupsEncryptionRoundTrip() }
+    }
+    @MainActor @Test func bookmarkCollectionMembership() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBookmarkCollectionMembership() }
+    }
+    @MainActor @Test func encryptionKeyRefusesOverwrite() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testEncryptionKeyRefusesOverwrite() }
+    }
+    @MainActor @Test func encryptionKeyMissingWhenEncryptedPayloadsExist() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testEncryptionKeyMissingWhenEncryptedPayloadsExist() }
+    }
+    @MainActor @Test func storageNormalizeStopsWhenEncryptedPayloadKeyMissing() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeStopsWhenEncryptedPayloadKeyMissing() }
+    }
+    @MainActor @Test func storageNormalizeStopsWhenOnlyNestedEncryptedPayloadKeyMissing() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageNormalizeStopsWhenOnlyNestedEncryptedPayloadKeyMissing() }
+    }
+    @MainActor @Test func storageTransitionBackupFailureStopsNormalize() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testStorageTransitionBackupFailureStopsNormalize() }
+    }
+    @MainActor @Test func keychainMigrationSkipsEncryptionService() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testKeychainMigrationSkipsEncryptionService() }
+    }
+    @MainActor @Test func plaintextDataBackup() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testPlaintextDataBackup() }
+    }
+    @MainActor @Test func freshAppDefaultsEnableCoreWorkflows() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testFreshAppDefaultsEnableCoreWorkflows() }
+    }
+    @MainActor @Test func intelligenceIconContract() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testIntelligenceIconContract() }
+    }
+    @MainActor @Test func localJSONEncryptionDefaultsForceProductionEncryption() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testLocalJSONEncryptionDefaultsForceProductionEncryption() }
+    }
+    @MainActor @Test func browserCurrentTabParsingAndPermissionMapping() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBrowserCurrentTabParsingAndPermissionMapping() }
+    }
+    @MainActor @Test func hotkeyResolverFailsClosed() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testHotkeyResolverFailsClosed() }
+    }
+    @MainActor @Test func privateBrowserOpenerPermissionMapping() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testPrivateBrowserOpenerPermissionMapping() }
     }
 
     private static func testDuplicateProtection() throws {
@@ -828,7 +977,10 @@ struct SmokeTests {
         }
         try saveVaultPayload(payload, root: root)
 
-        try expect(store.record(for: bookmark.id)?.count == 1, "expected cached usage before invalidation")
+        // Stores over the same root share one payload cache: an in-process
+        // write through any store is immediately visible, no invalidation
+        // step needed.
+        try expect(store.record(for: bookmark.id)?.count == 2, "expected shared cache to reflect in-process write")
         store.invalidateCache()
         let reloaded = store.record(for: bookmark.id)
         try expect(reloaded?.count == 2, "expected usage count after invalidation")
@@ -852,7 +1004,9 @@ struct SmokeTests {
         }
         try saveVaultPayload(payload, root: root)
 
-        try expect(try store.bookmarks().map(\.title) == ["Cached"], "expected cached bookmark before invalidation")
+        // In-process writes through any store are immediately visible via the
+        // shared per-root payload cache.
+        try expect(try store.bookmarks().map(\.title) == ["Externally Edited"], "expected shared cache to reflect in-process write")
         store.invalidateCache()
         try expect(try store.bookmarks().map(\.title) == ["Externally Edited"], "expected bookmark reload after invalidation")
 
@@ -1882,6 +2036,7 @@ struct SmokeTests {
         let usageStore = UsageStore(rootDirectory: root)
         usageStore.record(id: visible.id)
         usageStore.record(id: visible.id)
+        usageStore.flushPendingWrites()
 
         for encrypted in [true, false, true] {
             try ObeliskStorageMigrator.normalizeStorage(in: root, encrypted: encrypted)
@@ -2549,11 +2704,4 @@ private func keyEvent(
         isARepeat: false,
         keyCode: keyCode
     )!
-}
-
-@Suite struct ObeliskTests {
-    @MainActor
-    @Test func smokeSuite() async throws {
-        try await SmokeTests.main()
-    }
 }

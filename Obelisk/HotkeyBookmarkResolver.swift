@@ -30,6 +30,8 @@ enum HotkeyBookmarkResolver {
             return "请在“隐私与安全性 > 自动化”允许 Obelisk 控制当前浏览器"
         case .scriptFailed:
             return "无法读取当前浏览器标签"
+        case .timedOut:
+            return "读取当前浏览器标签超时"
         }
     }
 

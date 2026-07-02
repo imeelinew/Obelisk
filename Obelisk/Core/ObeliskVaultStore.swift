@@ -114,6 +114,48 @@ struct ObeliskVaultBookmark: Codable, Equatable, Identifiable {
     }
 }
 
+/// In-memory payload cache shared by every `ObeliskVaultStore` pointing at
+/// the same root directory. All stores (bookmarks, groups, usage, LLM
+/// config) are views over the same `payload.bin`; sharing one cache keyed by
+/// root path means a write through any store is immediately visible to all
+/// others, and a full reload only decrypts the payload once.
+private final class ObeliskVaultPayloadCache: @unchecked Sendable {
+    private static let registryLock = NSLock()
+    nonisolated(unsafe) private static var registry: [String: ObeliskVaultPayloadCache] = [:]
+
+    static func shared(for rootDirectory: URL) -> ObeliskVaultPayloadCache {
+        let key = rootDirectory.standardizedFileURL.path
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        if let existing = registry[key] {
+            return existing
+        }
+        let cache = ObeliskVaultPayloadCache()
+        registry[key] = cache
+        return cache
+    }
+
+    private let lock = NSLock()
+    private var payload: ObeliskVaultPayload?
+
+    var current: ObeliskVaultPayload? {
+        lock.lock()
+        defer { lock.unlock() }
+        return payload
+    }
+
+    func set(_ payload: ObeliskVaultPayload?) {
+        lock.lock()
+        self.payload = payload
+        lock.unlock()
+    }
+}
+
+/// Owner of `payload.bin` IO. Reads never take the file lock — the payload
+/// file is replaced atomically, so a plain read always sees a consistent
+/// snapshot. Every write path is serialized through
+/// `ObeliskRootDirectoryLock` (reentrant, so callers already holding the
+/// lock nest safely).
 final class ObeliskVaultStore {
     static let currentFormatVersion = 2
     static let currentPayloadSchemaVersion = 1
@@ -128,8 +170,10 @@ final class ObeliskVaultStore {
     private let manifestDecoder: JSONDecoder
     private let payloadEncoder: JSONEncoder
     private let payloadDecoder: JSONDecoder
+    private let payloadCache: ObeliskVaultPayloadCache
 
     init(rootDirectory: URL) {
+        self.payloadCache = ObeliskVaultPayloadCache.shared(for: rootDirectory)
         self.rootDirectory = rootDirectory
         self.secureCodec = SecureJSONFileCodec(
             keyStore: KeychainEncryptionKeyStore(encryptedPayloadsRoot: rootDirectory)
@@ -162,40 +206,86 @@ final class ObeliskVaultStore {
         FileManager.default.fileExists(atPath: payloadURL.path)
     }
 
+    /// Drops the in-memory payload cache; next `loadPayload` re-reads disk.
+    /// Call when the payload file may have been changed externally.
+    func invalidateCache() {
+        payloadCache.set(nil)
+    }
+
     func loadPayload() throws -> ObeliskVaultPayload {
+        if let cached = payloadCache.current {
+            return cached
+        }
+
         if hasV2Payload {
-            return try readV2Payload()
+            let payload = try readV2Payload()
+            setCachedPayload(payload)
+            return payload
         }
 
         if legacyPayloadExists() {
-            let migrated = try loadLegacyPayload()
-            try savePayload(migrated)
-            try removeLegacyPayloadFiles()
-            return migrated
+            // The one-time legacy migration writes files, so it must hold the
+            // root lock like every other write path (reentrant if the caller
+            // already holds it).
+            return try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
+                // Another thread/process may have migrated while we waited.
+                if hasV2Payload {
+                    let payload = try readV2Payload()
+                    setCachedPayload(payload)
+                    return payload
+                }
+                let migrated = try loadLegacyPayload()
+                try savePayload(migrated)
+                try removeLegacyPayloadFiles()
+                return migrated
+            }
         }
 
         return ObeliskVaultPayload()
     }
 
     func savePayload(_ payload: ObeliskVaultPayload) throws {
-        try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
-        ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(rootDirectory)
+        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
+            try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+            ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(rootDirectory)
 
-        let payloadData = try payloadEncoder.encode(payload.normalized())
-        let payloadTempURL = rootDirectory.appendingPathComponent(".\(Self.payloadFileName).\(UUID().uuidString).tmp")
-        try secureCodec.writeData(payloadData, to: payloadTempURL, encrypted: true)
+            let normalized = payload.normalized()
+            let payloadData = try payloadEncoder.encode(normalized)
+            let payloadTempURL = rootDirectory.appendingPathComponent(".\(Self.payloadFileName).\(UUID().uuidString).tmp")
+            try secureCodec.writeData(payloadData, to: payloadTempURL, encrypted: true)
 
-        let verifiedData = try secureCodec.readData(from: payloadTempURL)
-        _ = try payloadDecoder.decode(ObeliskVaultPayload.self, from: verifiedData)
+            let verifiedData = try secureCodec.readData(from: payloadTempURL)
+            _ = try payloadDecoder.decode(ObeliskVaultPayload.self, from: verifiedData)
 
-        try replaceItem(at: payloadURL, with: payloadTempURL)
+            try replaceItem(at: payloadURL, with: payloadTempURL)
+            setCachedPayload(normalized)
 
-        var manifest = (try? loadManifest()) ?? ObeliskVaultManifest()
-        manifest.formatVersion = Self.currentFormatVersion
-        manifest.updatedAt = Date()
-        manifest.payloadFile = Self.payloadFileName
-        manifest.encryption = Self.payloadEncryptionName
-        try saveManifest(manifest)
+            var manifest = (try? loadManifest()) ?? ObeliskVaultManifest()
+            manifest.formatVersion = Self.currentFormatVersion
+            manifest.updatedAt = Date()
+            manifest.payloadFile = Self.payloadFileName
+            manifest.encryption = Self.payloadEncryptionName
+            try saveManifest(manifest)
+        }
+    }
+
+    /// Read-modify-write on the whole payload under the root lock. All
+    /// partial writers (groups, usage, LLM config) must go through this so
+    /// concurrent writers cannot overwrite each other's fields.
+    func updatePayload(_ body: (inout ObeliskVaultPayload) throws -> Void) throws {
+        try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory) {
+            // Re-read inside the lock so we mutate the freshest snapshot.
+            invalidateCache()
+            var payload = try loadPayload()
+            let prior = payload
+            try body(&payload)
+            guard payload != prior else { return }
+            try savePayload(payload)
+        }
+    }
+
+    private func setCachedPayload(_ payload: ObeliskVaultPayload) {
+        payloadCache.set(payload)
     }
 
     func loadManifest() throws -> ObeliskVaultManifest {

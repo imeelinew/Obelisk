@@ -9,16 +9,16 @@ import Testing
 
 @Suite(.serialized)
 struct SmokeTests {
-    /// Every test runs against a throwaway UNIBOOKMARK_HOME with encryption
+    /// Every test runs against a throwaway OBELISK_HOME with encryption
     /// disabled, restoring process-global state afterwards. These globals are
     /// why the suite is `.serialized`.
     @MainActor
     private static func withIsolatedEnvironment(_ body: @MainActor () async throws -> Void) async throws {
         let isolatedHome = try temporaryDirectory()
-        setenv("UNIBOOKMARK_HOME", isolatedHome.path, 1)
+        setenv("OBELISK_HOME", isolatedHome.path, 1)
         LocalJSONEncryption.isEnabled = false
         defer {
-            unsetenv("UNIBOOKMARK_HOME")
+            unsetenv("OBELISK_HOME")
             LocalJSONEncryption.isEnabled = false
             try? FileManager.default.removeItem(at: isolatedHome)
         }
@@ -255,13 +255,14 @@ struct SmokeTests {
     }
 
     private static func testDefaultRootDirectoryUsesVault() throws {
-        let previousOverride = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"]
+        let previousOverride = ProcessInfo.processInfo.environment["OBELISK_HOME"]
+        unsetenv("OBELISK_HOME")
         unsetenv("UNIBOOKMARK_HOME")
         defer {
             if let previousOverride {
-                setenv("UNIBOOKMARK_HOME", previousOverride, 1)
+                setenv("OBELISK_HOME", previousOverride, 1)
             } else {
-                unsetenv("UNIBOOKMARK_HOME")
+                unsetenv("OBELISK_HOME")
             }
         }
 
@@ -271,13 +272,14 @@ struct SmokeTests {
     }
 
     private static func testDefaultRootDirectoryUsesApplicationSupport() throws {
-        let previousOverride = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"]
+        let previousOverride = ProcessInfo.processInfo.environment["OBELISK_HOME"]
+        unsetenv("OBELISK_HOME")
         unsetenv("UNIBOOKMARK_HOME")
         defer {
             if let previousOverride {
-                setenv("UNIBOOKMARK_HOME", previousOverride, 1)
+                setenv("OBELISK_HOME", previousOverride, 1)
             } else {
-                unsetenv("UNIBOOKMARK_HOME")
+                unsetenv("OBELISK_HOME")
             }
         }
 
@@ -293,11 +295,7 @@ struct SmokeTests {
         )
         try expect(
             BookmarkManagerView.SettingsPage.ai.symbolName == IntelligenceSymbolIcon.symbolName,
-            "expected the colorful sidebar Intelligence icon to use the shared symbol"
-        )
-        try expect(
-            BookmarkManagerView.SettingsPage.ai.professionalSymbolName == IntelligenceSymbolIcon.symbolName,
-            "expected the professional sidebar Intelligence icon to use the shared symbol"
+            "expected the sidebar Intelligence icon to use the shared symbol"
         )
     }
 
@@ -1502,7 +1500,6 @@ struct SmokeTests {
     @MainActor
     private static func testTitleOptimizationTranslationPrompt() throws {
         let translationOffPrompt = TitleOptimizer.systemPrompt(
-            for: .standard,
             translateNonChineseTitles: false
         )
         try expect(
@@ -1519,7 +1516,6 @@ struct SmokeTests {
         )
 
         let translationOnPrompt = TitleOptimizer.systemPrompt(
-            for: .standard,
             translateNonChineseTitles: true
         )
         try expect(

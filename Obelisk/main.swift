@@ -24,7 +24,7 @@ private func configureUITestingEnvironmentIfNeeded() {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("ObeliskUITests-\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    setenv("UNIBOOKMARK_HOME", root.path, 1)
+    setenv("OBELISK_HOME", root.path, 1)
     LocalJSONEncryption.isEnabled = false
 }
 

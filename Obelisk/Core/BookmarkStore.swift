@@ -103,20 +103,24 @@ public final class BookmarkStore {
         self.vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
     }
 
-    public static func defaultRootDirectory() -> URL {
-        if let override = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"], !override.isEmpty {
-            return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
+    /// `OBELISK_HOME` is the supported storage override; `UNIBOOKMARK_HOME`
+    /// remains honored as a legacy fallback from the app's previous name.
+    public static func environmentRootOverride() -> URL? {
+        let env = ProcessInfo.processInfo.environment
+        for key in ["OBELISK_HOME", "UNIBOOKMARK_HOME"] {
+            if let value = env[key], !value.isEmpty {
+                return URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
+            }
         }
+        return nil
+    }
 
-        return defaultLocalRootDirectory()
+    public static func defaultRootDirectory() -> URL {
+        environmentRootOverride() ?? defaultLocalRootDirectory()
     }
 
     public static func defaultLocalRootDirectory() -> URL {
-        if let override = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"], !override.isEmpty {
-            return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
-        }
-
-        return applicationSupportRootDirectory()
+        environmentRootOverride() ?? applicationSupportRootDirectory()
     }
 
     public static func applicationSupportRootDirectory() -> URL {

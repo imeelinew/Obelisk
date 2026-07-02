@@ -583,7 +583,7 @@ private extension BookmarkManagerView.SettingsPage {
             return image
         }
 
-        let image = NSImage(systemSymbolName: professionalSymbolName, accessibilityDescription: nil)
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
         image?.isTemplate = true
         return image
     }

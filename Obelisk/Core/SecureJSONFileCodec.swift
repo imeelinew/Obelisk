@@ -945,11 +945,8 @@ public final class KeychainEncryptionKeyStore {
     }
 
     private static func defaultRecoveryRootDirectory() -> URL? {
-        if let override = ProcessInfo.processInfo.environment["UNIBOOKMARK_HOME"],
-           !override.isEmpty {
-            return URL(fileURLWithPath: NSString(string: override).expandingTildeInPath)
-        }
-        return BookmarkStore.defaultRootDirectory()
+        // defaultRootDirectory already honors the environment override.
+        BookmarkStore.defaultRootDirectory()
     }
 
     private func allKeychainKeyCandidates() -> [Data] {

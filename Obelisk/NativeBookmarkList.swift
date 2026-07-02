@@ -110,12 +110,17 @@ struct NativeBookmarkList: NSViewRepresentable {
         context.coordinator.parent = self
         let nextItems = sections.flattenedItems
         if context.coordinator.items != nextItems ||
-           context.coordinator.cachedFaviconVersion != faviconVersion ||
            context.coordinator.cachedShowsURLHostOnly != showsURLHostOnly {
             context.coordinator.cachedFaviconVersion = faviconVersion
             context.coordinator.cachedShowsURLHostOnly = showsURLHostOnly
             context.coordinator.items = nextItems
             context.coordinator.reloadTable()
+        } else if context.coordinator.cachedFaviconVersion != faviconVersion {
+            // Rows are unchanged; a favicon finished loading. Refresh only the
+            // prepared rows instead of rebuilding the whole table so selection,
+            // hover, and scroll state stay intact.
+            context.coordinator.cachedFaviconVersion = faviconVersion
+            context.coordinator.reloadPreparedRows()
         } else {
             context.coordinator.syncSelectionToTable()
         }
@@ -159,6 +164,16 @@ struct NativeBookmarkList: NSViewRepresentable {
             // re-derive from the current cursor location.
             applyHoveredRow(-1)
             tableView.updateHoverFromCurrentMouse()
+        }
+
+        /// Reloads only rows that have prepared cell views (visible plus
+        /// overdraw). Offscreen rows get fresh cells lazily when scrolled in.
+        func reloadPreparedRows() {
+            guard let tableView, !items.isEmpty else { return }
+            let range = tableView.rows(in: tableView.preparedContentRect)
+            guard range.length > 0 else { return }
+            let rows = IndexSet(integersIn: range.location ..< (range.location + range.length))
+            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
         }
 
         private func syncTableWidth() {

@@ -88,7 +88,6 @@ struct BookmarkManagerView: View {
     @AppStorage(TitleOptimizationPreferences.optimizeHiddenBookmarksKey) private var optimizeHiddenBookmarks = false
     @AppStorage(BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey) private var autoGroupNewBookmarks = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
-    @AppStorage(TitleOptimizationIntensity.storageKey) private var titleOptimizationIntensityRaw = TitleOptimizationIntensity.standard.rawValue
     @AppStorage(TitleOptimizationTranslation.storageKey) private var translateNonChineseTitles = false
     @AppStorage(BookmarkListSortMode.bookmarksStorageKey) private var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage(BookmarkListSortMode.pinnedStorageKey) private var pinnedBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
@@ -240,24 +239,8 @@ struct BookmarkManagerView: View {
             }
         }
 
+        /// SF Symbol used when the SVG sidebar resource is unavailable.
         var symbolName: String {
-            switch self {
-            case .bookmarks:       return "bookmark.fill"
-            case .search:          return "magnifyingglass"
-            case .collections:     return "folder.fill"
-            case .hiddenBookmarks: return "eye.slash.fill"
-            case .archive:         return "archivebox.fill"
-            case .appearance:      return "paintpalette.fill"
-            case .menuBar:         return "menubar.rectangle"
-            case .shortcuts:       return "command"
-            case .ai:              return IntelligenceSymbolIcon.symbolName
-            case .privacy:         return "lock.fill"
-            case .settings:        return "gearshape.fill"
-            case .developer:       return "wrench.fill"
-            }
-        }
-
-        var professionalSymbolName: String {
             switch self {
             case .bookmarks:       return "bookmark.fill"
             case .search:          return "magnifyingglass"
@@ -291,104 +274,6 @@ struct BookmarkManagerView: View {
             }
         }
 
-        var professionalIconColor: Color {
-            switch self {
-            case .bookmarks:       return Color(red: 0.00, green: 0.48, blue: 1.00)
-            case .search:          return Color(red: 0.00, green: 0.48, blue: 1.00)
-            case .collections:     return Color(red: 0.00, green: 0.60, blue: 0.32)
-            case .hiddenBookmarks: return Color(red: 0.36, green: 0.34, blue: 0.84)
-            case .archive:         return Color(red: 0.00, green: 0.62, blue: 0.72)
-            case .appearance:      return Color(red: 0.56, green: 0.18, blue: 0.96)
-            case .menuBar:         return Color(red: 0.00, green: 0.58, blue: 0.90)
-            case .shortcuts:       return Color(red: 0.12, green: 0.44, blue: 0.86)
-            case .ai:              return Color(red: 0.93, green: 0.62, blue: 0.00)
-            case .privacy:         return Color(red: 0.36, green: 0.34, blue: 0.84)
-            case .settings:        return Color(red: 0.00, green: 0.48, blue: 1.00)
-            case .developer:       return Color(red: 0.95, green: 0.43, blue: 0.05)
-            }
-        }
-
-        var iconGradient: LinearGradient {
-            switch self {
-            case .bookmarks:
-                return LinearGradient(
-                    colors: [Color(red: 1.0, green: 0.50, blue: 0.40), Color(red: 0.96, green: 0.28, blue: 0.24)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .search:
-                return LinearGradient(
-                    colors: [Color(red: 0.42, green: 0.74, blue: 0.94), Color(red: 0.18, green: 0.46, blue: 0.78)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .ai:
-                return LinearGradient(
-                    colors: [
-                        Color(red: 1.0, green: 0.78, blue: 0.25),
-                        Color(red: 1.0, green: 0.20, blue: 0.28),
-                        Color(red: 0.54, green: 0.28, blue: 0.96),
-                        Color(red: 0.22, green: 0.66, blue: 1.0)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .collections:
-                return LinearGradient(
-                    colors: [Color(red: 0.52, green: 0.72, blue: 0.98), Color(red: 0.22, green: 0.48, blue: 0.88)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .hiddenBookmarks:
-                return LinearGradient(
-                    colors: [Color(red: 0.58, green: 0.66, blue: 0.80), Color(red: 0.34, green: 0.44, blue: 0.62)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .archive:
-                return LinearGradient(
-                    colors: [Color(red: 0.66, green: 0.72, blue: 0.80), Color(red: 0.38, green: 0.46, blue: 0.56)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .appearance:
-                return LinearGradient(
-                    colors: [Color(red: 0.46, green: 0.82, blue: 0.50), Color(red: 0.14, green: 0.62, blue: 0.30)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .menuBar:
-                return LinearGradient(
-                    colors: [Color(red: 0.30, green: 0.78, blue: 0.90), Color(red: 0.12, green: 0.48, blue: 0.82)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .shortcuts:
-                return LinearGradient(
-                    colors: [Color(red: 0.98, green: 0.72, blue: 0.36), Color(red: 0.86, green: 0.48, blue: 0.10)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .privacy:
-                return LinearGradient(
-                    colors: [Color(red: 0.72, green: 0.52, blue: 1.0), Color(red: 0.42, green: 0.24, blue: 0.86)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .settings:
-                return LinearGradient(
-                    colors: [Color(red: 0.52, green: 0.64, blue: 0.78), Color(red: 0.28, green: 0.38, blue: 0.52)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .developer:
-                return LinearGradient(
-                    colors: [Color(red: 1.0, green: 0.78, blue: 0.30), Color(red: 0.92, green: 0.52, blue: 0.08)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-        }
     }
 
     struct DeleteConfirmation: Identifiable {
@@ -752,22 +637,6 @@ struct BookmarkManagerView: View {
         Binding(
             get: { hiddenBookmarkListSortMode },
             set: { hiddenBookmarkListSortMode = $0 }
-        )
-    }
-
-    private var titleOptimizationIntensity: TitleOptimizationIntensity {
-        get {
-            TitleOptimizationIntensity(rawValue: titleOptimizationIntensityRaw) ?? .standard
-        }
-        nonmutating set {
-            titleOptimizationIntensityRaw = newValue.rawValue
-        }
-    }
-
-    private var titleOptimizationIntensityBinding: Binding<TitleOptimizationIntensity> {
-        Binding(
-            get: { titleOptimizationIntensity },
-            set: { titleOptimizationIntensity = $0 }
         )
     }
 
@@ -1646,14 +1515,6 @@ struct BookmarkManagerView: View {
         )
     }
 
-    private var titleIntensityPicker: some View {
-        CompactBorderedMenuPicker(
-            options: Array(TitleOptimizationIntensity.allCases),
-            selection: titleOptimizationIntensityBinding,
-            title: { $0.title }
-        )
-    }
-
     private var llmModelSourcePicker: some View {
         CompactBorderedMenuPicker(
             options: Array(LLMModelSource.allCases),
@@ -2446,15 +2307,6 @@ struct BookmarkManagerView: View {
 
             if aiFeaturesEnabled {
                 Section("Intelligence 书签优化") {
-                    LabeledContent {
-                        titleIntensityPicker
-                            // SwiftUI gives this picker a larger trailing inset
-                            // than the model source row; keep the chevrons aligned.
-                            .padding(.trailing, -12)
-                    } label: {
-                        Text("优化程度")
-                    }
-
                     Toggle(isOn: $autoOptimizeNewBookmarks) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自动优化新书签标题")
@@ -2621,6 +2473,15 @@ struct BookmarkManagerView: View {
                     }
 
                     Text("包含关键字的 URL 只能添加到「隐藏书签」。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("网站图标") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("自动获取网站图标")
+                    Text("Obelisk 会向书签对应的网站（必要时经 DuckDuckGo 图标服务）请求图标，获取后缓存在本地。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

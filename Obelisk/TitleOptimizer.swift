@@ -1,28 +1,5 @@
 import Foundation
 
-enum TitleOptimizationIntensity: String, CaseIterable, Identifiable {
-    case standard
-
-    static let storageKey = "titleOptimizationIntensity"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .standard: return "标准"
-        }
-    }
-
-    static var stored: TitleOptimizationIntensity {
-        let raw = UserDefaults.standard.string(forKey: storageKey) ?? ""
-        if let intensity = TitleOptimizationIntensity(rawValue: raw) {
-            return intensity
-        }
-        // 旧版 restrained / compressed 统一迁移为标准
-        return .standard
-    }
-}
-
 enum TitleOptimizationTranslation {
     static let storageKey = "titleOptimizationTranslateNonChineseTitles"
 
@@ -459,14 +436,12 @@ final class TitleOptimizer {
             return [:]
         }
 
-        let intensity = TitleOptimizationIntensity.stored
         let translateNonChineseTitles = TitleOptimizationTranslation.translateNonChineseTitles
         let userPayload = try String(data: encoder.encode(sanitized), encoding: .utf8) ?? "[]"
         let requestBody = ChatRequest(
             model: config.model,
             messages: [
                 .init(role: "system", content: Self.systemPrompt(
-                    for: intensity,
                     translateNonChineseTitles: translateNonChineseTitles
                 )),
                 .init(role: "user", content: userPayload)
@@ -604,10 +579,13 @@ final class TitleOptimizer {
         let configURL = configStore.configURL
         let fileConfig = configStore.load()
 
+        // OBELISK_LLM_* is the supported override; UNIBOOKMARK_LLM_* remains
+        // honored as a legacy fallback from the app's previous name.
         let env = ProcessInfo.processInfo.environment
-        let apiKey = env["UNIBOOKMARK_LLM_API_KEY"] ?? fileConfig.apiKey
-        let model = env["UNIBOOKMARK_LLM_MODEL"] ?? fileConfig.model
-        let baseURLString = env["UNIBOOKMARK_LLM_BASE_URL"]
+        let apiKey = env["OBELISK_LLM_API_KEY"] ?? env["UNIBOOKMARK_LLM_API_KEY"] ?? fileConfig.apiKey
+        let model = env["OBELISK_LLM_MODEL"] ?? env["UNIBOOKMARK_LLM_MODEL"] ?? fileConfig.model
+        let baseURLString = env["OBELISK_LLM_BASE_URL"]
+            ?? env["UNIBOOKMARK_LLM_BASE_URL"]
             ?? fileConfig.baseURL
 
         do {
@@ -698,18 +676,11 @@ final class TitleOptimizer {
             .replacingOccurrences(of: "</system>", with: "</ system>")
     }
 
-    static func systemPrompt(
-        for intensity: TitleOptimizationIntensity,
-        translateNonChineseTitles: Bool
-    ) -> String {
-        let basePrompt = switch intensity {
-        case .standard:
-            standardPrompt
-        }
+    static func systemPrompt(translateNonChineseTitles: Bool) -> String {
         guard translateNonChineseTitles else {
-            return basePrompt
+            return standardPrompt
         }
-        return basePrompt + "\n" + translationPrompt
+        return standardPrompt + "\n" + translationPrompt
     }
 
     private static let standardPrompt = """

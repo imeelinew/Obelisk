@@ -72,6 +72,7 @@ struct BookmarkManagerView: View {
     @State private var hiddenBookmarksUnlocked = false
     @State private var quickLookController = QuickLookController()
     @AppStorage(SidebarIconTheme.storageKey) private var sidebarIconThemeRaw = SidebarIconTheme.colorful.rawValue
+    @AppStorage(SidebarIconStyle.storageKey) private var sidebarIconStyleRaw = SidebarIconStyle.lucide.rawValue
     @AppStorage(MenuBarIconStyle.storageKey) private var menuBarIconStyleRaw = MenuBarIconStyle.outline.rawValue
     private let sidebarIconTileSize = 22.0
     private let sidebarIconSymbolSize = 11.0
@@ -954,6 +955,17 @@ struct BookmarkManagerView: View {
         )
     }
 
+    private var sidebarIconStyle: SidebarIconStyle {
+        SidebarIconStyle(rawValue: sidebarIconStyleRaw) ?? .lucide
+    }
+
+    private var sidebarIconStyleBinding: Binding<SidebarIconStyle> {
+        Binding(
+            get: { sidebarIconStyle },
+            set: { sidebarIconStyleRaw = $0.rawValue }
+        )
+    }
+
     private var menuBarIconStyle: MenuBarIconStyle {
         MenuBarIconStyle(rawValue: menuBarIconStyleRaw) ?? .outline
     }
@@ -1478,6 +1490,7 @@ struct BookmarkManagerView: View {
             selectedPage: settingsPageBinding,
             badgeCount: sidebarBadgeCount(for:),
             iconTheme: sidebarIconTheme,
+            iconStyle: sidebarIconStyle,
             colorfulIconSize: sidebarIconTileSize,
             colorfulSymbolSize: sidebarIconSymbolSize,
             colorfulCornerRadius: sidebarIconCornerRadius,
@@ -2049,11 +2062,21 @@ struct BookmarkManagerView: View {
 
     private var appearancePage: some View {
         Form {
-            Section("主题") {
+            Section("侧边栏") {
                 LabeledContent("主题") {
                     Picker("主题", selection: sidebarIconThemeBinding) {
                         ForEach(SidebarIconTheme.allCases) { theme in
                             Text(theme.displayName).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                LabeledContent("图标风格") {
+                    Picker("图标风格", selection: sidebarIconStyleBinding) {
+                        ForEach(SidebarIconStyle.allCases) { style in
+                            Text(style.displayName).tag(style)
                         }
                     }
                     .pickerStyle(.segmented)

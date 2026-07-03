@@ -6,6 +6,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
     @Binding var selectedPage: BookmarkManagerView.SettingsPage?
     var badgeCount: (BookmarkManagerView.SettingsPage) -> Int?
     var iconTheme: SidebarIconTheme
+    var iconStyle: SidebarIconStyle
     var colorfulIconSize: CGFloat
     var colorfulSymbolSize: CGFloat
     var colorfulCornerRadius: CGFloat
@@ -137,6 +138,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     page: page,
                     badgeCount: parent.badgeCount(page),
                     theme: parent.iconTheme,
+                    iconStyle: parent.iconStyle,
                     colorfulIconSize: parent.colorfulIconSize,
                     colorfulSymbolSize: parent.colorfulSymbolSize,
                     colorfulCornerRadius: parent.colorfulCornerRadius,
@@ -201,6 +203,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     page: page,
                     badgeCount: parent.badgeCount(page),
                     theme: parent.iconTheme,
+                    iconStyle: parent.iconStyle,
                     colorfulIconSize: parent.colorfulIconSize,
                     colorfulSymbolSize: parent.colorfulSymbolSize,
                     colorfulCornerRadius: parent.colorfulCornerRadius,
@@ -397,6 +400,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         page: BookmarkManagerView.SettingsPage,
         badgeCount: Int?,
         theme: SidebarIconTheme,
+        iconStyle: SidebarIconStyle,
         colorfulIconSize: CGFloat,
         colorfulSymbolSize: CGFloat,
         colorfulCornerRadius: CGFloat,
@@ -420,6 +424,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
             colorfulIconHeight.constant = colorfulIconSize
             colorfulIconView.configure(
                 page: page,
+                iconStyle: iconStyle,
                 size: colorfulIconSize,
                 symbolSize: colorfulSymbolSize,
                 cornerRadius: colorfulCornerRadius
@@ -433,7 +438,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
             let iconSize = professionalIconSize + 3
             professionalIconWidth.constant = iconSize
             professionalIconHeight.constant = iconSize
-            professionalIconView.image = page.professionalAppKitIcon
+            professionalIconView.image = page.professionalAppKitIcon(style: iconStyle)
             professionalIconView.contentTintColor = page.professionalAppKitIconColor
             colorfulIconView.isHidden = true
             professionalIconView.isHidden = false
@@ -474,6 +479,7 @@ private final class SettingsSidebarColorIconView: NSView {
 
     func configure(
         page: BookmarkManagerView.SettingsPage,
+        iconStyle: SidebarIconStyle,
         size: CGFloat,
         symbolSize: CGFloat,
         cornerRadius: CGFloat
@@ -482,7 +488,7 @@ private final class SettingsSidebarColorIconView: NSView {
         self.iconSize = size
         self.symbolSize = symbolSize
         self.cornerRadius = cornerRadius
-        iconImageView.image = page.professionalAppKitIcon
+        iconImageView.image = page.professionalAppKitIcon(style: iconStyle)
         iconImageView.contentTintColor = .white
         needsDisplay = true
         needsLayout = true
@@ -578,8 +584,8 @@ private extension BookmarkManagerView.SettingsPage {
         }
     }
 
-    var professionalAppKitIcon: NSImage? {
-        if let image = Self.resourceImage(named: professionalIconResourceName) {
+    func professionalAppKitIcon(style: SidebarIconStyle) -> NSImage? {
+        if let image = Self.resourceImage(named: professionalIconResourceName, style: style) {
             return image
         }
 
@@ -588,12 +594,23 @@ private extension BookmarkManagerView.SettingsPage {
         return image
     }
 
-    static func resourceImage(named name: String) -> NSImage? {
-        let resourceURLs = [
-            Bundle.main.resourceURL?.appendingPathComponent("\(name).svg"),
-            Bundle.main.resourceURL?.appendingPathComponent("SidebarIcons/\(name).svg"),
-            Bundle.main.resourceURL?.appendingPathComponent("Resources/SidebarIcons/\(name).svg"),
-        ]
+    static func resourceImage(named name: String, style: SidebarIconStyle) -> NSImage? {
+        let resourceURLs: [URL?]
+        switch style {
+        case .lucide:
+            resourceURLs = [
+                Bundle.main.resourceURL?.appendingPathComponent("\(name).svg"),
+                Bundle.main.resourceURL?.appendingPathComponent("SidebarIcons/\(name).svg"),
+                Bundle.main.resourceURL?.appendingPathComponent("Resources/SidebarIcons/\(name).svg"),
+            ]
+        case .tabler:
+            let tablerName = "tabler-\(name)"
+            resourceURLs = [
+                Bundle.main.resourceURL?.appendingPathComponent("\(tablerName).svg"),
+                Bundle.main.resourceURL?.appendingPathComponent("SidebarIconsTabler/\(tablerName).svg"),
+                Bundle.main.resourceURL?.appendingPathComponent("Resources/SidebarIconsTabler/\(tablerName).svg"),
+            ]
+        }
 
         for url in resourceURLs.compactMap({ $0 }) {
             if let image = NSImage(contentsOf: url) {

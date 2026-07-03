@@ -604,9 +604,11 @@ private extension BookmarkManagerView.SettingsPage {
                 Bundle.main.resourceURL?.appendingPathComponent("Resources/SidebarIcons/\(name).svg"),
             ]
         case .tabler:
+            let tablerName = "tabler-\(name)"
             resourceURLs = [
-                Bundle.main.resourceURL?.appendingPathComponent("SidebarIconsTabler/\(name).svg"),
-                Bundle.main.resourceURL?.appendingPathComponent("Resources/SidebarIconsTabler/\(name).svg"),
+                Bundle.main.resourceURL?.appendingPathComponent("\(tablerName).svg"),
+                Bundle.main.resourceURL?.appendingPathComponent("SidebarIconsTabler/\(tablerName).svg"),
+                Bundle.main.resourceURL?.appendingPathComponent("Resources/SidebarIconsTabler/\(tablerName).svg"),
             ]
         }
 

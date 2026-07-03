@@ -1,0 +1,38 @@
+name: Xcode Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build Obelisk
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve package dependencies
+        run: |
+          xcodebuild \
+            -project Obelisk.xcodeproj \
+            -scheme Obelisk \
+            -resolvePackageDependencies
+
+      - name: Build
+        run: |
+          xcodebuild \
+            -project Obelisk.xcodeproj \
+            -scheme Obelisk \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build

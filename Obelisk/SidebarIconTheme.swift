@@ -17,3 +17,21 @@ enum SidebarIconTheme: String, CaseIterable, Identifiable {
 extension SidebarIconTheme {
     static let storageKey = "sidebarIconTheme"
 }
+
+enum SidebarIconStyle: String, CaseIterable, Identifiable {
+    case lucide
+    case tabler
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .lucide: return "Lucid"
+        case .tabler: return "Tabler"
+        }
+    }
+}
+
+extension SidebarIconStyle {
+    static let storageKey = "sidebarIconStyle"
+}

@@ -438,8 +438,8 @@ private final class SettingsSidebarPageCell: NSTableCellView {
             let iconSize = professionalIconSize + 3
             professionalIconWidth.constant = iconSize
             professionalIconHeight.constant = iconSize
-            professionalIconView.image = page.professionalAppKitIcon(style: iconStyle)
-            professionalIconView.contentTintColor = page.professionalAppKitIconColor
+            professionalIconView.image = page.professionalAppKitGradientIcon(style: iconStyle)
+            professionalIconView.contentTintColor = nil
             colorfulIconView.isHidden = true
             professionalIconView.isHidden = false
             titleToColorfulIcon.isActive = false
@@ -561,29 +561,6 @@ private extension BookmarkManagerView.SettingsPage {
         }
     }
 
-    var professionalAppKitIconColor: NSColor {
-        switch self {
-        case .bookmarks, .search, .settings:
-            return Self.rgb(0.00, 0.48, 1.00)
-        case .collections:
-            return Self.rgb(0.00, 0.60, 0.32)
-        case .hiddenBookmarks, .privacy:
-            return Self.rgb(0.36, 0.34, 0.84)
-        case .archive:
-            return Self.rgb(0.00, 0.62, 0.72)
-        case .appearance:
-            return Self.rgb(0.56, 0.18, 0.96)
-        case .menuBar:
-            return Self.rgb(0.00, 0.58, 0.90)
-        case .shortcuts:
-            return Self.rgb(0.12, 0.44, 0.86)
-        case .ai:
-            return Self.rgb(0.93, 0.62, 0.00)
-        case .developer:
-            return Self.rgb(0.95, 0.43, 0.05)
-        }
-    }
-
     func professionalAppKitIcon(style: SidebarIconStyle) -> NSImage? {
         if let image = Self.resourceImage(named: professionalIconResourceName, style: style) {
             return image
@@ -591,6 +568,36 @@ private extension BookmarkManagerView.SettingsPage {
 
         let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
         image?.isTemplate = true
+        return image
+    }
+
+    func professionalAppKitGradientIcon(style: SidebarIconStyle) -> NSImage? {
+        guard let maskImage = professionalAppKitIcon(style: style),
+              let gradient = NSGradient(colors: appKitGradientColors) else {
+            return professionalAppKitIcon(style: style)
+        }
+
+        let canvasSize = NSSize(width: 64, height: 64)
+        let image = NSImage(size: canvasSize)
+        let bounds = NSRect(origin: .zero, size: canvasSize)
+        let iconMask = maskImage.copy() as? NSImage ?? maskImage
+        iconMask.isTemplate = false
+
+        image.lockFocus()
+        NSColor.clear.setFill()
+        bounds.fill()
+        iconMask.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
+
+        let context = NSGraphicsContext.current
+        let previousOperation = context?.compositingOperation
+        context?.compositingOperation = .sourceIn
+        gradient.draw(in: bounds, angle: 315)
+        if let previousOperation {
+            context?.compositingOperation = previousOperation
+        }
+        image.unlockFocus()
+
+        image.isTemplate = false
         return image
     }
 

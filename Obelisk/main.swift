@@ -85,7 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)
         }
         ObeliskKeychainMigration.migrateIfNeeded()
-        NSApp.setActivationPolicy(.regular)
         installMainMenu()
         configureStatusItem()
         installDefaultsObserver()
@@ -813,10 +812,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
 
         menu.addItem(NSMenuItem.separator())
-        let manageItem = NSMenuItem(title: "打开 Obelisk", action: #selector(openManager), keyEquivalent: "o")
-        manageItem.keyEquivalentModifierMask = [.command]
-        manageItem.target = self
-        menu.addItem(manageItem)
         let quitItem = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = [.command]
         quitItem.target = self
@@ -959,7 +954,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     @objc private func openManager() {
         dismissNotificationPopover()
-        NSApp.setActivationPolicy(.regular)
         managerWindow.show()
     }
 
@@ -976,11 +970,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        false
+        true
     }
 
     func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        false
+        openManager()
+        return true
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

@@ -58,8 +58,6 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window = nil
-        // 退回 accessory：Dock 图标消失，但 statusItem 菜单栏图标独立保留。
-        NSApp.setActivationPolicy(.accessory)
     }
 
     func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {

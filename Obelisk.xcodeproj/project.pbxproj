@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		C1C0A0012FC4A00000000001 /* Obelisk.icon in Resources */ = {isa = PBXBuildFile; fileRef = C1C0A0022FC4A00000000002 /* Obelisk.icon */; };
 		E1KS00032FC4A00100000003 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = E1KS00022FC4A00100000002 /* KeyboardShortcuts */; };
+		E1SP00032FC4A00100000003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E1SP00022FC4A00100000002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +73,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E1KS00032FC4A00100000003 /* KeyboardShortcuts in Frameworks */,
+				E1SP00032FC4A00100000003 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,6 +136,7 @@
 			name = Obelisk;
 			packageProductDependencies = (
 				E1KS00022FC4A00100000002 /* KeyboardShortcuts */,
+				E1SP00022FC4A00100000002 /* Sparkle */,
 			);
 			productName = Obelisk;
 			productReference = 45B26F162FC4874D009BAE8A /* Obelisk.app */;
@@ -220,6 +223,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				E1KS00012FC4A00100000001 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
+				E1SP00012FC4A00100000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 45B26F172FC4874D009BAE8A /* Products */;
@@ -604,6 +608,14 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		E1SP00012FC4A00100000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -611,6 +623,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E1KS00012FC4A00100000001 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
 			productName = KeyboardShortcuts;
+		};
+		E1SP00022FC4A00100000002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E1SP00012FC4A00100000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

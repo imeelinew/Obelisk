@@ -1,0 +1,302 @@
+name: Publish Sparkle Appcast
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-appcast:
+    name: Sign release asset and publish appcast
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download release artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          ASSET_DIR="$RUNNER_TEMP/release-assets"
+          mkdir -p "$ASSET_DIR"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$ASSET_DIR" \
+            --pattern "*.zip" \
+            --pattern "*.dmg" || true
+
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          asset_dir = Path(os.environ["RUNNER_TEMP"]) / "release-assets"
+          candidates = [
+              path for path in asset_dir.iterdir()
+              if path.is_file()
+              and path.suffix.lower() in {".zip", ".dmg"}
+              and not re.search(r"(dSYM|symbol|symbols|debug)", path.name, re.IGNORECASE)
+          ]
+
+          if len(candidates) != 1:
+              names = ", ".join(path.name for path in candidates) or "none"
+              print(
+                  f"Expected exactly one Obelisk update asset (.zip or .dmg); found: {names}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          asset = candidates[0]
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          release_assets = event.get("release", {}).get("assets", [])
+          download_url = next(
+              (
+                  item["browser_download_url"]
+                  for item in release_assets
+                  if item.get("name") == asset.name
+              ),
+              None,
+          )
+          if not download_url:
+              print(f"Could not find browser_download_url for {asset.name}", file=sys.stderr)
+              sys.exit(1)
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a") as fh:
+              print(f"path={asset}", file=fh)
+              print(f"name={asset.name}", file=fh)
+              print(f"download_url={download_url}", file=fh)
+          PY
+
+      - name: Download Sparkle command line tools
+        id: sparkle
+        run: |
+          set -euo pipefail
+
+          SPARKLE_VERSION="$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          resolved = json.loads(Path("Obelisk.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
+          for pin in resolved.get("pins", []):
+              if pin.get("identity", "").lower() == "sparkle":
+                  print(pin["state"]["version"])
+                  break
+          else:
+              raise SystemExit("Sparkle is not pinned in Package.resolved")
+          PY
+          )"
+
+          ARCHIVE="$RUNNER_TEMP/Sparkle-$SPARKLE_VERSION.tar.xz"
+          TOOLS_DIR="$RUNNER_TEMP/sparkle-tools"
+          mkdir -p "$TOOLS_DIR"
+          curl -fsSL \
+            -o "$ARCHIVE" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          tar -xf "$ARCHIVE" -C "$TOOLS_DIR"
+
+          echo "bin=$TOOLS_DIR/bin" >> "$GITHUB_OUTPUT"
+          echo "version=$SPARKLE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Read bundle version from release artifact
+        id: bundle
+        env:
+          ASSET_PATH: ${{ steps.artifact.outputs.path }}
+        run: |
+          set -euo pipefail
+
+          EXTRACT_DIR="$RUNNER_TEMP/extracted-app"
+          mkdir -p "$EXTRACT_DIR"
+
+          case "${ASSET_PATH##*.}" in
+            zip)
+              unzip -q "$ASSET_PATH" -d "$EXTRACT_DIR"
+              APP_PATH="$(find "$EXTRACT_DIR" -name "Obelisk.app" -type d -print -quit)"
+              if [ -z "$APP_PATH" ]; then
+                APP_PATH="$(find "$EXTRACT_DIR" -name "*.app" -type d -print -quit)"
+              fi
+              ;;
+            dmg)
+              MOUNT_DIR="$RUNNER_TEMP/dmg-mount"
+              mkdir -p "$MOUNT_DIR"
+              hdiutil attach "$ASSET_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -readonly
+              trap 'hdiutil detach "$MOUNT_DIR" -quiet || true' EXIT
+              APP_PATH="$(find "$MOUNT_DIR" -maxdepth 3 -name "Obelisk.app" -type d -print -quit)"
+              if [ -z "$APP_PATH" ]; then
+                APP_PATH="$(find "$MOUNT_DIR" -maxdepth 3 -name "*.app" -type d -print -quit)"
+              fi
+              ;;
+            *)
+              echo "Unsupported asset type: $ASSET_PATH" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
+            echo "Could not find an .app bundle inside $ASSET_PATH" >&2
+            exit 1
+          fi
+
+          PLIST="$APP_PATH/Contents/Info.plist"
+          BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+          SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+
+          echo "bundle_version=$BUNDLE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "short_version=$SHORT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Sign update asset
+        id: signature
+        env:
+          ASSET_PATH: ${{ steps.artifact.outputs.path }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          SPARKLE_BIN: ${{ steps.sparkle.outputs.bin }}
+        run: |
+          set -euo pipefail
+
+          # Security rule: the EdDSA private key must only come from GitHub
+          # Actions secrets. Never print it, write it to a file, or commit it.
+          if [ -z "${SPARKLE_PRIVATE_KEY:-}" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY repository secret" >&2
+            exit 1
+          fi
+
+          SIGN_OUTPUT="$(printf '%s\n' "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/sign_update" --ed-key-file - "$ASSET_PATH")"
+
+          SIGN_OUTPUT="$SIGN_OUTPUT" python3 - <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          output = os.environ["SIGN_OUTPUT"]
+          signature_match = re.search(r'sparkle:edSignature="([^"]+)"', output)
+          length_match = re.search(r'length="([^"]+)"', output)
+          if not signature_match or not length_match:
+              print("Could not parse sign_update output", file=sys.stderr)
+              sys.exit(1)
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as fh:
+              print(f"ed_signature={signature_match.group(1)}", file=fh)
+              print(f"length={length_match.group(1)}", file=fh)
+          PY
+
+      - name: Update docs/appcast.xml
+        env:
+          ASSET_DOWNLOAD_URL: ${{ steps.artifact.outputs.download_url }}
+          ASSET_LENGTH: ${{ steps.signature.outputs.length }}
+          ED_SIGNATURE: ${{ steps.signature.outputs.ed_signature }}
+          BUNDLE_VERSION: ${{ steps.bundle.outputs.bundle_version }}
+          SHORT_VERSION: ${{ steps.bundle.outputs.short_version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p docs
+          python3 - <<'PY'
+          import email.utils
+          import json
+          import os
+          import xml.etree.ElementTree as ET
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+          dc_ns = "http://purl.org/dc/elements/1.1/"
+          ET.register_namespace("sparkle", sparkle_ns)
+          ET.register_namespace("dc", dc_ns)
+
+          appcast_path = Path("docs/appcast.xml")
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          release = event["release"]
+          repo = event["repository"]
+
+          if appcast_path.exists():
+              tree = ET.parse(appcast_path)
+              root = tree.getroot()
+              channel = root.find("channel")
+              if channel is None:
+                  raise SystemExit("Existing docs/appcast.xml is missing a channel element")
+          else:
+              root = ET.Element("rss", {"version": "2.0"})
+              channel = ET.SubElement(root, "channel")
+              ET.SubElement(channel, "title").text = "Obelisk Updates"
+              ET.SubElement(channel, "link").text = repo["html_url"]
+              ET.SubElement(channel, "description").text = "Sparkle appcast for Obelisk"
+              ET.SubElement(channel, "language").text = "en"
+              tree = ET.ElementTree(root)
+
+          bundle_version = os.environ["BUNDLE_VERSION"]
+          short_version = os.environ["SHORT_VERSION"]
+          download_url = os.environ["ASSET_DOWNLOAD_URL"]
+
+          for item in list(channel.findall("item")):
+              version = item.find(f"{{{sparkle_ns}}}version")
+              enclosure = item.find("enclosure")
+              if (
+                  version is not None
+                  and version.text == bundle_version
+              ) or (
+                  enclosure is not None
+                  and enclosure.get("url") == download_url
+              ):
+                  channel.remove(item)
+
+          published_at = release.get("published_at") or release.get("created_at")
+          if published_at:
+              published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+          else:
+              published = datetime.now(timezone.utc)
+
+          item = ET.Element("item")
+          title = release.get("name") or f"Version {short_version}"
+          ET.SubElement(item, "title").text = title
+          ET.SubElement(item, "link").text = release["html_url"]
+          ET.SubElement(item, f"{{{sparkle_ns}}}version").text = bundle_version
+          ET.SubElement(item, f"{{{sparkle_ns}}}shortVersionString").text = short_version
+          ET.SubElement(item, "pubDate").text = email.utils.format_datetime(published)
+          ET.SubElement(item, "description").text = release.get("body") or f"Release {os.environ['RELEASE_TAG']}"
+          ET.SubElement(item, "enclosure", {
+              "url": download_url,
+              f"{{{sparkle_ns}}}edSignature": os.environ["ED_SIGNATURE"],
+              "length": os.environ["ASSET_LENGTH"],
+              "type": "application/octet-stream",
+          })
+
+          first_item = channel.find("item")
+          if first_item is None:
+              channel.append(item)
+          else:
+              channel.insert(list(channel).index(first_item), item)
+
+          ET.indent(tree, space="  ")
+          tree.write(appcast_path, encoding="utf-8", xml_declaration=True)
+          PY
+
+      - name: Commit appcast
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/appcast.xml
+
+          if git diff --cached --quiet; then
+            echo "docs/appcast.xml already up to date"
+            exit 0
+          fi
+
+          git commit -m "Update Sparkle appcast for $RELEASE_TAG"
+          git push origin HEAD:main

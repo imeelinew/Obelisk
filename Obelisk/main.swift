@@ -5,6 +5,7 @@ import KeyboardShortcuts
 import Foundation
 import Observation
 import os
+import Sparkle
 import SwiftUI
 
 private let inputSourceLog = Logger(subsystem: "com.eli.Obelisk", category: "InputSource")
@@ -73,6 +74,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var suppressStatusItemClickUntil: Date?
     private var pendingUndo: PendingBookmarkUndo?
     private var pendingUndoExpirationWorkItem: DispatchWorkItem?
+    private lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     private struct PendingBookmarkUndo {
         let bookmark: Bookmark
@@ -486,6 +492,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: NSLocalizedString("About Obelisk", comment: "App menu"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        let checkForUpdatesItem = NSMenuItem(
+            title: NSLocalizedString("Check for Updates…", comment: "App menu"),
+            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        checkForUpdatesItem.target = updaterController
+        appMenu.addItem(checkForUpdatesItem)
         appMenu.addItem(.separator())
         let settingsItem = NSMenuItem(title: NSLocalizedString("Settings…", comment: "App menu"), action: #selector(openManager), keyEquivalent: ",")
         settingsItem.target = self

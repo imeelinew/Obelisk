@@ -58,6 +58,16 @@
 	<string>Obelisk uses AppleScript to read the URL and title of the active tab from your frontmost browser when you press the global add-bookmark shortcut.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<!-- Sparkle: replace SUFeedURL and SUPublicEDKey before shipping auto-updates. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://imeelinew.github.io/Obelisk/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>4r6yMauRlw+aLLxSMfyZqTLD4OTPOizEzu1hKRf9wUI=</string>
+	<!-- Sparkle checks once per day; adjust this interval in seconds if needed. -->
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

@@ -224,8 +224,10 @@ jobs:
           mkdir -p docs
           python3 - <<'PY'
           import email.utils
+          import html
           import json
           import os
+          import re
           import xml.etree.ElementTree as ET
           from datetime import datetime, timezone
           from pathlib import Path
@@ -267,6 +269,45 @@ jobs:
           short_version = os.environ["SHORT_VERSION"]
           download_url = os.environ["ASSET_DOWNLOAD_URL"]
 
+          def inline_markdown(text):
+              escaped = html.escape(text)
+              escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+              return escaped
+
+          def markdown_to_html(markdown):
+              blocks = []
+              list_items = []
+
+              def flush_list():
+                  nonlocal list_items
+                  if list_items:
+                      blocks.append("<ul>" + "".join(f"<li>{item}</li>" for item in list_items) + "</ul>")
+                      list_items = []
+
+              for raw_line in markdown.splitlines():
+                  line = raw_line.strip()
+                  if not line:
+                      flush_list()
+                      continue
+
+                  heading = re.match(r"^(#{2,4})\s+(.+)$", line)
+                  if heading:
+                      flush_list()
+                      level = len(heading.group(1))
+                      blocks.append(f"<h{level}>{inline_markdown(heading.group(2))}</h{level}>")
+                      continue
+
+                  bullet = re.match(r"^[-*]\s+(.+)$", line)
+                  if bullet:
+                      list_items.append(inline_markdown(bullet.group(1)))
+                      continue
+
+                  flush_list()
+                  blocks.append(f"<p>{inline_markdown(line)}</p>")
+
+              flush_list()
+              return "\n".join(blocks)
+
           for item in list(channel.findall("item")):
               version = item.find(f"{{{sparkle_ns}}}version")
               enclosure = item.find("enclosure")
@@ -292,7 +333,9 @@ jobs:
           ET.SubElement(item, f"{{{sparkle_ns}}}version").text = bundle_version
           ET.SubElement(item, f"{{{sparkle_ns}}}shortVersionString").text = short_version
           ET.SubElement(item, "pubDate").text = email.utils.format_datetime(published)
-          ET.SubElement(item, "description").text = release.get("body") or f"Release {release_tag}"
+          ET.SubElement(item, "description").text = markdown_to_html(
+              release.get("body") or f"Release {release_tag}"
+          )
           ET.SubElement(item, "enclosure", {
               "url": download_url,
               f"{{{sparkle_ns}}}edSignature": os.environ["ED_SIGNATURE"],

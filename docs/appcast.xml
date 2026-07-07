@@ -1,9 +1,44 @@
 <?xml version='1.0' encoding='utf-8'?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
     <title>Obelisk Updates</title>
     <link>https://github.com/imeelinew/Obelisk</link>
     <description>Sparkle appcast for Obelisk</description>
     <language>en</language>
+    <item>
+      <title>Obelisk 1.7.1</title>
+      <link>https://github.com/imeelinew/Obelisk/releases/tag/v1.7.1</link>
+      <sparkle:version>3</sparkle:version>
+      <sparkle:shortVersionString>1.7.1</sparkle:shortVersionString>
+      <pubDate>Tue, 07 Jul 2026 02:09:43 +0000</pubDate>
+      <description>## 新功能
+
+### 自动更新
+- 接入 Sparkle 自动更新框架
+- 新增「Check for Updates… / 检查更新…」菜单项
+- 支持后台定期检查更新，后续版本可通过 appcast 自动发现并更新
+
+### 窗口与菜单栏
+- 启动改为窗口主体优先：Dock 显示图标、直接打开主窗口；关闭窗口后回到菜单栏 accessory 模式，菜单栏常驻
+- 补全标准主菜单（App / File / Edit / View / Window / Help）并接入中英文 i18n 本地化
+- 新增菜单栏图标样式设置
+
+### 侧栏与界面
+- 新增 Tabler 侧栏图标风格
+- 更新 README logo 与首张介绍截图
+
+## 修复与改进
+- GitHub Actions 构建流程扩展到全部分支
+- 新增共享 Debug scheme，方便本地调试和 CI 构建
+
+## 重要变更
+- GitHub Release 发布后会自动生成 Sparkle appcast，用于后续版本的自动更新测试
+
+## 安装
+
+下载 `Obelisk.zip`，解压后将 `Obelisk.app` 拖入「应用程序」文件夹。Universal Binary（Apple Silicon + Intel）。需要 macOS 26 或更高版本。
+</description>
+      <enclosure url="https://github.com/imeelinew/Obelisk/releases/download/v1.7.1/Obelisk.zip" sparkle:edSignature="k3/VGnKfQAfbPNaD0NzSnBy/skrCI05XB15nk+ovBSYztShVVLKZ3UD6iv+Wz+2Z6Ct+tzXDSbJWdl0WWxmUAQ==" length="5602978" type="application/octet-stream" />
+    </item>
   </channel>
 </rss>

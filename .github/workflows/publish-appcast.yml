@@ -1,6 +1,12 @@
 name: Publish Sparkle Appcast
 
 on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub Release tag to publish into the appcast
+        required: true
+        type: string
   release:
     types: [published]
 
@@ -22,12 +28,13 @@ jobs:
         id: artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           set -euo pipefail
 
           ASSET_DIR="$RUNNER_TEMP/release-assets"
           mkdir -p "$ASSET_DIR"
+          RELEASE_TAG="${RELEASE_TAG:-${{ inputs.release_tag }}}"
           gh release download "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --dir "$ASSET_DIR" \
@@ -59,7 +66,15 @@ jobs:
 
           asset = candidates[0]
           event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-          release_assets = event.get("release", {}).get("assets", [])
+          release = event.get("release")
+          if release is None:
+              import subprocess
+              release = json.loads(subprocess.check_output([
+                  "gh",
+                  "api",
+                  f"repos/{os.environ['GITHUB_REPOSITORY']}/releases/tags/{os.environ['RELEASE_TAG']}",
+              ]))
+          release_assets = release.get("assets", [])
           download_url = next(
               (
                   item["browser_download_url"]
@@ -122,9 +137,12 @@ jobs:
           case "${ASSET_PATH##*.}" in
             zip)
               unzip -q "$ASSET_PATH" -d "$EXTRACT_DIR"
-              APP_PATH="$(find "$EXTRACT_DIR" -name "Obelisk.app" -type d -print -quit)"
+              APP_PATH="$EXTRACT_DIR/Obelisk.app"
+              if [ ! -d "$APP_PATH" ]; then
+                APP_PATH="$(find "$EXTRACT_DIR" -maxdepth 2 -name "Obelisk.app" -type d -not -path "$EXTRACT_DIR/__MACOSX/*" -print -quit)"
+              fi
               if [ -z "$APP_PATH" ]; then
-                APP_PATH="$(find "$EXTRACT_DIR" -name "*.app" -type d -print -quit)"
+                APP_PATH="$(find "$EXTRACT_DIR" -maxdepth 2 -name "*.app" -type d -not -path "$EXTRACT_DIR/__MACOSX/*" -print -quit)"
               fi
               ;;
             dmg)
@@ -193,12 +211,13 @@ jobs:
 
       - name: Update docs/appcast.xml
         env:
+          GH_TOKEN: ${{ github.token }}
           ASSET_DOWNLOAD_URL: ${{ steps.artifact.outputs.download_url }}
           ASSET_LENGTH: ${{ steps.signature.outputs.length }}
           ED_SIGNATURE: ${{ steps.signature.outputs.ed_signature }}
           BUNDLE_VERSION: ${{ steps.bundle.outputs.bundle_version }}
           SHORT_VERSION: ${{ steps.bundle.outputs.short_version }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           set -euo pipefail
 
@@ -218,8 +237,16 @@ jobs:
 
           appcast_path = Path("docs/appcast.xml")
           event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-          release = event["release"]
+          release = event.get("release")
           repo = event["repository"]
+          release_tag = os.environ["RELEASE_TAG"]
+          if release is None:
+              import subprocess
+              release = json.loads(subprocess.check_output([
+                  "gh",
+                  "api",
+                  f"repos/{repo['full_name']}/releases/tags/{release_tag}",
+              ]))
 
           if appcast_path.exists():
               tree = ET.parse(appcast_path)
@@ -265,7 +292,7 @@ jobs:
           ET.SubElement(item, f"{{{sparkle_ns}}}version").text = bundle_version
           ET.SubElement(item, f"{{{sparkle_ns}}}shortVersionString").text = short_version
           ET.SubElement(item, "pubDate").text = email.utils.format_datetime(published)
-          ET.SubElement(item, "description").text = release.get("body") or f"Release {os.environ['RELEASE_TAG']}"
+          ET.SubElement(item, "description").text = release.get("body") or f"Release {release_tag}"
           ET.SubElement(item, "enclosure", {
               "url": download_url,
               f"{{{sparkle_ns}}}edSignature": os.environ["ED_SIGNATURE"],
@@ -285,7 +312,7 @@ jobs:
 
       - name: Commit appcast
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           set -euo pipefail
 

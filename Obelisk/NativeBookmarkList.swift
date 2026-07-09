@@ -61,6 +61,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     fileprivate static let contentInset: CGFloat = 18
     fileprivate static let rowHeight: CGFloat = 50
     fileprivate static let headerHeight: CGFloat = 24
+    fileprivate static let historyHeaderHeight: CGFloat = headerHeight + headerBottomSpacing
     fileprivate static let headerBottomSpacing: CGFloat = 10
     fileprivate static let headerSortControlHeight: CGFloat = 24
     func makeCoordinator() -> Coordinator {
@@ -827,6 +828,523 @@ struct NativeBookmarkList: NSViewRepresentable {
     }
 }
 
+struct NativeBrowserHistoryList: NSViewRepresentable {
+    var sections: [DiaHistorySectionSummary]
+    @Binding var selection: Set<UUID>
+    var faviconLoader: FaviconLoader
+    var faviconVersion: Int
+    var showsURLHostOnly: Bool = false
+
+    fileprivate static let pageSize = 100
+    fileprivate static let maxCachedPages = 24
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.horizontalScrollElasticity = .none
+
+        let tableView = HoverTableView()
+        tableView.frame = scrollView.contentView.bounds
+        tableView.autoresizingMask = [.width]
+        tableView.headerView = nil
+        tableView.backgroundColor = .clear
+        tableView.selectionHighlightStyle = .regular
+        tableView.allowsMultipleSelection = true
+        tableView.allowsEmptySelection = true
+        tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        tableView.rowSizeStyle = .custom
+        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        tableView.dataSource = context.coordinator
+        tableView.delegate = context.coordinator
+        tableView.hoverDelegate = context.coordinator
+        tableView.menuDelegate = context.coordinator
+        tableView.target = context.coordinator
+        tableView.action = #selector(Coordinator.handleClick(_:))
+
+        let column = NSTableColumn(identifier: Self.columnIdentifier)
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+
+        scrollView.documentView = tableView
+        context.coordinator.scrollView = scrollView
+        context.coordinator.tableView = tableView
+        context.coordinator.installScrollObserver()
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        if context.coordinator.sections != sections ||
+           context.coordinator.cachedShowsURLHostOnly != showsURLHostOnly {
+            context.coordinator.sections = sections
+            context.coordinator.cachedShowsURLHostOnly = showsURLHostOnly
+            context.coordinator.cachedFaviconVersion = faviconVersion
+            context.coordinator.resetCache()
+            context.coordinator.reloadTable()
+        } else if context.coordinator.cachedFaviconVersion != faviconVersion {
+            context.coordinator.cachedFaviconVersion = faviconVersion
+            context.coordinator.reloadPreparedRows()
+        } else {
+            context.coordinator.syncSelectionToTable()
+        }
+    }
+
+    private static let columnIdentifier = NSUserInterfaceItemIdentifier("BrowserHistoryColumn")
+
+    @MainActor
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
+        var parent: NativeBrowserHistoryList
+        fileprivate var sections: [DiaHistorySectionSummary]
+        weak var scrollView: NSScrollView?
+        weak var tableView: HoverTableView?
+        fileprivate var cachedFaviconVersion = -1
+        fileprivate var cachedShowsURLHostOnly = false
+        private var hoveredRow = -1
+        private var pageCache: [PageKey: [DiaHistoryRecord]] = [:]
+        private var pageOrder: [PageKey] = []
+        private var loadingPages: Set<PageKey> = []
+        private var selectedRecordIDs: Set<UUID> = []
+        private var selectedSectionID: String?
+        private var expandedSectionIDs: Set<String> = []
+        private var isSyncingSelection = false
+
+        init(_ parent: NativeBrowserHistoryList) {
+            self.parent = parent
+            self.sections = parent.sections
+            self.cachedShowsURLHostOnly = parent.showsURLHostOnly
+            self.expandedSectionIDs = Self.defaultExpandedSectionIDs(for: parent.sections)
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func resetCache() {
+            pageCache = [:]
+            pageOrder = []
+            loadingPages = []
+            selectedRecordIDs = []
+            selectedSectionID = nil
+            expandedSectionIDs = Self.defaultExpandedSectionIDs(for: sections)
+        }
+
+        func reloadTable() {
+            guard let tableView else { return }
+            syncTableWidth()
+            tableView.reloadData()
+            syncTableWidth()
+            syncSelectionToTable()
+            applyHoveredRow(-1)
+            tableView.updateHoverFromCurrentMouse()
+        }
+
+        func reloadPreparedRows() {
+            guard let tableView, tableView.numberOfRows > 0 else { return }
+            let range = tableView.rows(in: tableView.preparedContentRect)
+            guard range.length > 0 else { return }
+            let rows = IndexSet(integersIn: range.location ..< (range.location + range.length))
+            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+        }
+
+        func installScrollObserver() {
+            guard let scrollView else { return }
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(contentBoundsDidChange),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView
+            )
+        }
+
+        @objc private func contentBoundsDidChange() {
+            syncTableWidth()
+            tableView?.updateHoverFromCurrentMouse()
+        }
+
+        private func syncTableWidth() {
+            guard let tableView, let scrollView else { return }
+            let width = max(scrollView.contentView.bounds.width, 100)
+            if tableView.frame.width != width {
+                tableView.frame.size.width = width
+            }
+            if let column = tableView.tableColumns.first, column.width != width {
+                column.width = width
+            }
+            let clipView = scrollView.contentView
+            guard clipView.bounds.origin.x != 0 else { return }
+            clipView.scroll(to: NSPoint(x: 0, y: clipView.bounds.origin.y))
+            scrollView.reflectScrolledClipView(clipView)
+        }
+
+        func numberOfRows(in tableView: NSTableView) -> Int {
+            sections.reduce(0) { total, section in
+                total + 1 + (expandedSectionIDs.contains(section.id) ? section.count : 0)
+            }
+        }
+
+        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+            switch rowInfo(for: row) {
+            case .header, .record:
+                return true
+            case .none:
+                return false
+            }
+        }
+
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            switch rowInfo(for: row) {
+            case .header, .record:
+                let view = HoverableRowView()
+                view.isHovered = isRowHovered(row)
+                return view
+            case .none:
+                return nil
+            }
+        }
+
+        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            switch rowInfo(for: row) {
+            case .header:
+                return NativeBookmarkList.historyHeaderHeight
+            case .record:
+                return NativeBookmarkList.rowHeight
+            case .none:
+                return NativeBookmarkList.rowHeight
+            }
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            viewFor tableColumn: NSTableColumn?,
+            row: Int
+        ) -> NSView? {
+            switch rowInfo(for: row) {
+            case .header(let section, _):
+                let view = tableView.makeView(
+                    withIdentifier: BrowserHistoryHeaderCellView.identifier,
+                    owner: self
+                ) as? BrowserHistoryHeaderCellView ?? BrowserHistoryHeaderCellView()
+                view.configure(
+                    title: section.title,
+                    isExpanded: expandedSectionIDs.contains(section.id),
+                    target: nil,
+                    action: #selector(noopHeaderAction(_:))
+                )
+                return view
+
+            case .record(let section, let offset):
+                let view = tableView.makeView(
+                    withIdentifier: BookmarkTableCellView.identifier,
+                    owner: self
+                ) as? BookmarkTableCellView ?? BookmarkTableCellView()
+
+                if let record = record(in: section, offset: offset) {
+                    let bookmark = bookmark(from: record)
+                    view.configure(
+                        bookmark: bookmark,
+                        showsURLHostOnly: parent.showsURLHostOnly,
+                        favicon: parent.faviconLoader.image(for: record.url),
+                        referenceIndicatorSystemImage: nil
+                    )
+                } else {
+                    loadPageIfNeeded(for: section, offset: offset)
+                    view.configure(
+                        bookmark: placeholderBookmark,
+                        showsURLHostOnly: parent.showsURLHostOnly,
+                        favicon: nil,
+                        referenceIndicatorSystemImage: nil
+                    )
+                }
+                return view
+
+            case .none:
+                return nil
+            }
+        }
+
+        @objc private func noopHeaderAction(_ sender: Any?) {}
+
+        func tableViewSelectionDidChange(_ notification: Notification) {
+            guard !isSyncingSelection else { return }
+            guard let tableView else { return }
+            var ids = Set<UUID>()
+            var sectionID: String?
+            for row in tableView.selectedRowIndexes {
+                switch rowInfo(for: row) {
+                case .header(let section, _):
+                    if tableView.selectedRowIndexes.count == 1 {
+                        sectionID = section.id
+                    }
+                case .record(let section, let offset):
+                    if let id = record(in: section, offset: offset)?.id {
+                        ids.insert(id)
+                    }
+                case .none:
+                    continue
+                }
+            }
+            selectedRecordIDs = ids
+            selectedSectionID = ids.isEmpty ? sectionID : nil
+            parent.selection = selectedRecordIDs
+        }
+
+        func syncSelectionToTable() {
+            guard let tableView else { return }
+            let targetIDs = parent.selection
+            var rows = IndexSet()
+            for row in 0 ..< tableView.numberOfRows {
+                switch rowInfo(for: row) {
+                case .header(let section, _):
+                    if targetIDs.isEmpty, selectedSectionID == section.id {
+                        rows.insert(row)
+                    }
+                case .record(let section, let offset):
+                    if let record = record(in: section, offset: offset), targetIDs.contains(record.id) {
+                        rows.insert(row)
+                    }
+                case .none:
+                    continue
+                }
+            }
+            isSyncingSelection = true
+            tableView.selectRowIndexes(rows, byExtendingSelection: false)
+            isSyncingSelection = false
+        }
+
+        func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int) {
+            if row >= 0, rowInfo(for: row) != nil {
+                applyHoveredRow(row)
+            } else {
+                applyHoveredRow(-1)
+            }
+        }
+
+        @objc func handleClick(_ sender: NSTableView) {
+            let row = sender.clickedRow
+            guard row >= 0,
+                  case .header(let section, _) = rowInfo(for: row)
+            else {
+                return
+            }
+            toggleSection(section)
+        }
+
+        private func applyHoveredRow(_ row: Int) {
+            guard row != hoveredRow else { return }
+            let previous = hoveredRow
+            hoveredRow = row
+            guard let tableView else { return }
+            let rowCount = tableView.numberOfRows
+            if previous >= 0,
+               previous < rowCount,
+               let view = tableView.rowView(atRow: previous, makeIfNecessary: false) as? HoverableRowView {
+                view.isHovered = false
+            }
+            if row >= 0,
+               row < rowCount,
+               let view = tableView.rowView(atRow: row, makeIfNecessary: false) as? HoverableRowView {
+                view.isHovered = true
+            }
+        }
+
+        private func isRowHovered(_ row: Int) -> Bool {
+            row == hoveredRow
+        }
+
+        func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
+            if rowInfo(for: row) != nil {
+                return true
+            }
+            return false
+        }
+
+        func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu? {
+            nil
+        }
+
+        func bookmarkMenuTableViewCopySelection(_ tableView: BookmarkMenuTableView) {}
+        func bookmarkMenuTableViewEditSelection(_ tableView: BookmarkMenuTableView) {}
+        func bookmarkMenuTableViewDeleteSelection(_ tableView: BookmarkMenuTableView) {}
+        func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView) {}
+        func bookmarkMenuTableViewCancel(_ tableView: BookmarkMenuTableView) -> Bool { false }
+
+        func bookmarkMenuTableView(
+            _ tableView: BookmarkMenuTableView,
+            nextSelectableRowAfter row: Int
+        ) -> Int? {
+            let start = max(row + 1, 0)
+            guard start < tableView.numberOfRows else { return nil }
+            return (start ..< tableView.numberOfRows).first { candidate in
+                rowInfo(for: candidate) != nil
+            }
+        }
+
+        private func rowInfo(for row: Int) -> RowInfo? {
+            guard row >= 0 else { return nil }
+            var cursor = 0
+            for (sectionIndex, section) in sections.enumerated() {
+                if row == cursor {
+                    return .header(section, sectionIndex)
+                }
+                guard expandedSectionIDs.contains(section.id) else {
+                    cursor += 1
+                    continue
+                }
+                let firstRecordRow = cursor + 1
+                let lastRecordRow = firstRecordRow + section.count
+                if row >= firstRecordRow, row < lastRecordRow {
+                    return .record(section, offset: row - firstRecordRow)
+                }
+                cursor = lastRecordRow
+            }
+            return nil
+        }
+
+        private func toggleSection(_ section: DiaHistorySectionSummary) {
+            if expandedSectionIDs.contains(section.id) {
+                expandedSectionIDs.remove(section.id)
+                discardCache(for: section.id)
+            } else {
+                expandedSectionIDs.insert(section.id)
+            }
+            selectedSectionID = section.id
+            selectedRecordIDs = []
+            parent.selection = []
+            reloadTable()
+        }
+
+        private func record(in section: DiaHistorySectionSummary, offset: Int) -> DiaHistoryRecord? {
+            let pageIndex = offset / NativeBrowserHistoryList.pageSize
+            let pageOffset = offset % NativeBrowserHistoryList.pageSize
+            let key = PageKey(sectionID: section.id, pageIndex: pageIndex)
+            guard let page = pageCache[key], pageOffset < page.count else {
+                return nil
+            }
+            markPageUsed(key)
+            return page[pageOffset]
+        }
+
+        private func loadPageIfNeeded(for section: DiaHistorySectionSummary, offset: Int) {
+            let pageSize = NativeBrowserHistoryList.pageSize
+            let pageIndex = offset / pageSize
+            let key = PageKey(sectionID: section.id, pageIndex: pageIndex)
+            guard pageCache[key] == nil, !loadingPages.contains(key) else { return }
+            loadingPages.insert(key)
+
+            Task { [weak self] in
+                do {
+                    let records = try await Task.detached(priority: .utility) {
+                        try DiaHistoryStore().loadPage(
+                            section: section,
+                            pageIndex: pageIndex,
+                            pageSize: pageSize
+                        )
+                    }.value
+                    self?.finishLoading(records, for: key, section: section, pageIndex: pageIndex)
+                } catch {
+                    NSLog("Obelisk: failed to load Dia history page: \(error.localizedDescription)")
+                    self?.loadingPages.remove(key)
+                }
+            }
+        }
+
+        private func finishLoading(
+            _ records: [DiaHistoryRecord],
+            for key: PageKey,
+            section: DiaHistorySectionSummary,
+            pageIndex: Int
+        ) {
+            loadingPages.remove(key)
+            pageCache[key] = records
+            markPageUsed(key)
+            pruneCache()
+            reloadRows(for: section, pageIndex: pageIndex, recordCount: records.count)
+        }
+
+        private func reloadRows(
+            for section: DiaHistorySectionSummary,
+            pageIndex: Int,
+            recordCount: Int
+        ) {
+            guard let tableView, recordCount > 0 else { return }
+            let startOffset = pageIndex * NativeBrowserHistoryList.pageSize
+            guard let startRow = rowIndex(for: section.id, offset: startOffset) else { return }
+            let rows = IndexSet(integersIn: startRow ..< min(startRow + recordCount, tableView.numberOfRows))
+            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+            syncSelectionToTable()
+        }
+
+        private func rowIndex(for sectionID: String, offset: Int) -> Int? {
+            var cursor = 0
+            for section in sections {
+                if section.id == sectionID {
+                    guard expandedSectionIDs.contains(section.id) else { return nil }
+                    guard offset >= 0, offset < section.count else { return nil }
+                    return cursor + 1 + offset
+                }
+                cursor += 1 + (expandedSectionIDs.contains(section.id) ? section.count : 0)
+            }
+            return nil
+        }
+
+        private func markPageUsed(_ key: PageKey) {
+            pageOrder.removeAll { $0 == key }
+            pageOrder.append(key)
+        }
+
+        private func pruneCache() {
+            while pageOrder.count > NativeBrowserHistoryList.maxCachedPages {
+                let key = pageOrder.removeFirst()
+                pageCache[key] = nil
+            }
+        }
+
+        private func discardCache(for sectionID: String) {
+            pageCache = pageCache.filter { $0.key.sectionID != sectionID }
+            pageOrder.removeAll { $0.sectionID == sectionID }
+            loadingPages = loadingPages.filter { $0.sectionID != sectionID }
+        }
+
+        private func bookmark(from record: DiaHistoryRecord) -> Bookmark {
+            Bookmark(
+                id: record.id,
+                title: record.title,
+                url: record.url,
+                createdAt: record.visitedAt,
+                originalTitle: record.title
+            )
+        }
+
+        private var placeholderBookmark: Bookmark {
+            Bookmark(title: "", url: "")
+        }
+
+        private enum RowInfo {
+            case header(DiaHistorySectionSummary, Int)
+            case record(DiaHistorySectionSummary, offset: Int)
+        }
+
+        private struct PageKey: Hashable {
+            let sectionID: String
+            let pageIndex: Int
+        }
+
+        private static func defaultExpandedSectionIDs(for sections: [DiaHistorySectionSummary]) -> Set<String> {
+            guard let first = sections.first else { return [] }
+            return [first.id]
+        }
+    }
+}
+
 struct NativeBookmarkRowSelectionKey: Hashable, Equatable {
     var sectionOccurrence: Int
     var bookmarkId: Bookmark.ID
@@ -1297,6 +1815,121 @@ private final class BookmarkHeaderCellView: NSTableCellView {
             menu.addItem(item)
         }
         return menu
+    }
+}
+
+private final class BrowserHistoryHeaderCellView: NSTableCellView {
+    static let identifier = NSUserInterfaceItemIdentifier("BrowserHistoryHeaderCell")
+
+    private let disclosureView = DisclosureChevronView()
+    private let titleField = NSTextField(labelWithString: "")
+
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet {
+            applyNativeTextColor()
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        identifier = Self.identifier
+
+        disclosureView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(disclosureView)
+
+        titleField.translatesAutoresizingMaskIntoConstraints = false
+        titleField.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleField.textColor = .labelColor
+        titleField.lineBreakMode = .byTruncatingTail
+        titleField.setContentHuggingPriority(.required, for: .horizontal)
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addSubview(titleField)
+
+        NSLayoutConstraint.activate([
+            disclosureView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
+            disclosureView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            disclosureView.widthAnchor.constraint(equalToConstant: 12),
+            disclosureView.heightAnchor.constraint(equalToConstant: 12),
+            titleField.leadingAnchor.constraint(equalTo: disclosureView.trailingAnchor, constant: 6),
+            titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        title: String,
+        isExpanded: Bool,
+        target: AnyObject?,
+        action: Selector
+    ) {
+        titleField.stringValue = title
+        disclosureView.isExpanded = isExpanded
+        applyNativeTextColor()
+    }
+
+    private func applyNativeTextColor() {
+        let selected = backgroundStyle == .emphasized
+        let color: NSColor = selected ? .alternateSelectedControlTextColor : .labelColor
+        titleField.textColor = color
+        disclosureView.strokeColor = color
+    }
+}
+
+private final class DisclosureChevronView: NSView {
+    var strokeColor = NSColor.labelColor {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    var isExpanded = false {
+        didSet {
+            guard oldValue != isExpanded else { return }
+            needsDisplay = true
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let center = NSPoint(x: bounds.midX, y: bounds.midY)
+        let horizontal: CGFloat = 3.4
+        let vertical: CGFloat = 2.85
+        let path = NSBezierPath()
+        path.lineWidth = 1.8
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+
+        if isExpanded {
+            path.move(to: NSPoint(x: center.x - horizontal, y: center.y - vertical / 2))
+            path.line(to: NSPoint(x: center.x, y: center.y + vertical))
+            path.line(to: NSPoint(x: center.x + horizontal, y: center.y - vertical / 2))
+        } else {
+            path.move(to: NSPoint(x: center.x - vertical / 2, y: center.y - horizontal))
+            path.line(to: NSPoint(x: center.x + vertical, y: center.y))
+            path.line(to: NSPoint(x: center.x - vertical / 2, y: center.y + horizontal))
+        }
+
+        strokeColor.setStroke()
+        path.stroke()
     }
 }
 

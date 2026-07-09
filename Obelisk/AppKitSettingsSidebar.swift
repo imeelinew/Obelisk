@@ -542,6 +542,8 @@ private extension BookmarkManagerView.SettingsPage {
             ]
         case .collections:
             return [Self.rgb(0.52, 0.72, 0.98), Self.rgb(0.22, 0.48, 0.88)]
+        case .browserHistory:
+            return [Self.rgb(0.74, 0.86, 0.22), Self.rgb(0.38, 0.66, 0.12)]
         case .hiddenBookmarks:
             return [Self.rgb(0.58, 0.66, 0.80), Self.rgb(0.34, 0.44, 0.62)]
         case .archive:

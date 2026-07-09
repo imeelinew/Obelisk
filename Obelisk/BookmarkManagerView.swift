@@ -66,6 +66,9 @@ struct BookmarkManagerView: View {
     @State private var selectedCollectionId: UUID?
     @State private var searchText = ""
     @State private var searchFilter: SearchFilter = .all
+    @State private var browserHistorySections: [DiaHistorySectionSummary] = []
+    @State private var browserHistoryErrorMessage: String?
+    @State private var isLoadingBrowserHistory = false
     @State private var llmProfiles = LLMProfilesSettings()
     @State private var llmConfigMessage: String?
     @State private var isTestingLLMConfig = false
@@ -195,6 +198,7 @@ struct BookmarkManagerView: View {
     enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
         case bookmarks
         case collections
+        case browserHistory
         case search
         case hiddenBookmarks
         case archive
@@ -218,7 +222,7 @@ struct BookmarkManagerView: View {
 
         var group: Group {
             switch self {
-            case .bookmarks, .search, .collections, .hiddenBookmarks, .archive: return .content
+            case .bookmarks, .collections, .browserHistory, .search, .hiddenBookmarks, .archive: return .content
             case .appearance, .menuBar, .shortcuts:     return .preferences
             case .ai, .privacy, .settings, .developer:  return .advanced
             }
@@ -229,6 +233,7 @@ struct BookmarkManagerView: View {
             case .bookmarks:       return "书签"
             case .search:          return "搜索"
             case .collections:     return "分组"
+            case .browserHistory:  return "浏览历史"
             case .hiddenBookmarks: return "隐藏书签"
             case .archive:         return "归档"
             case .appearance:      return "外观"
@@ -247,6 +252,7 @@ struct BookmarkManagerView: View {
             case .bookmarks:       return "bookmark.fill"
             case .search:          return "magnifyingglass"
             case .collections:     return "folder.fill"
+            case .browserHistory:  return "clock.fill"
             case .hiddenBookmarks: return "eye.slash.fill"
             case .archive:         return "archivebox.fill"
             case .appearance:      return "paintpalette.fill"
@@ -264,6 +270,7 @@ struct BookmarkManagerView: View {
             case .bookmarks:       return "bookmark"
             case .search:          return "search"
             case .collections:     return "folder-bookmark"
+            case .browserHistory:  return "clock"
             case .hiddenBookmarks: return "eye-off"
             case .archive:         return "archive"
             case .appearance:      return "palette"
@@ -1514,6 +1521,9 @@ struct BookmarkManagerView: View {
             return nil
         case .collections:
             return model.collections.count
+        case .browserHistory:
+            let count = browserHistorySections.reduce(0) { $0 + $1.count }
+            return count == 0 ? nil : count
         case .hiddenBookmarks:
             guard hiddenBookmarksUnlocked else { return nil }
             return hiddenBookmarks.count
@@ -1602,6 +1612,8 @@ struct BookmarkManagerView: View {
                 searchPage
             case .collections:
                 collectionsManagementPage
+            case .browserHistory:
+                browserHistoryPage
             case .hiddenBookmarks:
                 hiddenBookmarkManagementPage
             case .archive:
@@ -1896,6 +1908,59 @@ struct BookmarkManagerView: View {
             }
         }
         .navigationTitle("分组")
+    }
+
+    private var browserHistoryPage: some View {
+        Group {
+            if isLoadingBrowserHistory && browserHistorySections.isEmpty {
+                ProgressView("正在读取 Dia 浏览历史...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let browserHistoryErrorMessage, browserHistorySections.isEmpty {
+                ContentUnavailableView {
+                    Label("无法读取浏览历史", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(browserHistoryErrorMessage)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if browserHistorySections.isEmpty {
+                ContentUnavailableView {
+                    Label("没有浏览历史", systemImage: "clock")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                NativeBrowserHistoryList(
+                    sections: browserHistorySections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    faviconVersion: faviconLoader.version,
+                    showsURLHostOnly: showsURLHostOnly
+                )
+            }
+        }
+        .navigationTitle("浏览历史")
+        .task {
+            await loadBrowserHistory()
+        }
+    }
+
+    @MainActor
+    private func loadBrowserHistory() async {
+        guard browserHistorySections.isEmpty, !isLoadingBrowserHistory else {
+            return
+        }
+
+        isLoadingBrowserHistory = true
+        browserHistoryErrorMessage = nil
+
+        do {
+            browserHistorySections = try await Task.detached(priority: .utility) {
+                try DiaHistoryStore().loadSectionSummaries()
+            }.value
+        } catch {
+            browserHistoryErrorMessage = error.localizedDescription
+        }
+
+        isLoadingBrowserHistory = false
     }
 
     private var hiddenBookmarkManagementPage: some View {

@@ -1189,6 +1189,13 @@ private final class HoverableRowView: NSTableRowView {
         }
     }
 
+    override var isEmphasized: Bool {
+        didSet {
+            guard isEmphasized != oldValue, isSelected else { return }
+            needsDisplay = true
+        }
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
         guard isHovered, !isSelected else { return }
@@ -1197,7 +1204,10 @@ private final class HoverableRowView: NSTableRowView {
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
-        drawRoundedBackground(color: .selectedContentBackgroundColor)
+        let color: NSColor = isEmphasized
+            ? .selectedContentBackgroundColor
+            : .unemphasizedSelectedContentBackgroundColor
+        drawRoundedBackground(color: color)
     }
 
     private func drawRoundedBackground(color: NSColor) {

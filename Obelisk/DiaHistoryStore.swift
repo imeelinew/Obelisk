@@ -1,309 +1,483 @@
+import CryptoKit
 import Foundation
 import SQLite3
 
-struct DiaHistoryRecord: Identifiable, Sendable, Equatable {
+enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    case dia
+    case chrome
+    case edge
+    case brave
+    case arc
+    case vivaldi
+    case opera
+    case chromium
+    case firefox
+    case safari
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dia: return "Dia"
+        case .chrome: return "Google Chrome"
+        case .edge: return "Microsoft Edge"
+        case .brave: return "Brave"
+        case .arc: return "Arc"
+        case .vivaldi: return "Vivaldi"
+        case .opera: return "Opera"
+        case .chromium: return "Chromium"
+        case .firefox: return "Firefox"
+        case .safari: return "Safari"
+        }
+    }
+
+    var optionTitle: String {
+        isImplemented ? title : "\(title)（尚未完成）"
+    }
+
+    var fallbackSystemImage: String {
+        switch self {
+        case .dia: return "sparkles"
+        case .chrome, .chromium: return "circle.hexagongrid"
+        case .edge: return "wave.3.right"
+        case .brave: return "shield"
+        case .arc: return "arc.forward"
+        case .vivaldi: return "v.circle"
+        case .opera: return "o.circle"
+        case .firefox: return "flame"
+        case .safari: return "safari"
+        }
+    }
+
+    var bundleIdentifier: String {
+        switch self {
+        case .dia: return "company.thebrowser.dia"
+        case .chrome: return "com.google.Chrome"
+        case .edge: return "com.microsoft.edgemac"
+        case .brave: return "com.brave.Browser"
+        case .arc: return "company.thebrowser.Browser"
+        case .vivaldi: return "com.vivaldi.Vivaldi"
+        case .opera: return "com.operasoftware.Opera"
+        case .chromium: return "org.chromium.Chromium"
+        case .firefox: return "org.mozilla.firefox"
+        case .safari: return "com.apple.Safari"
+        }
+    }
+
+    var bundledIconResourceName: String? {
+        switch self {
+        case .edge: return "microsoftedge"
+        case .brave: return "brave"
+        case .arc: return "arc"
+        case .vivaldi: return "vivaldi"
+        case .opera: return "opera"
+        default: return nil
+        }
+    }
+
+    /// Dia and the mainstream Chromium-family browsers share the same
+    /// read-only `urls` history schema. Firefox and Safari remain visible in
+    /// the source picker, but are deliberately not queried yet.
+    var isImplemented: Bool {
+        switch self {
+        case .dia, .chrome, .edge, .brave, .arc, .vivaldi, .opera, .chromium:
+            return true
+        case .firefox, .safari:
+            return false
+        }
+    }
+
+    fileprivate var historyRootComponents: [[String]] {
+        switch self {
+        case .dia:
+            return [
+                ["Dia", "User Data"],
+                ["Dia", "User Data", "User Data"],
+            ]
+        case .chrome:
+            return [["Google", "Chrome"]]
+        case .edge:
+            return [["Microsoft Edge"]]
+        case .brave:
+            return [["BraveSoftware", "Brave-Browser"]]
+        case .arc:
+            return [["Arc", "User Data"]]
+        case .vivaldi:
+            return [["Vivaldi"]]
+        case .opera:
+            return [["com.operasoftware.Opera"]]
+        case .chromium:
+            return [["Chromium"]]
+        case .firefox, .safari:
+            return []
+        }
+    }
+}
+
+struct BrowserHistoryRecord: Identifiable, Sendable, Equatable {
     let id: UUID
     let title: String
     let url: String
     let visitedAt: Date
+    let browser: BrowserHistoryBrowser
+    let profileName: String
 }
 
-struct DiaHistorySectionSummary: Identifiable, Sendable, Equatable {
+struct BrowserHistorySection: Identifiable, Sendable, Equatable {
     let id: String
     let title: String
-    let lowerBound: Int64
-    let upperBound: Int64
-    let count: Int
+    let records: [BrowserHistoryRecord]
+
+    var count: Int { records.count }
 }
 
-enum DiaHistoryStoreError: LocalizedError {
+enum BrowserHistoryStoreError: LocalizedError {
+    case noSourceSelected
     case historyDatabaseNotFound
     case openFailed(String)
     case queryFailed(String)
 
     var errorDescription: String? {
         switch self {
+        case .noSourceSelected:
+            return "请先选择一个浏览器"
         case .historyDatabaseNotFound:
-            return "找不到 Dia 浏览历史数据库"
+            return "找不到所选浏览器的历史数据库"
         case .openFailed(let message):
-            return "无法打开 Dia 浏览历史: \(message)"
+            return "无法打开浏览历史：\(message)"
         case .queryFailed(let message):
-            return "读取 Dia 浏览历史失败: \(message)"
+            return "读取浏览历史失败：\(message)"
         }
     }
 }
 
-final class DiaHistoryStore {
+/// Read-only, bounded view over browser-owned Chromium history databases.
+/// Obelisk never writes to these files and keeps only the newest unique URLs
+/// needed by the "最近浏览" page.
+final class BrowserHistoryStore {
+    static let defaultDayLimit = 30
+    static let defaultRecordLimit = 1_000
+
+    private let browsers: Set<BrowserHistoryBrowser>
     private let fileManager: FileManager
-    private let historyFileURL: URL?
+    private let applicationSupportDirectory: URL
 
     init(
-        historyFileURL: URL? = nil,
-        fileManager: FileManager = .default
+        browsers: Set<BrowserHistoryBrowser>,
+        fileManager: FileManager = .default,
+        applicationSupportDirectory: URL? = nil
     ) {
+        self.browsers = browsers.filter(\.isImplemented)
         self.fileManager = fileManager
-        self.historyFileURL = historyFileURL
+        self.applicationSupportDirectory = applicationSupportDirectory
+            ?? fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
     }
 
-    func loadSectionSummaries(now: Date = Date()) throws -> [DiaHistorySectionSummary] {
-        try withDatabase { database in
-            guard let minTimestamp = try minHistoryTimestamp(in: database) else {
-                return []
+    func loadRecentSections(
+        now: Date = Date(),
+        dayLimit: Int = defaultDayLimit,
+        recordLimit: Int = defaultRecordLimit
+    ) throws -> [BrowserHistorySection] {
+        guard !browsers.isEmpty else {
+            throw BrowserHistoryStoreError.noSourceSelected
+        }
+
+        let calendar = Calendar.autoupdatingCurrent
+        let safeDayLimit = max(1, dayLimit)
+        let safeRecordLimit = max(1, recordLimit)
+        let lowerDate = calendar.date(byAdding: .day, value: -safeDayLimit, to: now) ?? .distantPast
+        let lowerTimestamp = Self.chromiumTimestamp(for: lowerDate)
+
+        var discoveredDatabase = false
+        var records: [BrowserHistoryRecord] = []
+        var firstReadError: Error?
+
+        for browser in BrowserHistoryBrowser.allCases where browsers.contains(browser) {
+            let historyURLs = discoveredHistoryFileURLs(for: browser)
+            discoveredDatabase = discoveredDatabase || !historyURLs.isEmpty
+
+            for historyURL in historyURLs {
+                do {
+                    records.append(contentsOf: try loadRecords(
+                        browser: browser,
+                        historyURL: historyURL,
+                        lowerTimestamp: lowerTimestamp,
+                        limit: safeRecordLimit
+                    ))
+                } catch {
+                    firstReadError = firstReadError ?? error
+                }
+            }
+        }
+
+        guard discoveredDatabase else {
+            throw BrowserHistoryStoreError.historyDatabaseNotFound
+        }
+        if records.isEmpty, let firstReadError {
+            throw firstReadError
+        }
+
+        records.sort {
+            if $0.visitedAt != $1.visitedAt {
+                return $0.visitedAt > $1.visitedAt
+            }
+            return $0.id.uuidString > $1.id.uuidString
+        }
+
+        var seenURLs = Set<String>()
+        let recentRecords = records.compactMap { record -> BrowserHistoryRecord? in
+            let normalizedURL = BookmarkStore.normalizedURL(record.url)
+            guard seenURLs.insert(normalizedURL).inserted else { return nil }
+            return record
+        }.prefix(safeRecordLimit)
+
+        return Self.sections(for: Array(recentRecords), now: now, calendar: calendar)
+    }
+
+    private func discoveredHistoryFileURLs(for browser: BrowserHistoryBrowser) -> [URL] {
+        var candidates: [URL] = []
+        for components in browser.historyRootComponents {
+            let root = components.reduce(applicationSupportDirectory) {
+                $0.appendingPathComponent($1, isDirectory: true)
             }
 
-            var sections: [DiaHistorySectionSummary] = []
-            for candidate in Self.sectionCandidates(minTimestamp: minTimestamp, now: now) {
-                let count = try countRecords(in: database, lowerBound: candidate.lowerBound, upperBound: candidate.upperBound)
-                guard count > 0 else { continue }
-                sections.append(DiaHistorySectionSummary(
-                    id: candidate.id,
-                    title: candidate.title,
-                    lowerBound: candidate.lowerBound,
-                    upperBound: candidate.upperBound,
-                    count: count
-                ))
+            candidates.append(root.appendingPathComponent("History"))
+            candidates.append(root.appendingPathComponent("Default", isDirectory: true).appendingPathComponent("History"))
+
+            guard let children = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
             }
-            return sections
+            for child in children where Self.isBrowserProfileDirectory(child) {
+                candidates.append(child.appendingPathComponent("History"))
+            }
+        }
+
+        var seen = Set<String>()
+        return candidates.filter { url in
+            fileManager.fileExists(atPath: url.path)
+                && seen.insert(url.standardizedFileURL.path).inserted
         }
     }
 
-    func loadPage(
-        section: DiaHistorySectionSummary,
-        pageIndex: Int,
-        pageSize: Int
-    ) throws -> [DiaHistoryRecord] {
-        let offset = max(0, pageIndex) * max(1, pageSize)
-        let limit = max(1, pageSize)
+    private static func isBrowserProfileDirectory(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        return name == "Default"
+            || name == "Guest Profile"
+            || name.hasPrefix("Profile ")
+            || name.hasPrefix("Person ")
+    }
 
-        return try withDatabase { database in
+    private func loadRecords(
+        browser: BrowserHistoryBrowser,
+        historyURL: URL,
+        lowerTimestamp: Int64,
+        limit: Int
+    ) throws -> [BrowserHistoryRecord] {
+        try withDatabase(at: historyURL) { database in
             let sql = """
             SELECT id, url, title, last_visit_time
             FROM urls
-            WHERE hidden = 0
-              AND url LIKE 'http%'
+            WHERE url LIKE 'http%'
               AND last_visit_time >= ?
-              AND last_visit_time < ?
             ORDER BY last_visit_time DESC, id DESC
-            LIMIT ? OFFSET ?;
+            LIMIT ?;
             """
 
             var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-                throw DiaHistoryStoreError.queryFailed(Self.errorMessage(for: database))
+            guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                throw BrowserHistoryStoreError.queryFailed(Self.errorMessage(for: database))
             }
             defer { sqlite3_finalize(statement) }
 
-            sqlite3_bind_int64(statement, 1, section.lowerBound)
-            sqlite3_bind_int64(statement, 2, section.upperBound)
-            sqlite3_bind_int(statement, 3, Int32(limit))
-            sqlite3_bind_int(statement, 4, Int32(offset))
+            sqlite3_bind_int64(statement, 1, lowerTimestamp)
+            sqlite3_bind_int(statement, 2, Int32(limit))
 
-            var records: [DiaHistoryRecord] = []
+            let profileName = Self.profileName(for: historyURL)
+            var records: [BrowserHistoryRecord] = []
             while true {
+                try Task.checkCancellation()
                 let step = sqlite3_step(statement)
-                if step == SQLITE_DONE {
-                    break
-                }
+                if step == SQLITE_DONE { break }
                 guard step == SQLITE_ROW else {
-                    throw DiaHistoryStoreError.queryFailed(Self.errorMessage(for: database))
+                    throw BrowserHistoryStoreError.queryFailed(Self.errorMessage(for: database))
                 }
-                guard let urlText = sqlite3_column_text(statement, 1) else {
-                    continue
-                }
+                guard let urlText = sqlite3_column_text(statement, 1) else { continue }
 
-                let id = sqlite3_column_int64(statement, 0)
+                let rowID = sqlite3_column_int64(statement, 0)
                 let url = String(cString: urlText)
                 let titleText = sqlite3_column_text(statement, 2)
                 let title = titleText.map { String(cString: $0) } ?? ""
                 let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? url : title
                 let timestamp = sqlite3_column_int64(statement, 3)
 
-                records.append(DiaHistoryRecord(
-                    id: Self.recordID(forHistoryID: id),
+                records.append(BrowserHistoryRecord(
+                    id: Self.recordID(
+                        browser: browser,
+                        profileName: profileName,
+                        rowID: rowID,
+                        url: url
+                    ),
                     title: resolvedTitle,
                     url: url,
-                    visitedAt: Self.date(fromChromiumTimestamp: timestamp)
+                    visitedAt: Self.date(fromChromiumTimestamp: timestamp),
+                    browser: browser,
+                    profileName: profileName
                 ))
             }
             return records
         }
     }
 
-    private struct SectionCandidate {
-        let id: String
-        let title: String
-        let lowerBound: Int64
-        let upperBound: Int64
+    private func withDatabase<T>(at historyURL: URL, body: (OpaquePointer) throws -> T) throws -> T {
+        do {
+            return try withOpenDatabase(at: historyURL, body: body)
+        } catch DatabaseReadFailure.locked {
+            return try withCopiedSnapshot(of: historyURL, body: body)
+        }
     }
 
-    private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
-        let historyURL = try resolvedHistoryFileURL()
-
+    private func withOpenDatabase<T>(at historyURL: URL, body: (OpaquePointer) throws -> T) throws -> T {
         var database: OpaquePointer?
+        let escapedPath = historyURL.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? historyURL.path
         let openResult = sqlite3_open_v2(
-            sqliteURI(for: historyURL),
+            "file:\(escapedPath)?mode=ro",
             &database,
             SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
             nil
         )
         guard openResult == SQLITE_OK, let database else {
             let message = database.map(Self.errorMessage(for:)) ?? "unknown SQLite error"
-            if let database {
-                sqlite3_close(database)
+            if let database { sqlite3_close(database) }
+            if Self.isLockedSQLiteCode(openResult) {
+                throw DatabaseReadFailure.locked
             }
-            throw DiaHistoryStoreError.openFailed(message)
+            throw BrowserHistoryStoreError.openFailed(message)
         }
-        defer { sqlite3_close(database) }
+        sqlite3_busy_timeout(database, 750)
 
-        return try body(database)
+        do {
+            let value = try body(database)
+            sqlite3_close(database)
+            return value
+        } catch {
+            let errorCode = sqlite3_extended_errcode(database)
+            sqlite3_close(database)
+            if Self.isLockedSQLiteCode(errorCode) {
+                throw DatabaseReadFailure.locked
+            }
+            throw error
+        }
     }
 
-    private func minHistoryTimestamp(in database: OpaquePointer) throws -> Int64? {
-        let sql = """
-        SELECT MIN(last_visit_time)
-        FROM urls
-        WHERE hidden = 0
-          AND url LIKE 'http%';
-        """
+    /// Chromium browsers can hold an exclusive SQLite lock while running.
+    /// In that case, copy the database and any journal sidecars to a private
+    /// temporary directory, query that snapshot, and delete it immediately.
+    /// The browser-owned files are never opened for writing.
+    private func withCopiedSnapshot<T>(
+        of historyURL: URL,
+        body: (OpaquePointer) throws -> T
+    ) throws -> T {
+        let snapshotDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("ObeliskHistorySnapshot-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: snapshotDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: snapshotDirectory) }
 
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            throw DiaHistoryStoreError.queryFailed(Self.errorMessage(for: database))
+        let snapshotURL = snapshotDirectory.appendingPathComponent("History")
+        do {
+            try fileManager.copyItem(at: historyURL, to: snapshotURL)
+            for suffix in ["-wal", "-shm", "-journal"] {
+                let source = URL(fileURLWithPath: historyURL.path + suffix)
+                guard fileManager.fileExists(atPath: source.path) else { continue }
+                let destination = URL(fileURLWithPath: snapshotURL.path + suffix)
+                try? fileManager.copyItem(at: source, to: destination)
+            }
+        } catch {
+            throw BrowserHistoryStoreError.openFailed(error.localizedDescription)
         }
-        defer { sqlite3_finalize(statement) }
 
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw DiaHistoryStoreError.queryFailed(Self.errorMessage(for: database))
-        }
-        guard sqlite3_column_type(statement, 0) != SQLITE_NULL else {
-            return nil
-        }
-        return sqlite3_column_int64(statement, 0)
+        return try withOpenDatabase(at: snapshotURL, body: body)
     }
 
-    private func countRecords(in database: OpaquePointer, lowerBound: Int64, upperBound: Int64) throws -> Int {
-        let sql = """
-        SELECT COUNT(*)
-        FROM urls
-        WHERE hidden = 0
-          AND url LIKE 'http%'
-          AND last_visit_time >= ?
-          AND last_visit_time < ?;
-        """
+    private static func sections(
+        for records: [BrowserHistoryRecord],
+        now: Date,
+        calendar: Calendar
+    ) -> [BrowserHistorySection] {
+        var order: [String] = []
+        var titles: [String: String] = [:]
+        var grouped: [String: [BrowserHistoryRecord]] = [:]
 
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            throw DiaHistoryStoreError.queryFailed(Self.errorMessage(for: database))
+        for record in records {
+            let key = sectionKey(for: record.visitedAt, now: now, calendar: calendar)
+            if grouped[key.id] == nil {
+                order.append(key.id)
+                titles[key.id] = key.title
+            }
+            grouped[key.id, default: []].append(record)
         }
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_int64(statement, 1, lowerBound)
-        sqlite3_bind_int64(statement, 2, upperBound)
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw DiaHistoryStoreError.queryFailed(Self.errorMessage(for: database))
+        return order.compactMap { id in
+            guard let records = grouped[id], let title = titles[id] else { return nil }
+            return BrowserHistorySection(id: id, title: title, records: records)
         }
-        return Int(sqlite3_column_int(statement, 0))
     }
 
-    private func resolvedHistoryFileURL() throws -> URL {
-        if let historyFileURL, fileManager.fileExists(atPath: historyFileURL.path) {
-            return historyFileURL
-        }
-
-        for candidate in Self.defaultHistoryFileURLs() where fileManager.fileExists(atPath: candidate.path) {
-            return candidate
-        }
-
-        throw DiaHistoryStoreError.historyDatabaseNotFound
-    }
-
-    private func sqliteURI(for url: URL) -> String {
-        let escapedPath = url.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? url.path
-        return "file:\(escapedPath)?immutable=1"
-    }
-
-    private static func sectionCandidates(minTimestamp: Int64, now: Date) -> [SectionCandidate] {
-        let calendar = Calendar.autoupdatingCurrent
+    private static func sectionKey(
+        for date: Date,
+        now: Date,
+        calendar: Calendar
+    ) -> (id: String, title: String) {
         let today = calendar.startOfDay(for: now)
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? now
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        let day = calendar.startOfDay(for: date)
+        if day == today { return ("today", "今天") }
+        if day == calendar.date(byAdding: .day, value: -1, to: today) { return ("yesterday", "昨天") }
+
         let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? today
+        if day >= weekStart { return ("earlier-this-week", "本周早些时候") }
         let lastWeekStart = calendar.date(byAdding: .weekOfYear, value: -1, to: weekStart) ?? weekStart
+        if day >= lastWeekStart { return ("last-week", "上周") }
+
         let monthStart = calendar.dateInterval(of: .month, for: now)?.start ?? today
+        if day >= monthStart { return ("earlier-this-month", "本月早些时候") }
 
-        var candidates: [SectionCandidate] = []
-        appendSection("today", "今天", today, tomorrow, minTimestamp, to: &candidates)
-        appendSection("yesterday", "昨天", yesterday, today, minTimestamp, to: &candidates)
-        appendSection("earlier-this-week", "本周早些时候", weekStart, yesterday, minTimestamp, to: &candidates)
-        appendSection("last-week", "上周", lastWeekStart, weekStart, minTimestamp, to: &candidates)
-        appendSection("earlier-this-month", "本月早些时候", monthStart, lastWeekStart, minTimestamp, to: &candidates)
-
-        let coveredLowerBound = candidates.map(\.lowerBound).min() ?? chromiumTimestamp(for: tomorrow)
-        var upperDate = date(fromChromiumTimestamp: coveredLowerBound)
-        let minDate = date(fromChromiumTimestamp: minTimestamp)
-        while upperDate > minDate {
-            let monthDate = calendar.date(byAdding: .second, value: -1, to: upperDate) ?? upperDate
-            guard let lowerDate = calendar.dateInterval(of: .month, for: monthDate)?.start,
-                  lowerDate < upperDate
-            else {
-                break
-            }
-            let title = monthTitle(for: lowerDate, calendar: calendar)
-            let id = "month-\(Self.chromiumTimestamp(for: lowerDate))-\(Self.chromiumTimestamp(for: upperDate))"
-            appendSection(id, title, lowerDate, upperDate, minTimestamp, to: &candidates)
-            upperDate = lowerDate
-        }
-
-        return candidates
-    }
-
-    private static func appendSection(
-        _ id: String,
-        _ title: String,
-        _ lowerDate: Date,
-        _ upperDate: Date,
-        _ minTimestamp: Int64,
-        to candidates: inout [SectionCandidate]
-    ) {
-        let lower = chromiumTimestamp(for: lowerDate)
-        let upper = chromiumTimestamp(for: upperDate)
-        guard lower < upper, upper > minTimestamp else { return }
-        candidates.append(SectionCandidate(
-            id: id,
-            title: title,
-            lowerBound: max(lower, minTimestamp),
-            upperBound: upper
-        ))
-    }
-
-    private static func monthTitle(for date: Date, calendar: Calendar) -> String {
         let components = calendar.dateComponents([.year, .month], from: date)
-        return "\(components.year ?? 0) 年 \(components.month ?? 0) 月"
+        let id = "month-\(components.year ?? 0)-\(components.month ?? 0)"
+        return (id, "\(components.year ?? 0) 年 \(components.month ?? 0) 月")
     }
 
-    private static func defaultHistoryFileURLs() -> [URL] {
-        let applicationSupport = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Dia", isDirectory: true)
-
-        return [
-            applicationSupport
-                .appendingPathComponent("User Data", isDirectory: true)
-                .appendingPathComponent("Default", isDirectory: true)
-                .appendingPathComponent("History"),
-            applicationSupport
-                .appendingPathComponent("User Data", isDirectory: true)
-                .appendingPathComponent("User Data", isDirectory: true)
-                .appendingPathComponent("Default", isDirectory: true)
-                .appendingPathComponent("History"),
-        ]
+    private static func profileName(for historyURL: URL) -> String {
+        let name = historyURL.deletingLastPathComponent().lastPathComponent
+        switch name {
+        case "Default", "User Data", "com.operasoftware.Opera":
+            return "默认"
+        default:
+            return name
+        }
     }
 
-    private static func recordID(forHistoryID id: Int64) -> UUID {
-        let suffix = UInt64(bitPattern: id) & 0xFFFFFFFFFFFF
-        return UUID(uuidString: String(format: "D1A00000-0000-4000-8000-%012llX", suffix)) ?? UUID()
+    private static func recordID(
+        browser: BrowserHistoryBrowser,
+        profileName: String,
+        rowID: Int64,
+        url: String
+    ) -> UUID {
+        let material = "\(browser.rawValue)|\(profileName)|\(rowID)|\(url)"
+        var bytes = Array(SHA256.hash(data: Data(material.utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x40
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 
     private static func chromiumTimestamp(for date: Date) -> Int64 {
@@ -315,9 +489,16 @@ final class DiaHistoryStore {
     }
 
     private static func errorMessage(for database: OpaquePointer) -> String {
-        guard let message = sqlite3_errmsg(database) else {
-            return "unknown SQLite error"
-        }
+        guard let message = sqlite3_errmsg(database) else { return "unknown SQLite error" }
         return String(cString: message)
+    }
+
+    private static func isLockedSQLiteCode(_ code: Int32) -> Bool {
+        let primaryCode = code & 0xFF
+        return primaryCode == SQLITE_BUSY || primaryCode == SQLITE_LOCKED
+    }
+
+    private enum DatabaseReadFailure: Error {
+        case locked
     }
 }

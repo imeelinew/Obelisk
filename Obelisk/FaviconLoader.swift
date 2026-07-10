@@ -44,6 +44,8 @@ final class FaviconLoader {
             "User-Agent": "Obelisk/1.0"
         ]
         self.session = URLSession(configuration: configuration)
+        imageCache.countLimit = 256
+        imageCache.totalCostLimit = 8 * 1_024 * 1_024
         loadIndex()
     }
 
@@ -99,7 +101,7 @@ final class FaviconLoader {
             // unrelated rendering elsewhere.
             let copy = image.copy() as? NSImage ?? image
             copy.size = NSSize(width: 16, height: 16)
-            imageCache.setObject(copy, forKey: cacheKey)
+            imageCache.setObject(copy, forKey: cacheKey, cost: Self.memoryCost(of: copy))
 
             // Refresh stale icons in the background — keep showing the cached one.
             if let record, now.timeIntervalSince(record.fetchedAt) > positiveTTL {
@@ -174,6 +176,17 @@ final class FaviconLoader {
         imageCache.removeAllObjects()
     }
 
+    /// Drops window-driven image and networking state while preserving the
+    /// small on-disk favicon index used by the menu bar. The next image lookup
+    /// repopulates the cache lazily.
+    func releaseTransientMemory() {
+        imageCache.removeAllObjects()
+        inFlight.removeAll()
+        session.getAllTasks { tasks in
+            tasks.forEach { $0.cancel() }
+        }
+    }
+
     private struct FaviconStorageLocation {
         let directory: URL
         let encrypted: Bool
@@ -232,7 +245,11 @@ final class FaviconLoader {
                 )
                 try self.writeCacheData(pngData, to: fileURL)
                 image.size = NSSize(width: 16, height: 16)
-                self.imageCache.setObject(image, forKey: key as NSString)
+                self.imageCache.setObject(
+                    image,
+                    forKey: key as NSString,
+                    cost: Self.memoryCost(of: image)
+                )
                 self.recordResult(key: key, success: true)
                 self.version &+= 1
                 self.onIconLoaded?()
@@ -472,6 +489,13 @@ final class FaviconLoader {
         return bitmap.representation(using: .png, properties: [:])
     }
 
+    private static func memoryCost(of image: NSImage) -> Int {
+        let representationCost = image.representations.reduce(0) { total, representation in
+            total + max(0, representation.pixelsWide) * max(0, representation.pixelsHigh) * 4
+        }
+        return max(16 * 16 * 4, representationCost)
+    }
+
     // MARK: - Index persistence
 
     private func loadIndex() {
@@ -556,4 +580,3 @@ final class FaviconLoader {
         }
     }
 }
-

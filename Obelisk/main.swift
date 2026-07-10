@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CoreSpotlight
+import Darwin
 import KeyboardShortcuts
 import Foundation
 import Observation
@@ -51,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         addRequest: addRequest,
         onStorageRootChanged: { [weak self] rootDirectory in
             self?.handleStorageRootChanged(rootDirectory)
+        },
+        onWindowClosed: { [weak self] in
+            self?.handleManagerWindowClosed()
         }
     )
     private lazy var faviconLoader: FaviconLoader = {
@@ -102,7 +106,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         startBookmarkWatcher()
         normalizeActiveStorageRoot()
         installKeyboardShortcutHandlers()
-        rebuildMenu()
         setupNotificationPopover()
 
         openManager()
@@ -762,6 +765,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         scheduleRebuild()
     }
 
+    private func handleManagerWindowClosed() {
+        faviconLoader.releaseTransientMemory()
+        bookmarksModel.invalidateStorageCaches()
+        statusMenu = nil
+        statusItem.menu = nil
+        DispatchQueue.main.async {
+            _ = malloc_zone_pressure_relief(nil, 0)
+        }
+    }
+
     private func normalizeActiveStorageRoot() {
         let rootDirectory = store.rootDirectory
         let encrypted = LocalJSONEncryption.isEnabled
@@ -782,6 +795,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     private func scheduleRebuild() {
+        guard statusMenu != nil else { return }
         rebuildDebounce?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.rebuildMenu()
@@ -898,6 +912,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func menuDidClose(_ menu: NSMenu) {
         statusItem.menu = nil
+        if menu === statusMenu {
+            statusMenu = nil
+        }
         if mouseIsOverStatusItemButton {
             suppressStatusItemClickUntil = Date().addingTimeInterval(0.25)
         }

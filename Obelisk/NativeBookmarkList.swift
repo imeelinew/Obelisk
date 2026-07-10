@@ -40,6 +40,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
     var showsURLHostOnly: Bool = false
+
     var onOpen: ((Bookmark) -> Void)?
     var onCopyURL: ((Bookmark) -> Void)?
     var onRefreshFavicon: ((Bookmark) -> Void)?
@@ -829,14 +830,15 @@ struct NativeBookmarkList: NSViewRepresentable {
 }
 
 struct NativeBrowserHistoryList: NSViewRepresentable {
-    var sections: [DiaHistorySectionSummary]
+    var sections: [BrowserHistorySection]
     @Binding var selection: Set<UUID>
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
     var showsURLHostOnly: Bool = false
 
-    fileprivate static let pageSize = 100
-    fileprivate static let maxCachedPages = 24
+    fileprivate var showsBrowserBadges: Bool {
+        Set(sections.flatMap { $0.records.map(\.browser) }).count > 1
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -902,15 +904,12 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
         var parent: NativeBrowserHistoryList
-        fileprivate var sections: [DiaHistorySectionSummary]
+        fileprivate var sections: [BrowserHistorySection]
         weak var scrollView: NSScrollView?
         weak var tableView: HoverTableView?
         fileprivate var cachedFaviconVersion = -1
         fileprivate var cachedShowsURLHostOnly = false
         private var hoveredRow = -1
-        private var pageCache: [PageKey: [DiaHistoryRecord]] = [:]
-        private var pageOrder: [PageKey] = []
-        private var loadingPages: Set<PageKey> = []
         private var selectedRecordIDs: Set<UUID> = []
         private var selectedSectionID: String?
         private var expandedSectionIDs: Set<String> = []
@@ -928,9 +927,6 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
         }
 
         func resetCache() {
-            pageCache = [:]
-            pageOrder = []
-            loadingPages = []
             selectedRecordIDs = []
             selectedSectionID = nil
             expandedSectionIDs = Self.defaultExpandedSectionIDs(for: sections)
@@ -1047,23 +1043,16 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
                     owner: self
                 ) as? BookmarkTableCellView ?? BookmarkTableCellView()
 
-                if let record = record(in: section, offset: offset) {
-                    let bookmark = bookmark(from: record)
-                    view.configure(
-                        bookmark: bookmark,
-                        showsURLHostOnly: parent.showsURLHostOnly,
-                        favicon: parent.faviconLoader.image(for: record.url),
-                        referenceIndicatorSystemImage: nil
-                    )
-                } else {
-                    loadPageIfNeeded(for: section, offset: offset)
-                    view.configure(
-                        bookmark: placeholderBookmark,
-                        showsURLHostOnly: parent.showsURLHostOnly,
-                        favicon: nil,
-                        referenceIndicatorSystemImage: nil
-                    )
-                }
+                guard let record = record(in: section, offset: offset) else { return nil }
+                let bookmark = bookmark(from: record)
+                view.configure(
+                    bookmark: bookmark,
+                    showsURLHostOnly: parent.showsURLHostOnly,
+                    favicon: parent.faviconLoader.image(for: record.url),
+                    referenceIndicatorSystemImage: parent.showsBrowserBadges
+                        ? record.browser.fallbackSystemImage
+                        : nil
+                )
                 return view
 
             case .none:
@@ -1209,10 +1198,9 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
             return nil
         }
 
-        private func toggleSection(_ section: DiaHistorySectionSummary) {
+        private func toggleSection(_ section: BrowserHistorySection) {
             if expandedSectionIDs.contains(section.id) {
                 expandedSectionIDs.remove(section.id)
-                discardCache(for: section.id)
             } else {
                 expandedSectionIDs.insert(section.id)
             }
@@ -1222,99 +1210,12 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
             reloadTable()
         }
 
-        private func record(in section: DiaHistorySectionSummary, offset: Int) -> DiaHistoryRecord? {
-            let pageIndex = offset / NativeBrowserHistoryList.pageSize
-            let pageOffset = offset % NativeBrowserHistoryList.pageSize
-            let key = PageKey(sectionID: section.id, pageIndex: pageIndex)
-            guard let page = pageCache[key], pageOffset < page.count else {
-                return nil
-            }
-            markPageUsed(key)
-            return page[pageOffset]
+        private func record(in section: BrowserHistorySection, offset: Int) -> BrowserHistoryRecord? {
+            guard section.records.indices.contains(offset) else { return nil }
+            return section.records[offset]
         }
 
-        private func loadPageIfNeeded(for section: DiaHistorySectionSummary, offset: Int) {
-            let pageSize = NativeBrowserHistoryList.pageSize
-            let pageIndex = offset / pageSize
-            let key = PageKey(sectionID: section.id, pageIndex: pageIndex)
-            guard pageCache[key] == nil, !loadingPages.contains(key) else { return }
-            loadingPages.insert(key)
-
-            Task { [weak self] in
-                do {
-                    let records = try await Task.detached(priority: .utility) {
-                        try DiaHistoryStore().loadPage(
-                            section: section,
-                            pageIndex: pageIndex,
-                            pageSize: pageSize
-                        )
-                    }.value
-                    self?.finishLoading(records, for: key, section: section, pageIndex: pageIndex)
-                } catch {
-                    NSLog("Obelisk: failed to load Dia history page: \(error.localizedDescription)")
-                    self?.loadingPages.remove(key)
-                }
-            }
-        }
-
-        private func finishLoading(
-            _ records: [DiaHistoryRecord],
-            for key: PageKey,
-            section: DiaHistorySectionSummary,
-            pageIndex: Int
-        ) {
-            loadingPages.remove(key)
-            pageCache[key] = records
-            markPageUsed(key)
-            pruneCache()
-            reloadRows(for: section, pageIndex: pageIndex, recordCount: records.count)
-        }
-
-        private func reloadRows(
-            for section: DiaHistorySectionSummary,
-            pageIndex: Int,
-            recordCount: Int
-        ) {
-            guard let tableView, recordCount > 0 else { return }
-            let startOffset = pageIndex * NativeBrowserHistoryList.pageSize
-            guard let startRow = rowIndex(for: section.id, offset: startOffset) else { return }
-            let rows = IndexSet(integersIn: startRow ..< min(startRow + recordCount, tableView.numberOfRows))
-            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
-            syncSelectionToTable()
-        }
-
-        private func rowIndex(for sectionID: String, offset: Int) -> Int? {
-            var cursor = 0
-            for section in sections {
-                if section.id == sectionID {
-                    guard expandedSectionIDs.contains(section.id) else { return nil }
-                    guard offset >= 0, offset < section.count else { return nil }
-                    return cursor + 1 + offset
-                }
-                cursor += 1 + (expandedSectionIDs.contains(section.id) ? section.count : 0)
-            }
-            return nil
-        }
-
-        private func markPageUsed(_ key: PageKey) {
-            pageOrder.removeAll { $0 == key }
-            pageOrder.append(key)
-        }
-
-        private func pruneCache() {
-            while pageOrder.count > NativeBrowserHistoryList.maxCachedPages {
-                let key = pageOrder.removeFirst()
-                pageCache[key] = nil
-            }
-        }
-
-        private func discardCache(for sectionID: String) {
-            pageCache = pageCache.filter { $0.key.sectionID != sectionID }
-            pageOrder.removeAll { $0.sectionID == sectionID }
-            loadingPages = loadingPages.filter { $0.sectionID != sectionID }
-        }
-
-        private func bookmark(from record: DiaHistoryRecord) -> Bookmark {
+        private func bookmark(from record: BrowserHistoryRecord) -> Bookmark {
             Bookmark(
                 id: record.id,
                 title: record.title,
@@ -1324,21 +1225,12 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
             )
         }
 
-        private var placeholderBookmark: Bookmark {
-            Bookmark(title: "", url: "")
-        }
-
         private enum RowInfo {
-            case header(DiaHistorySectionSummary, Int)
-            case record(DiaHistorySectionSummary, offset: Int)
+            case header(BrowserHistorySection, Int)
+            case record(BrowserHistorySection, offset: Int)
         }
 
-        private struct PageKey: Hashable {
-            let sectionID: String
-            let pageIndex: Int
-        }
-
-        private static func defaultExpandedSectionIDs(for sections: [DiaHistorySectionSummary]) -> Set<String> {
+        private static func defaultExpandedSectionIDs(for sections: [BrowserHistorySection]) -> Set<String> {
             guard let first = sections.first else { return [] }
             return [first.id]
         }

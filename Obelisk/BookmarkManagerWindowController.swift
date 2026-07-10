@@ -7,18 +7,21 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
     private let faviconLoader: FaviconLoader
     private let addRequest: AddBookmarkRequest
     private let onStorageRootChanged: (URL) -> Void
+    private let onWindowClosed: () -> Void
     private var window: NSWindow?
 
     init(
         model: BookmarksModel,
         faviconLoader: FaviconLoader,
         addRequest: AddBookmarkRequest,
-        onStorageRootChanged: @escaping (URL) -> Void
+        onStorageRootChanged: @escaping (URL) -> Void,
+        onWindowClosed: @escaping () -> Void
     ) {
         self.model = model
         self.faviconLoader = faviconLoader
         self.addRequest = addRequest
         self.onStorageRootChanged = onStorageRootChanged
+        self.onWindowClosed = onWindowClosed
     }
 
     func show() {
@@ -42,7 +45,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         win.title = BookmarkManagerView.SettingsPage.bookmarks.title
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         win.collectionBehavior = [.fullScreenNone, .fullScreenDisallowsTiling]
-        win.isReleasedWhenClosed = false
+        win.isReleasedWhenClosed = true
         let defaultWindowFrameSize = NSSize(width: 950, height: 830)
         let minimumContentSize = NSSize(width: 950, height: 830)
         win.minSize = win.frameRect(forContentRect: NSRect(origin: .zero, size: minimumContentSize)).size
@@ -57,7 +60,12 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        if let closingWindow = notification.object as? NSWindow {
+            closingWindow.delegate = nil
+            closingWindow.contentViewController = nil
+        }
         window = nil
+        onWindowClosed()
     }
 
     func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {

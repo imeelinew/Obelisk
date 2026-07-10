@@ -66,9 +66,10 @@ struct BookmarkManagerView: View {
     @State private var selectedCollectionId: UUID?
     @State private var searchText = ""
     @State private var searchFilter: SearchFilter = .all
-    @State private var browserHistorySections: [DiaHistorySectionSummary] = []
+    @State private var browserHistorySections: [BrowserHistorySection] = []
     @State private var browserHistoryErrorMessage: String?
     @State private var isLoadingBrowserHistory = false
+    @AppStorage("browserHistoryEnabledSources") private var browserHistoryEnabledSourcesRaw = BrowserHistoryBrowser.dia.rawValue
     @State private var llmProfiles = LLMProfilesSettings()
     @State private var llmConfigMessage: String?
     @State private var isTestingLLMConfig = false
@@ -233,7 +234,7 @@ struct BookmarkManagerView: View {
             case .bookmarks:       return "书签"
             case .search:          return "搜索"
             case .collections:     return "分组"
-            case .browserHistory:  return "浏览历史"
+            case .browserHistory:  return "最近浏览"
             case .hiddenBookmarks: return "隐藏书签"
             case .archive:         return "归档"
             case .appearance:      return "外观"
@@ -1522,8 +1523,7 @@ struct BookmarkManagerView: View {
         case .collections:
             return model.collections.count
         case .browserHistory:
-            let count = browserHistorySections.reduce(0) { $0 + $1.count }
-            return count == 0 ? nil : count
+            return nil
         case .hiddenBookmarks:
             guard hiddenBookmarksUnlocked else { return nil }
             return hiddenBookmarks.count
@@ -1638,7 +1638,7 @@ struct BookmarkManagerView: View {
     }
 
     private var bookmarkManagementPage: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             if !model.bookmarks.isEmpty {
                 bookmarkDisplayModePicker
                     .padding(.leading, 0)
@@ -1911,56 +1911,181 @@ struct BookmarkManagerView: View {
     }
 
     private var browserHistoryPage: some View {
-        Group {
-            if isLoadingBrowserHistory && browserHistorySections.isEmpty {
-                ProgressView("正在读取 Dia 浏览历史...")
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Menu {
+                    Section("浏览器") {
+                        ForEach(BrowserHistoryBrowser.allCases) { browser in
+                            if browser.isImplemented {
+                                Toggle(isOn: Binding(
+                                        get: { enabledBrowserHistoryBrowsers.contains(browser) },
+                                        set: { setBrowserHistoryBrowser(browser, enabled: $0) }
+                                    )) {
+                                    Label {
+                                        Text(browser.optionTitle)
+                                    } icon: {
+                                        BrowserHistoryBrowserIconView(browser: browser)
+                                    }
+                                }
+                            } else {
+                                Button {} label: {
+                                    Label {
+                                        Text(browser.optionTitle)
+                                    } icon: {
+                                        BrowserHistoryBrowserIconView(browser: browser)
+                                    }
+                                }
+                                    .disabled(true)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        if let browser = singleSelectedBrowserHistoryBrowser {
+                            BrowserHistoryBrowserIconView(browser: browser)
+                        } else {
+                            Image(systemName: "network")
+                        }
+                        Text(browserHistorySourceMenuTitle)
+                    }
+                }
+                .fixedSize()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Group {
+                if enabledBrowserHistoryBrowsers.isEmpty {
+                    ContentUnavailableView {
+                        Label("选择浏览器", systemImage: "network")
+                    } description: {
+                        Text("Obelisk 只读显示所选浏览器最近访问过的网页。")
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let browserHistoryErrorMessage, browserHistorySections.isEmpty {
-                ContentUnavailableView {
-                    Label("无法读取浏览历史", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(browserHistoryErrorMessage)
+                } else if isLoadingBrowserHistory && browserHistorySections.isEmpty {
+                    ProgressView("正在读取最近浏览...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let browserHistoryErrorMessage, browserHistorySections.isEmpty {
+                    ContentUnavailableView {
+                        Label("无法读取最近浏览", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(browserHistoryErrorMessage)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if browserHistorySections.isEmpty {
+                    ContentUnavailableView {
+                        Label("没有最近浏览", systemImage: "clock")
+                    } description: {
+                        Text("过去 \(BrowserHistoryStore.defaultDayLimit) 天内没有找到可显示的网页。")
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    NativeBrowserHistoryList(
+                        sections: browserHistorySections,
+                        selection: $selection,
+                        faviconLoader: faviconLoader,
+                        faviconVersion: faviconLoader.version,
+                        showsURLHostOnly: showsURLHostOnly
+                    )
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if browserHistorySections.isEmpty {
-                ContentUnavailableView {
-                    Label("没有浏览历史", systemImage: "clock")
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                NativeBrowserHistoryList(
-                    sections: browserHistorySections,
-                    selection: $selection,
-                    faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version,
-                    showsURLHostOnly: showsURLHostOnly
-                )
             }
         }
-        .navigationTitle("浏览历史")
-        .task {
-            await loadBrowserHistory()
+        .navigationTitle("最近浏览")
+        .task(id: browserHistoryEnabledSourcesRaw) {
+            await automaticallyRefreshBrowserHistory()
         }
     }
 
+    private var enabledBrowserHistoryBrowsers: Set<BrowserHistoryBrowser> {
+        Set(
+            browserHistoryEnabledSourcesRaw
+                .split(separator: ",")
+                .compactMap { BrowserHistoryBrowser(rawValue: String($0)) }
+                .filter(\.isImplemented)
+        )
+    }
+
+    private var browserHistorySourceMenuTitle: String {
+        let selected = BrowserHistoryBrowser.allCases.filter { enabledBrowserHistoryBrowsers.contains($0) }
+        switch selected.count {
+        case 0: return "选择浏览器"
+        case 1: return selected[0].title
+        default: return "已选 \(selected.count) 个浏览器"
+        }
+    }
+
+    private var singleSelectedBrowserHistoryBrowser: BrowserHistoryBrowser? {
+        let selected = BrowserHistoryBrowser.allCases.filter { enabledBrowserHistoryBrowsers.contains($0) }
+        return selected.count == 1 ? selected[0] : nil
+    }
+
+    private func automaticallyRefreshBrowserHistory() async {
+        await loadBrowserHistory(force: true)
+
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+            } catch {
+                return
+            }
+            await loadBrowserHistory(force: true)
+        }
+    }
+
+    private func setBrowserHistoryBrowser(_ browser: BrowserHistoryBrowser, enabled: Bool) {
+        guard browser.isImplemented else { return }
+        var selected = enabledBrowserHistoryBrowsers
+        if enabled {
+            selected.insert(browser)
+        } else {
+            selected.remove(browser)
+        }
+        browserHistoryEnabledSourcesRaw = BrowserHistoryBrowser.allCases
+            .filter { selected.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+        browserHistorySections = []
+        browserHistoryErrorMessage = nil
+        isLoadingBrowserHistory = false
+        selection = []
+    }
+
     @MainActor
-    private func loadBrowserHistory() async {
-        guard browserHistorySections.isEmpty, !isLoadingBrowserHistory else {
+    private func loadBrowserHistory(force: Bool = false) async {
+        let requestedBrowsers = enabledBrowserHistoryBrowsers
+        guard !requestedBrowsers.isEmpty else {
+            browserHistorySections = []
+            browserHistoryErrorMessage = nil
+            isLoadingBrowserHistory = false
+            return
+        }
+        guard force || browserHistorySections.isEmpty else {
+            return
+        }
+        guard !isLoadingBrowserHistory else {
             return
         }
 
         isLoadingBrowserHistory = true
         browserHistoryErrorMessage = nil
+        defer {
+            if requestedBrowsers == enabledBrowserHistoryBrowsers {
+                isLoadingBrowserHistory = false
+            }
+        }
 
         do {
-            browserHistorySections = try await Task.detached(priority: .utility) {
-                try DiaHistoryStore().loadSectionSummaries()
+            let sections = try await Task.detached(priority: .utility) {
+                try BrowserHistoryStore(browsers: requestedBrowsers).loadRecentSections()
             }.value
+            guard !Task.isCancelled, requestedBrowsers == enabledBrowserHistoryBrowsers else { return }
+            browserHistorySections = sections
         } catch {
+            guard !Task.isCancelled, requestedBrowsers == enabledBrowserHistoryBrowsers else { return }
             browserHistoryErrorMessage = error.localizedDescription
         }
 
-        isLoadingBrowserHistory = false
     }
 
     private var hiddenBookmarkManagementPage: some View {

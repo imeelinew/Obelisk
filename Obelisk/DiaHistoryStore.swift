@@ -114,6 +114,31 @@ enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Identifiabl
     }
 }
 
+enum BrowserHistoryPreferences {
+    static let enabledSourcesStorageKey = "browserHistoryEnabledSources"
+    static let menuRecordLimitStorageKey = "menuBrowserHistoryLimit"
+    static let defaultMenuRecordLimit = 10
+
+    static func enabledBrowsers(defaults: UserDefaults = .standard) -> Set<BrowserHistoryBrowser> {
+        let rawValue = defaults.string(forKey: enabledSourcesStorageKey)
+            ?? BrowserHistoryBrowser.dia.rawValue
+        return Set(
+            rawValue
+                .split(separator: ",")
+                .compactMap { BrowserHistoryBrowser(rawValue: String($0)) }
+                .filter(\.isImplemented)
+        )
+    }
+
+    static func menuRecordLimit(defaults: UserDefaults = .standard) -> Int {
+        max(
+            0,
+            defaults.object(forKey: menuRecordLimitStorageKey) as? Int
+                ?? defaultMenuRecordLimit
+        )
+    }
+}
+
 struct BrowserHistoryRecord: Identifiable, Sendable, Equatable {
     let id: UUID
     let title: String

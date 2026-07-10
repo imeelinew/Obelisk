@@ -83,6 +83,35 @@ struct BrowserHistoryStoreTests {
         }
     }
 
+    @Test func menuPreferencesDefaultToDiaAndTenRecords() {
+        let suiteName = "BrowserHistoryMenuPreferences-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else { return }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(BrowserHistoryPreferences.enabledBrowsers(defaults: defaults) == [.dia])
+        #expect(
+            BrowserHistoryPreferences.menuRecordLimit(defaults: defaults)
+                == BrowserHistoryPreferences.defaultMenuRecordLimit
+        )
+
+        defaults.set("dia,firefox", forKey: BrowserHistoryPreferences.enabledSourcesStorageKey)
+        defaults.set(4, forKey: BrowserHistoryPreferences.menuRecordLimitStorageKey)
+        #expect(BrowserHistoryPreferences.enabledBrowsers(defaults: defaults) == [.dia])
+        #expect(BrowserHistoryPreferences.menuRecordLimit(defaults: defaults) == 4)
+    }
+
+    @Test func menuOrderMigratesExistingUsersToRecentBrowsing() {
+        let legacyOrder = BookmarkMenuSectionOrder.encoded([.pinned, .recent, .ungrouped])
+        #expect(
+            BookmarkMenuSectionOrder.order(collections: [], rawValue: legacyOrder)
+                == [.pinned, .recent, .browserHistory, .ungrouped]
+        )
+        #expect(
+            BookmarkMenuSectionOrder.items(collections: [], rawValue: legacyOrder).map(\.title)
+                == ["置顶", "最近添加", "最近浏览", "未分组"]
+        )
+    }
+
     private func insert(
         id: Int64,
         url: String,

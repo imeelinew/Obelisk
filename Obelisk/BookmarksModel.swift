@@ -5,6 +5,7 @@ import Observation
 enum BookmarkMenuSectionID: Hashable, Identifiable {
     case pinned
     case recent
+    case browserHistory
     case collection(UUID)
     case ungrouped
 
@@ -14,6 +15,7 @@ enum BookmarkMenuSectionID: Hashable, Identifiable {
         switch self {
         case .pinned: return "pinned"
         case .recent: return "recent"
+        case .browserHistory: return "browserHistory"
         case .collection(let id): return "collection:\(id.uuidString)"
         case .ungrouped: return "ungrouped"
         }
@@ -25,6 +27,8 @@ enum BookmarkMenuSectionID: Hashable, Identifiable {
             self = .pinned
         case "recent":
             self = .recent
+        case "browserHistory":
+            self = .browserHistory
         case "ungrouped":
             self = .ungrouped
         default:
@@ -94,6 +98,8 @@ enum BookmarkMenuSectionOrder {
                 return BookmarkMenuOrderItem(id: id, title: "置顶", systemImage: "pin.fill")
             case .recent:
                 return BookmarkMenuOrderItem(id: id, title: "最近添加", systemImage: "clock.arrow.circlepath")
+            case .browserHistory:
+                return BookmarkMenuOrderItem(id: id, title: "最近浏览", systemImage: "clock.fill")
             case .collection(let collectionId):
                 return BookmarkMenuOrderItem(
                     id: id,
@@ -107,12 +113,12 @@ enum BookmarkMenuSectionOrder {
     }
 
     private static func defaultOrder(collections: [BookmarkCollection]) -> [BookmarkMenuSectionID] {
-        [.pinned, .recent] + collections.map { .collection($0.id) } + [.ungrouped]
+        [.pinned, .recent, .browserHistory] + collections.map { .collection($0.id) } + [.ungrouped]
     }
 
     private static func isValid(_ id: BookmarkMenuSectionID, validCollectionIds: Set<UUID>) -> Bool {
         switch id {
-        case .pinned, .recent, .ungrouped:
+        case .pinned, .recent, .browserHistory, .ungrouped:
             return true
         case .collection(let collectionId):
             return validCollectionIds.contains(collectionId)
@@ -126,6 +132,10 @@ enum BookmarkMenuSectionOrder {
         if !result.contains(.recent) {
             let index = result.firstIndex(of: .pinned).map { $0 + 1 } ?? 0
             result.insert(.recent, at: min(index, result.count))
+        }
+        if !result.contains(.browserHistory) {
+            let index = result.firstIndex(of: .recent).map { $0 + 1 } ?? 0
+            result.insert(.browserHistory, at: min(index, result.count))
         }
         if !result.contains(.ungrouped) {
             result.append(.ungrouped)
@@ -200,6 +210,8 @@ struct BookmarkMenuSections {
                     bookmarks: recent,
                     presentation: .reference
                 )
+            case .browserHistory:
+                return nil
             case .collection(let collectionId):
                 guard
                     let section = collectionSections[collectionId],

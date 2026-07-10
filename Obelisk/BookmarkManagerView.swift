@@ -69,7 +69,7 @@ struct BookmarkManagerView: View {
     @State private var browserHistorySections: [BrowserHistorySection] = []
     @State private var browserHistoryErrorMessage: String?
     @State private var isLoadingBrowserHistory = false
-    @AppStorage("browserHistoryEnabledSources") private var browserHistoryEnabledSourcesRaw = BrowserHistoryBrowser.dia.rawValue
+    @AppStorage(BrowserHistoryPreferences.enabledSourcesStorageKey) private var browserHistoryEnabledSourcesRaw = BrowserHistoryBrowser.dia.rawValue
     @State private var llmProfiles = LLMProfilesSettings()
     @State private var llmConfigMessage: String?
     @State private var isTestingLLMConfig = false
@@ -85,6 +85,7 @@ struct BookmarkManagerView: View {
     @AppStorage("showHiddenBookmarksPage") private var showHiddenBookmarksPage = false
     @AppStorage("showsURLHostOnly") private var showsURLHostOnly = false
     @AppStorage("menuRecentGroupLimit") private var menuRecentGroupLimit = 5
+    @AppStorage(BrowserHistoryPreferences.menuRecordLimitStorageKey) private var menuBrowserHistoryLimit = BrowserHistoryPreferences.defaultMenuRecordLimit
     @AppStorage(BookmarksModel.autoArchiveEnabledKey) private var autoArchiveEnabled = false
     @AppStorage(BookmarksModel.archiveAfterDaysKey) private var archiveAfterDays = BookmarksModel.defaultArchiveAfterDays
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
@@ -2330,7 +2331,8 @@ struct BookmarkManagerView: View {
                     .labelsHidden()
                 }
 
-                menuLimitStepper("最近添加数量", desc: "Obelisk「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
+                menuLimitStepper("最近添加数量", desc: "「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
+                menuLimitStepper("最近浏览数量", desc: "「最近浏览」最多显示的网页数量。", value: $menuBrowserHistoryLimit)
             }
         }
         .formStyle(.grouped)

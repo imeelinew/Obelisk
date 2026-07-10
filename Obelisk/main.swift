@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private let maxMenuTitlePixelWidth: CGFloat = 300
     private let undoWindowSeconds: TimeInterval = 5
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
+    private static let browserHistoryMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskBrowserHistoryMenuItem")
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = BookmarkStore()
     private let usageStore = UsageStore()
@@ -75,6 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var searchCommandBridge: MenuBarSearchCommandBridge?
     private var searchKeyMonitor: Any?
     private var statusMenu: NSMenu?
+    private var menuBrowserHistoryCache: MenuBrowserHistoryCache?
+    private var menuBrowserHistoryRefreshKey: MenuBrowserHistoryCacheKey?
+    private var menuBrowserHistoryRefreshTask: Task<Void, Never>?
     private var suppressStatusItemClickUntil: Date?
     private var pendingUndo: PendingBookmarkUndo?
     private var pendingUndoExpirationWorkItem: DispatchWorkItem?
@@ -87,6 +91,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private struct PendingBookmarkUndo {
         let bookmark: Bookmark
         let expiresAt: Date
+    }
+
+    private struct MenuBrowserHistoryCacheKey: Equatable, Sendable {
+        let browsers: Set<BrowserHistoryBrowser>
+        let recordLimit: Int
+    }
+
+    private struct MenuBrowserHistoryCache {
+        let key: MenuBrowserHistoryCacheKey
+        let content: MenuBrowserHistoryContent
+    }
+
+    private enum MenuBrowserHistoryContent: Sendable {
+        case sections([BrowserHistorySection])
+        case message(String)
+
+        var recordCount: Int {
+            switch self {
+            case .sections(let sections):
+                return sections.reduce(0) { $0 + $1.records.count }
+            case .message:
+                return 0
+            }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -107,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         normalizeActiveStorageRoot()
         installKeyboardShortcutHandlers()
         setupNotificationPopover()
+        refreshMenuBrowserHistoryCache()
 
         openManager()
     }
@@ -117,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        menuBrowserHistoryRefreshTask?.cancel()
         usageStore.flushPendingWrites()
     }
 
@@ -131,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     @objc private func defaultsDidChange(_ notification: Notification) {
         configureStatusItem()
+        refreshMenuBrowserHistoryCache()
     }
 
     /// Global shortcuts (user-customizable in Settings) fetch the frontmost
@@ -716,6 +747,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         guard let menu = statusMenu else {
             rebuildMenu()
+            refreshMenuBrowserHistoryCache(force: true)
             if let menu = statusMenu {
                 showStatusMenu(menu)
             }
@@ -811,13 +843,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         menu.autoenablesItems = false
         menu.delegate = self
 
-        let renderSections = bookmarksModel.menuRenderSections()
+        let sectionOrder = BookmarkMenuSectionOrder.order(collections: bookmarksModel.collections)
+        let renderSections = bookmarksModel.menuSections().renderSections(order: sectionOrder)
+        let renderSectionByID = Dictionary(uniqueKeysWithValues: renderSections.map { ($0.id, $0) })
+        let browserHistoryContent = sectionOrder.contains(.browserHistory)
+            ? menuBrowserHistoryContentForDisplay()
+            : nil
+        let hasMenuContent = !renderSections.isEmpty || browserHistoryContent != nil
 
         if let error = bookmarksModel.loadErrorMessage {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
-        } else if renderSections.isEmpty {
+        }
+
+        if bookmarksModel.loadErrorMessage == nil, !hasMenuContent {
             let header = NSMenuItem(title: "书签", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -825,8 +865,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             let emptyItem = NSMenuItem(title: "暂无书签", action: nil, keyEquivalent: "")
             emptyItem.isEnabled = false
             menu.addItem(emptyItem)
-        } else {
-            for section in renderSections {
+        } else if hasMenuContent {
+            for sectionID in sectionOrder {
+                if sectionID == .browserHistory, let browserHistoryContent {
+                    appendBrowserHistorySubmenu(content: browserHistoryContent, to: menu)
+                    continue
+                }
+                guard let section = renderSectionByID[sectionID] else { continue }
                 switch section.presentation {
                 case .inline:
                     appendSection(title: section.title, bookmarks: section.bookmarks, to: menu)
@@ -848,6 +893,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         statusMenu = menu
         statusItem.menu = nil
+    }
+
+    private var currentMenuBrowserHistoryCacheKey: MenuBrowserHistoryCacheKey? {
+        let recordLimit = BrowserHistoryPreferences.menuRecordLimit()
+        guard recordLimit > 0 else { return nil }
+        return MenuBrowserHistoryCacheKey(
+            browsers: BrowserHistoryPreferences.enabledBrowsers(),
+            recordLimit: recordLimit
+        )
+    }
+
+    private func menuBrowserHistoryContentForDisplay() -> MenuBrowserHistoryContent? {
+        guard let key = currentMenuBrowserHistoryCacheKey else { return nil }
+        if let cache = menuBrowserHistoryCache, cache.key == key {
+            return cache.content
+        }
+        return .message("正在读取最近浏览…")
+    }
+
+    private func refreshMenuBrowserHistoryCache(force: Bool = false) {
+        guard let key = currentMenuBrowserHistoryCacheKey else {
+            menuBrowserHistoryRefreshTask?.cancel()
+            menuBrowserHistoryRefreshTask = nil
+            menuBrowserHistoryRefreshKey = nil
+            menuBrowserHistoryCache = nil
+            return
+        }
+        if !force, menuBrowserHistoryCache?.key == key {
+            return
+        }
+        guard menuBrowserHistoryRefreshKey != key else { return }
+
+        menuBrowserHistoryRefreshTask?.cancel()
+        menuBrowserHistoryRefreshKey = key
+        menuBrowserHistoryRefreshTask = Task { [weak self] in
+            let content = await Task.detached(priority: .utility) {
+                Self.loadMenuBrowserHistoryContent(for: key)
+            }.value
+
+            guard let self else { return }
+            defer {
+                if self.menuBrowserHistoryRefreshKey == key {
+                    self.menuBrowserHistoryRefreshKey = nil
+                    self.menuBrowserHistoryRefreshTask = nil
+                }
+            }
+            guard !Task.isCancelled, self.currentMenuBrowserHistoryCacheKey == key else { return }
+
+            self.menuBrowserHistoryCache = MenuBrowserHistoryCache(key: key, content: content)
+            if let item = self.statusMenu?.items.first(where: {
+                $0.identifier == Self.browserHistoryMenuItemIdentifier
+            }) {
+                self.configureBrowserHistoryMenuItem(item, content: content)
+            }
+        }
+    }
+
+    private nonisolated static func loadMenuBrowserHistoryContent(
+        for key: MenuBrowserHistoryCacheKey
+    ) -> MenuBrowserHistoryContent {
+        guard !key.browsers.isEmpty else {
+            return .message("尚未选择浏览器")
+        }
+
+        do {
+            let sections = try BrowserHistoryStore(browsers: key.browsers).loadRecentSections(
+                recordLimit: key.recordLimit
+            )
+            return sections.isEmpty ? .message("暂无最近浏览") : .sections(sections)
+        } catch {
+            return .message(error.localizedDescription)
+        }
     }
 
     private func appendSection(title: String, bookmarks: [Bookmark], to menu: NSMenu, isReference: Bool = false) {
@@ -875,6 +992,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         item.submenu = submenu
         menu.addItem(item)
+    }
+
+    private func appendBrowserHistorySubmenu(content: MenuBrowserHistoryContent, to menu: NSMenu) {
+        if menu.items.last != nil {
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        let count = content.recordCount
+        let title = count > 0 ? "最近浏览 (\(count))" : "最近浏览"
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.identifier = Self.browserHistoryMenuItemIdentifier
+        configureBrowserHistoryMenuItem(item, content: content)
+        menu.addItem(item)
+    }
+
+    private func configureBrowserHistoryMenuItem(
+        _ item: NSMenuItem,
+        content: MenuBrowserHistoryContent
+    ) {
+        let count = content.recordCount
+        let title = count > 0 ? "最近浏览 (\(count))" : "最近浏览"
+        item.title = title
+        let submenu = NSMenu(title: title)
+        submenu.autoenablesItems = false
+
+        switch content {
+        case .sections(let sections):
+            for (index, section) in sections.enumerated() {
+                if index > 0 {
+                    submenu.addItem(NSMenuItem.separator())
+                }
+                let header = NSMenuItem(title: section.title, action: nil, keyEquivalent: "")
+                header.isEnabled = false
+                submenu.addItem(header)
+                for record in section.records {
+                    submenu.addItem(browserHistoryMenuItem(for: record))
+                }
+            }
+        case .message(let message):
+            let messageItem = NSMenuItem(title: message, action: nil, keyEquivalent: "")
+            messageItem.isEnabled = false
+            submenu.addItem(messageItem)
+        }
+
+        item.submenu = submenu
+    }
+
+    private func browserHistoryMenuItem(for record: BrowserHistoryRecord) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: truncatedTitle(record.title),
+            action: #selector(openBrowserHistoryRecord(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.representedObject = record.url
+        let faviconSize = NSSize(width: 16, height: 16)
+        item.image = faviconLoader.image(for: record.url)
+            ?? AppIcon.faviconPlaceholder(size: faviconSize)
+        return item
     }
 
     private func menuItem(for bookmark: Bookmark, isReference: Bool = false) -> NSMenuItem {
@@ -980,6 +1156,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     @objc private func openBookmark(_ sender: NSMenuItem) {
         guard let bookmark = sender.representedObject as? Bookmark else { return }
         bookmarksModel.openBookmark(bookmark)
+    }
+
+    @objc private func openBrowserHistoryRecord(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String,
+              let url = URL(string: urlString) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func openManager() {

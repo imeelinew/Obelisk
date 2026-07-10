@@ -104,16 +104,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     private enum MenuBrowserHistoryContent: Sendable {
-        case sections([BrowserHistorySection])
+        case sections([BrowserHistorySection], directRecordLimit: Int)
         case message(String)
 
         var recordCount: Int {
             switch self {
-            case .sections(let sections):
-                return sections.reduce(0) { $0 + $1.records.count }
+            case .sections:
+                return displayedSections.reduce(0) { $0 + $1.records.count }
             case .message:
                 return 0
             }
+        }
+
+        var displayedSections: [BrowserHistorySection] {
+            guard case let .sections(sections, directRecordLimit) = self else { return [] }
+            var remaining = directRecordLimit
+            return sections.compactMap { section in
+                guard remaining > 0 else { return nil }
+                let records = Array(section.records.prefix(remaining))
+                remaining -= records.count
+                guard !records.isEmpty else { return nil }
+                return BrowserHistorySection(id: section.id, title: section.title, records: records)
+            }
+        }
+
+        var overflowTodayRecords: [BrowserHistoryRecord] {
+            guard case let .sections(sections, directRecordLimit) = self,
+                  let todaySection = sections.first,
+                  todaySection.title == "今天",
+                  todaySection.records.count > directRecordLimit
+            else {
+                return []
+            }
+            return Array(todaySection.records.dropFirst(directRecordLimit))
         }
     }
 
@@ -959,9 +982,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         do {
             let sections = try BrowserHistoryStore(browsers: key.browsers).loadRecentSections(
-                recordLimit: key.recordLimit
+                recordLimit: max(key.recordLimit, BrowserHistoryStore.defaultRecordLimit)
             )
-            return sections.isEmpty ? .message("暂无最近浏览") : .sections(sections)
+            return sections.isEmpty
+                ? .message("暂无最近浏览")
+                : .sections(sections, directRecordLimit: key.recordLimit)
         } catch {
             return .message(error.localizedDescription)
         }
@@ -1018,7 +1043,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         submenu.autoenablesItems = false
 
         switch content {
-        case .sections(let sections):
+        case .sections:
+            let sections = content.displayedSections
+            let overflowTodayRecords = content.overflowTodayRecords
             for (index, section) in sections.enumerated() {
                 if index > 0 {
                     submenu.addItem(NSMenuItem.separator())
@@ -1029,6 +1056,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                 for record in section.records {
                     submenu.addItem(browserHistoryMenuItem(for: record))
                 }
+                if section.title == "今天", !overflowTodayRecords.isEmpty {
+                    submenu.addItem(browserHistoryOverflowSubmenu(for: overflowTodayRecords))
+                }
             }
         case .message(let message):
             let messageItem = NSMenuItem(title: message, action: nil, keyEquivalent: "")
@@ -1037,6 +1067,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
 
         item.submenu = submenu
+    }
+
+    private func browserHistoryOverflowSubmenu(for records: [BrowserHistoryRecord]) -> NSMenuItem {
+        let item = NSMenuItem(title: "其他", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "其他")
+        submenu.autoenablesItems = false
+        for record in records {
+            submenu.addItem(browserHistoryMenuItem(for: record))
+        }
+        item.submenu = submenu
+        return item
     }
 
     private func browserHistoryMenuItem(for record: BrowserHistoryRecord) -> NSMenuItem {

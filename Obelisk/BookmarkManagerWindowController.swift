@@ -45,7 +45,10 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         win.title = BookmarkManagerView.SettingsPage.bookmarks.title
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         win.collectionBehavior = [.fullScreenNone, .fullScreenDisallowsTiling]
-        win.isReleasedWhenClosed = true
+        // ARC owns the window through `self.window`. Letting AppKit release it as
+        // well can over-release the SwiftUI hosting hierarchy when the close
+        // button drains the current event's autorelease pool.
+        win.isReleasedWhenClosed = false
         let defaultWindowFrameSize = NSSize(width: 950, height: 830)
         let minimumContentSize = NSSize(width: 950, height: 830)
         win.minSize = win.frameRect(forContentRect: NSRect(origin: .zero, size: minimumContentSize)).size
@@ -59,10 +62,9 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func windowWillClose(_ notification: Notification) {
+    func windowDidClose(_ notification: Notification) {
         if let closingWindow = notification.object as? NSWindow {
             closingWindow.delegate = nil
-            closingWindow.contentViewController = nil
         }
         window = nil
         onWindowClosed()

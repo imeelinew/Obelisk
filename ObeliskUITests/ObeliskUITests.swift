@@ -15,6 +15,20 @@ final class ObeliskUITests: XCTestCase {
     }
 
     @MainActor
+    func testClosingManagerWindowKeepsMenuBarAppRunning() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTesting"]
+        app.launch()
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 8))
+        window.buttons[XCUIIdentifierCloseWindow].click()
+
+        XCTAssertFalse(window.waitForExistence(timeout: 2))
+        XCTAssertNotEqual(app.state, .notRunning)
+    }
+
+    @MainActor
     func testManualArchiveCanBeRestoredWhenAutoArchiveIsDisabled() throws {
         let app = XCUIApplication()
         app.launchArguments = [

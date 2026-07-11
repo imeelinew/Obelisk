@@ -34,6 +34,7 @@ private func configureUITestingEnvironmentIfNeeded() {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopoverDelegate {
     private let maxMenuTitlePixelWidth: CGFloat = 300
     private let undoWindowSeconds: TimeInterval = 5
+    private let menuBrowserHistoryCacheTTL: TimeInterval = 30
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
     private static let browserHistoryMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskBrowserHistoryMenuItem")
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -101,42 +102,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private struct MenuBrowserHistoryCache {
         let key: MenuBrowserHistoryCacheKey
         let content: MenuBrowserHistoryContent
+        let refreshedAt: Date
     }
 
     private enum MenuBrowserHistoryContent: Sendable {
-        case sections([BrowserHistorySection], directRecordLimit: Int)
+        case sections([BrowserHistorySection])
         case message(String)
 
         var recordCount: Int {
             switch self {
-            case .sections:
-                return displayedSections.reduce(0) { $0 + $1.records.count }
+            case .sections(let sections):
+                return sections.reduce(0) { $0 + $1.records.count }
             case .message:
                 return 0
             }
-        }
-
-        var displayedSections: [BrowserHistorySection] {
-            guard case let .sections(sections, directRecordLimit) = self else { return [] }
-            var remaining = directRecordLimit
-            return sections.compactMap { section in
-                guard remaining > 0 else { return nil }
-                let records = Array(section.records.prefix(remaining))
-                remaining -= records.count
-                guard !records.isEmpty else { return nil }
-                return BrowserHistorySection(id: section.id, title: section.title, records: records)
-            }
-        }
-
-        var overflowTodayRecords: [BrowserHistoryRecord] {
-            guard case let .sections(sections, directRecordLimit) = self,
-                  let todaySection = sections.first,
-                  todaySection.title == "今天",
-                  todaySection.records.count > directRecordLimit
-            else {
-                return []
-            }
-            return Array(todaySection.records.dropFirst(directRecordLimit))
         }
     }
 
@@ -185,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     @objc private func defaultsDidChange(_ notification: Notification) {
         configureStatusItem()
         refreshMenuBrowserHistoryCache()
+        scheduleRebuild()
     }
 
     /// Global shortcuts (user-customizable in Settings) fetch the frontmost
@@ -770,14 +750,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         guard let menu = statusMenu else {
             rebuildMenu()
-            refreshMenuBrowserHistoryCache(force: true)
             if let menu = statusMenu {
                 showStatusMenu(menu)
             }
+            refreshMenuBrowserHistoryCache()
             return
         }
 
         showStatusMenu(menu)
+        refreshMenuBrowserHistoryCache()
     }
 
     private func showStatusMenu(_ menu: NSMenu) {
@@ -823,7 +804,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private func handleManagerWindowClosed() {
         faviconLoader.releaseTransientMemory()
         bookmarksModel.invalidateStorageCaches()
-        statusMenu = nil
         statusItem.menu = nil
         DispatchQueue.main.async {
             _ = malloc_zone_pressure_relief(nil, 0)
@@ -935,7 +915,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         return .message("正在读取最近浏览…")
     }
 
-    private func refreshMenuBrowserHistoryCache(force: Bool = false) {
+    private func refreshMenuBrowserHistoryCache() {
         guard let key = currentMenuBrowserHistoryCacheKey else {
             menuBrowserHistoryRefreshTask?.cancel()
             menuBrowserHistoryRefreshTask = nil
@@ -943,7 +923,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             menuBrowserHistoryCache = nil
             return
         }
-        if !force, menuBrowserHistoryCache?.key == key {
+        if let cache = menuBrowserHistoryCache,
+           cache.key == key,
+           Date().timeIntervalSince(cache.refreshedAt) < menuBrowserHistoryCacheTTL {
             return
         }
         guard menuBrowserHistoryRefreshKey != key else { return }
@@ -964,11 +946,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             }
             guard !Task.isCancelled, self.currentMenuBrowserHistoryCacheKey == key else { return }
 
-            self.menuBrowserHistoryCache = MenuBrowserHistoryCache(key: key, content: content)
+            self.menuBrowserHistoryCache = MenuBrowserHistoryCache(
+                key: key,
+                content: content,
+                refreshedAt: Date()
+            )
             if let item = self.statusMenu?.items.first(where: {
                 $0.identifier == Self.browserHistoryMenuItemIdentifier
             }) {
                 self.configureBrowserHistoryMenuItem(item, content: content)
+            } else if self.statusMenu == nil {
+                // Prepare the complete menu after the background history read so
+                // the first status-item click does not pay the construction cost.
+                self.rebuildMenu()
             }
         }
     }
@@ -982,11 +972,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         do {
             let sections = try BrowserHistoryStore(browsers: key.browsers).loadRecentSections(
-                recordLimit: max(key.recordLimit, BrowserHistoryStore.defaultRecordLimit)
+                recordLimit: key.recordLimit
             )
             return sections.isEmpty
                 ? .message("暂无最近浏览")
-                : .sections(sections, directRecordLimit: key.recordLimit)
+                : .sections(sections)
         } catch {
             return .message(error.localizedDescription)
         }
@@ -1043,9 +1033,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         submenu.autoenablesItems = false
 
         switch content {
-        case .sections:
-            let sections = content.displayedSections
-            let overflowTodayRecords = content.overflowTodayRecords
+        case .sections(let sections):
             for (index, section) in sections.enumerated() {
                 if index > 0 {
                     submenu.addItem(NSMenuItem.separator())
@@ -1056,9 +1044,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                 for record in section.records {
                     submenu.addItem(browserHistoryMenuItem(for: record))
                 }
-                if section.title == "今天", !overflowTodayRecords.isEmpty {
-                    submenu.addItem(browserHistoryOverflowSubmenu(for: overflowTodayRecords))
-                }
             }
         case .message(let message):
             let messageItem = NSMenuItem(title: message, action: nil, keyEquivalent: "")
@@ -1067,17 +1052,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
 
         item.submenu = submenu
-    }
-
-    private func browserHistoryOverflowSubmenu(for records: [BrowserHistoryRecord]) -> NSMenuItem {
-        let item = NSMenuItem(title: "其他", action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: "其他")
-        submenu.autoenablesItems = false
-        for record in records {
-            submenu.addItem(browserHistoryMenuItem(for: record))
-        }
-        item.submenu = submenu
-        return item
     }
 
     private func browserHistoryMenuItem(for record: BrowserHistoryRecord) -> NSMenuItem {
@@ -1129,9 +1103,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func menuDidClose(_ menu: NSMenu) {
         statusItem.menu = nil
-        if menu === statusMenu {
-            statusMenu = nil
-        }
         if mouseIsOverStatusItemButton {
             suppressStatusItemClickUntil = Date().addingTimeInterval(0.25)
         }

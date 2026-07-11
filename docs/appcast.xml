@@ -6,6 +6,21 @@
     <description>Sparkle appcast for Obelisk</description>
     <language>en</language>
     <item>
+      <title>Obelisk 1.8.1</title>
+      <link>https://github.com/imeelinew/Obelisk/releases/tag/v1.8.1</link>
+      <sparkle:version>5</sparkle:version>
+      <sparkle:shortVersionString>1.8.1</sparkle:shortVersionString>
+      <pubDate>Sat, 11 Jul 2026 06:29:21 +0000</pubDate>
+      <description>&lt;h2&gt;新功能&lt;/h2&gt;
+&lt;h3&gt;最近浏览&lt;/h3&gt;
+&lt;ul&gt;&lt;li&gt;书签管理器新增「最近浏览」页，按天展示所选浏览器最近访问过的网页&lt;/li&gt;&lt;li&gt;支持配置浏览器历史来源，当前可读 Dia&lt;/li&gt;&lt;li&gt;菜单栏展示最近浏览；超出条目归入「其他」子菜单&lt;/li&gt;&lt;/ul&gt;
+&lt;h2&gt;修复与改进&lt;/h2&gt;
+&lt;ul&gt;&lt;li&gt;修复书签列表非激活状态下的选中色显示&lt;/li&gt;&lt;li&gt;修复关闭书签管理窗口后应用可能异常退出的问题&lt;/li&gt;&lt;/ul&gt;
+&lt;h2&gt;安装&lt;/h2&gt;
+&lt;p&gt;下载 &lt;code&gt;Obelisk.zip&lt;/code&gt;，解压后将 &lt;code&gt;Obelisk.app&lt;/code&gt; 拖入「应用程序」文件夹。Universal Binary（Apple Silicon + Intel）。需要 macOS 26 或更高版本。&lt;/p&gt;</description>
+      <enclosure url="https://github.com/imeelinew/Obelisk/releases/download/v1.8.1/Obelisk-1.8.1.zip" sparkle:edSignature="av6v8OxwYdmCSzplBMetOYQgHy0J++rvHJ802uW9eNLf+kJ/AYHzmg534sQy4kr/5RBxidaMXIK+WCrpODx7AQ==" length="5802177" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Obelisk 1.7.1</title>
       <link>https://github.com/imeelinew/Obelisk/releases/tag/v1.7.1</link>
       <sparkle:version>3</sparkle:version>

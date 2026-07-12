@@ -1722,9 +1722,9 @@ private final class BookmarkTableCellView: NSTableCellView {
 
         NSLayoutConstraint.activate([
             sourceIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
-            sourceIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            sourceIconView.widthAnchor.constraint(equalToConstant: 16),
-            sourceIconView.heightAnchor.constraint(equalToConstant: 16),
+            sourceIconView.centerYAnchor.constraint(equalTo: faviconView.centerYAnchor),
+            sourceIconView.widthAnchor.constraint(equalToConstant: Self.faviconEdge),
+            sourceIconView.heightAnchor.constraint(equalToConstant: Self.faviconEdge),
 
             faviconLeadingConstraint!,
             faviconContainer.centerYAnchor.constraint(equalTo: centerYAnchor),

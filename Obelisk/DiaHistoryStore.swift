@@ -76,13 +76,13 @@ enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Identifiabl
     }
 
     /// Dia and the mainstream Chromium-family browsers share the same
-    /// read-only `urls` history schema. Firefox and Safari remain visible in
-    /// the source picker, but are deliberately not queried yet.
+    /// read-only `urls` history schema. Safari uses its own history database.
+    /// Firefox remains visible in the source picker but is not queried yet.
     var isImplemented: Bool {
         switch self {
-        case .dia, .chrome, .edge, .brave, .arc, .vivaldi, .opera, .chromium:
+        case .dia, .chrome, .edge, .brave, .arc, .vivaldi, .opera, .chromium, .safari:
             return true
-        case .firefox, .safari:
+        case .firefox:
             return false
         }
     }
@@ -159,6 +159,7 @@ struct BrowserHistorySection: Identifiable, Sendable, Equatable {
 enum BrowserHistoryStoreError: LocalizedError {
     case noSourceSelected
     case historyDatabaseNotFound
+    case safariPermissionDenied
     case openFailed(String)
     case queryFailed(String)
 
@@ -168,15 +169,22 @@ enum BrowserHistoryStoreError: LocalizedError {
             return "请先选择一个浏览器"
         case .historyDatabaseNotFound:
             return "找不到所选浏览器的历史数据库"
+        case .safariPermissionDenied:
+            return "无法读取 Safari 浏览历史。请在“系统设置 > 隐私与安全性 > 完整磁盘访问权限”中允许 Obelisk，然后重新启动 Obelisk。"
         case .openFailed(let message):
             return "无法打开浏览历史：\(message)"
         case .queryFailed(let message):
             return "读取浏览历史失败：\(message)"
         }
     }
+
+    var requiresFullDiskAccess: Bool {
+        if case .safariPermissionDenied = self { return true }
+        return false
+    }
 }
 
-/// Read-only, bounded view over browser-owned Chromium history databases.
+/// Read-only, bounded view over browser-owned history databases.
 /// Obelisk never writes to these files and keeps only the newest unique URLs
 /// needed by the "最近浏览" page.
 final class BrowserHistoryStore {
@@ -186,18 +194,22 @@ final class BrowserHistoryStore {
     private let browsers: Set<BrowserHistoryBrowser>
     private let fileManager: FileManager
     private let applicationSupportDirectory: URL
+    private let safariDirectory: URL
 
     init(
         browsers: Set<BrowserHistoryBrowser>,
         fileManager: FileManager = .default,
-        applicationSupportDirectory: URL? = nil
+        applicationSupportDirectory: URL? = nil,
+        safariDirectory: URL? = nil
     ) {
         self.browsers = browsers.filter(\.isImplemented)
         self.fileManager = fileManager
+        let libraryDirectory = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
         self.applicationSupportDirectory = applicationSupportDirectory
-            ?? fileManager.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library", isDirectory: true)
-                .appendingPathComponent("Application Support", isDirectory: true)
+            ?? libraryDirectory.appendingPathComponent("Application Support", isDirectory: true)
+        self.safariDirectory = safariDirectory
+            ?? libraryDirectory.appendingPathComponent("Safari", isDirectory: true)
     }
 
     func loadRecentSections(
@@ -213,13 +225,42 @@ final class BrowserHistoryStore {
         let safeDayLimit = max(1, dayLimit)
         let safeRecordLimit = max(1, recordLimit)
         let lowerDate = calendar.date(byAdding: .day, value: -safeDayLimit, to: now) ?? .distantPast
-        let lowerTimestamp = Self.chromiumTimestamp(for: lowerDate)
 
         var discoveredDatabase = false
         var records: [BrowserHistoryRecord] = []
         var firstReadError: Error?
 
         for browser in BrowserHistoryBrowser.allCases where browsers.contains(browser) {
+            if browser == .safari {
+                let historyURL = safariDirectory.appendingPathComponent("History.db")
+                if !fileManager.fileExists(atPath: historyURL.path) {
+                    do {
+                        _ = try fileManager.attributesOfItem(atPath: historyURL.path)
+                    } catch {
+                        if Self.isPermissionError(error) {
+                            discoveredDatabase = true
+                            firstReadError = BrowserHistoryStoreError.safariPermissionDenied
+                        }
+                        continue
+                    }
+                }
+                discoveredDatabase = true
+                do {
+                    records.append(contentsOf: try loadSafariRecords(
+                        historyURL: historyURL,
+                        lowerDate: lowerDate,
+                        limit: safeRecordLimit
+                    ))
+                } catch {
+                    if (error as? BrowserHistoryStoreError)?.requiresFullDiskAccess == true {
+                        firstReadError = error
+                    } else {
+                        firstReadError = firstReadError ?? error
+                    }
+                }
+                continue
+            }
+
             let historyURLs = discoveredHistoryFileURLs(for: browser)
             discoveredDatabase = discoveredDatabase || !historyURLs.isEmpty
 
@@ -228,7 +269,7 @@ final class BrowserHistoryStore {
                     records.append(contentsOf: try loadRecords(
                         browser: browser,
                         historyURL: historyURL,
-                        lowerTimestamp: lowerTimestamp,
+                        lowerTimestamp: Self.chromiumTimestamp(for: lowerDate),
                         limit: safeRecordLimit
                     ))
                 } catch {
@@ -239,6 +280,10 @@ final class BrowserHistoryStore {
 
         guard discoveredDatabase else {
             throw BrowserHistoryStoreError.historyDatabaseNotFound
+        }
+        if let storeError = firstReadError as? BrowserHistoryStoreError,
+           storeError.requiresFullDiskAccess {
+            throw storeError
         }
         if records.isEmpty, let firstReadError {
             throw firstReadError
@@ -360,11 +405,85 @@ final class BrowserHistoryStore {
         }
     }
 
-    private func withDatabase<T>(at historyURL: URL, body: (OpaquePointer) throws -> T) throws -> T {
+    private func loadSafariRecords(
+        historyURL: URL,
+        lowerDate: Date,
+        limit: Int
+    ) throws -> [BrowserHistoryRecord] {
+        try withDatabase(
+            at: historyURL,
+            permissionDeniedError: .safariPermissionDenied
+        ) { database in
+            let sql = """
+            SELECT visits.id, items.url, visits.title, visits.visit_time
+            FROM history_visits AS visits
+            JOIN history_items AS items ON items.id = visits.history_item
+            WHERE items.url LIKE 'http%'
+              AND visits.visit_time >= ?
+              AND visits.load_successful = 1
+              AND visits.synthesized = 0
+            ORDER BY visits.visit_time DESC, visits.id DESC
+            LIMIT ?;
+            """
+
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                throw BrowserHistoryStoreError.queryFailed(Self.errorMessage(for: database))
+            }
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_double(statement, 1, lowerDate.timeIntervalSinceReferenceDate)
+            sqlite3_bind_int(statement, 2, Int32(limit))
+
+            var records: [BrowserHistoryRecord] = []
+            while true {
+                try Task.checkCancellation()
+                let step = sqlite3_step(statement)
+                if step == SQLITE_DONE { break }
+                guard step == SQLITE_ROW else {
+                    throw BrowserHistoryStoreError.queryFailed(Self.errorMessage(for: database))
+                }
+                guard let urlText = sqlite3_column_text(statement, 1) else { continue }
+
+                let rowID = sqlite3_column_int64(statement, 0)
+                let url = String(cString: urlText)
+                let titleText = sqlite3_column_text(statement, 2)
+                let title = titleText.map { String(cString: $0) } ?? ""
+                let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? url : title
+                let timestamp = sqlite3_column_double(statement, 3)
+
+                records.append(BrowserHistoryRecord(
+                    id: Self.recordID(
+                        browser: .safari,
+                        profileName: "Safari",
+                        rowID: rowID,
+                        url: url
+                    ),
+                    title: resolvedTitle,
+                    url: url,
+                    visitedAt: Date(timeIntervalSinceReferenceDate: timestamp),
+                    browser: .safari,
+                    profileName: "Safari"
+                ))
+            }
+            return records
+        }
+    }
+
+    private func withDatabase<T>(
+        at historyURL: URL,
+        permissionDeniedError: BrowserHistoryStoreError = .openFailed("没有读取权限"),
+        body: (OpaquePointer) throws -> T
+    ) throws -> T {
         do {
-            return try withOpenDatabase(at: historyURL, body: body)
-        } catch DatabaseReadFailure.locked {
-            return try withCopiedSnapshot(of: historyURL, body: body)
+            do {
+                return try withOpenDatabase(at: historyURL, body: body)
+            } catch DatabaseReadFailure.locked {
+                return try withCopiedSnapshot(of: historyURL, body: body)
+            }
+        } catch DatabaseReadFailure.permissionDenied {
+            throw permissionDeniedError
         }
     }
 
@@ -379,7 +498,14 @@ final class BrowserHistoryStore {
         )
         guard openResult == SQLITE_OK, let database else {
             let message = database.map(Self.errorMessage(for:)) ?? "unknown SQLite error"
+            let systemError = database.map(sqlite3_system_errno) ?? 0
             if let database { sqlite3_close(database) }
+            let primaryCode = openResult & 0xFF
+            if systemError == EACCES
+                || systemError == EPERM
+                || (primaryCode == SQLITE_CANTOPEN && fileManager.fileExists(atPath: historyURL.path)) {
+                throw DatabaseReadFailure.permissionDenied
+            }
             if Self.isLockedSQLiteCode(openResult) {
                 throw DatabaseReadFailure.locked
             }
@@ -394,6 +520,9 @@ final class BrowserHistoryStore {
         } catch {
             let errorCode = sqlite3_extended_errcode(database)
             sqlite3_close(database)
+            if Self.isPermissionSQLiteCode(errorCode) {
+                throw DatabaseReadFailure.permissionDenied
+            }
             if Self.isLockedSQLiteCode(errorCode) {
                 throw DatabaseReadFailure.locked
             }
@@ -424,6 +553,9 @@ final class BrowserHistoryStore {
                 try? fileManager.copyItem(at: source, to: destination)
             }
         } catch {
+            if Self.isPermissionError(error) {
+                throw DatabaseReadFailure.permissionDenied
+            }
             throw BrowserHistoryStoreError.openFailed(error.localizedDescription)
         }
 
@@ -523,7 +655,25 @@ final class BrowserHistoryStore {
         return primaryCode == SQLITE_BUSY || primaryCode == SQLITE_LOCKED
     }
 
+    static func isPermissionSQLiteCode(_ code: Int32) -> Bool {
+        let primaryCode = code & 0xFF
+        return primaryCode == SQLITE_AUTH || primaryCode == SQLITE_PERM
+    }
+
+    private static func isPermissionError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSPOSIXErrorDomain {
+            return nsError.code == Int(EACCES) || nsError.code == Int(EPERM)
+        }
+        if nsError.domain == NSCocoaErrorDomain {
+            return nsError.code == NSFileReadNoPermissionError
+                || nsError.code == NSFileWriteNoPermissionError
+        }
+        return false
+    }
+
     private enum DatabaseReadFailure: Error {
         case locked
+        case permissionDenied
     }
 }

@@ -4,6 +4,7 @@ import Foundation
 enum PermissionSettingsDestination: Equatable {
     case accessibility
     case automation
+    case fullDiskAccess
 
     fileprivate var url: URL? {
         switch self {
@@ -11,6 +12,8 @@ enum PermissionSettingsDestination: Equatable {
             URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
         case .automation:
             URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+        case .fullDiskAccess:
+            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
         }
     }
 }

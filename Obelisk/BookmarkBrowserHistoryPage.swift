@@ -7,6 +7,7 @@ struct BookmarkBrowserHistoryPage: View {
     @State private var selection: Set<BrowserHistoryRecord.ID> = []
     @State private var sections: [BrowserHistorySection] = []
     @State private var errorMessage: String?
+    @State private var requiresFullDiskAccess = false
     @State private var isLoading = false
     @AppStorage(BrowserHistoryPreferences.enabledSourcesStorageKey)
     private var enabledSourcesRaw = BrowserHistoryBrowser.dia.rawValue
@@ -84,6 +85,12 @@ struct BookmarkBrowserHistoryPage: View {
                 Label("无法读取最近浏览", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(errorMessage)
+            } actions: {
+                if requiresFullDiskAccess {
+                    Button("打开完整磁盘访问权限设置") {
+                        PermissionSettingsGuide.open(.fullDiskAccess)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if sections.isEmpty {
@@ -139,6 +146,7 @@ struct BookmarkBrowserHistoryPage: View {
             .joined(separator: ",")
         sections = []
         errorMessage = nil
+        requiresFullDiskAccess = false
         isLoading = false
         selection = []
     }
@@ -161,6 +169,7 @@ struct BookmarkBrowserHistoryPage: View {
         guard !requestedBrowsers.isEmpty else {
             sections = []
             errorMessage = nil
+            requiresFullDiskAccess = false
             isLoading = false
             return
         }
@@ -168,6 +177,7 @@ struct BookmarkBrowserHistoryPage: View {
 
         isLoading = true
         errorMessage = nil
+        requiresFullDiskAccess = false
         defer {
             if requestedBrowsers == enabledBrowsers {
                 isLoading = false
@@ -183,6 +193,7 @@ struct BookmarkBrowserHistoryPage: View {
         } catch {
             guard !Task.isCancelled, requestedBrowsers == enabledBrowsers else { return }
             errorMessage = error.localizedDescription
+            requiresFullDiskAccess = (error as? BrowserHistoryStoreError)?.requiresFullDiskAccess == true
         }
     }
 }

@@ -72,15 +72,118 @@ struct BrowserHistoryStoreTests {
         #expect(try rowCount(in: database) == 4)
     }
 
-    @Test func unfinishedBrowsersRemainVisibleButAreNotQueried() throws {
+    @Test func loadsRecentSafariHistoryUsingSafariTimestamp() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskSafariHistoryTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let safariDirectory = root.appendingPathComponent("Safari", isDirectory: true)
+        let historyURL = safariDirectory.appendingPathComponent("History.db")
+        try FileManager.default.createDirectory(at: safariDirectory, withIntermediateDirectories: true)
+
+        var database: OpaquePointer?
+        #expect(sqlite3_open(historyURL.path, &database) == SQLITE_OK)
+        guard let database else { return }
+        defer { sqlite3_close(database) }
+
+        try execute(
+            "CREATE TABLE history_items (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE);",
+            in: database
+        )
+        try execute(
+            """
+            CREATE TABLE history_visits (
+                id INTEGER PRIMARY KEY,
+                history_item INTEGER NOT NULL,
+                visit_time REAL NOT NULL,
+                title TEXT,
+                load_successful BOOLEAN NOT NULL DEFAULT 1,
+                synthesized BOOLEAN NOT NULL DEFAULT 0
+            );
+            """,
+            in: database
+        )
+
+        let now = Date()
+        try insertSafariItem(id: 1, url: "https://example.com/iphone", into: database)
+        try insertSafariVisit(
+            id: 11,
+            itemID: 1,
+            title: "Visited on iPhone",
+            date: now.addingTimeInterval(-45),
+            into: database
+        )
+        try insertSafariItem(id: 2, url: "https://failed.example", into: database)
+        try insertSafariVisit(
+            id: 12,
+            itemID: 2,
+            title: "Failed load",
+            date: now.addingTimeInterval(-30),
+            loadSuccessful: false,
+            into: database
+        )
+        try insertSafariItem(id: 3, url: "https://old.example", into: database)
+        try insertSafariVisit(
+            id: 13,
+            itemID: 3,
+            title: "Too old",
+            date: now.addingTimeInterval(-31 * 24 * 60 * 60),
+            into: database
+        )
+
+        let sections = try BrowserHistoryStore(
+            browsers: [.safari],
+            applicationSupportDirectory: root,
+            safariDirectory: safariDirectory
+        ).loadRecentSections(now: now)
+        let records = sections.flatMap(\.records)
+
+        #expect(records.count == 1)
+        #expect(records[0].title == "Visited on iPhone")
+        #expect(records[0].url == "https://example.com/iphone")
+        #expect(records[0].browser == .safari)
+        #expect(abs(records[0].visitedAt.timeIntervalSince(now.addingTimeInterval(-45))) < 0.001)
+    }
+
+    @Test func firefoxRemainsVisibleButIsNotQueried() throws {
         #expect(BrowserHistoryBrowser.firefox.optionTitle == "Firefox（尚未完成）")
-        #expect(BrowserHistoryBrowser.safari.optionTitle == "Safari（尚未完成）")
+        #expect(BrowserHistoryBrowser.safari.optionTitle == "Safari")
         #expect(!BrowserHistoryBrowser.firefox.isImplemented)
-        #expect(!BrowserHistoryBrowser.safari.isImplemented)
+        #expect(BrowserHistoryBrowser.safari.isImplemented)
 
         #expect(throws: BrowserHistoryStoreError.self) {
-            _ = try BrowserHistoryStore(browsers: [.firefox, .safari]).loadRecentSections()
+            _ = try BrowserHistoryStore(browsers: [.firefox]).loadRecentSections()
         }
+    }
+
+    @Test func safariPermissionFailureRequestsFullDiskAccess() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskSafariPermissionTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let safariDirectory = root.appendingPathComponent("Safari", isDirectory: true)
+        let historyURL = safariDirectory.appendingPathComponent("History.db")
+        try FileManager.default.createDirectory(at: safariDirectory, withIntermediateDirectories: true)
+        #expect(FileManager.default.createFile(atPath: historyURL.path, contents: Data()))
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: historyURL.path)
+
+        do {
+            _ = try BrowserHistoryStore(
+                browsers: [.safari],
+                applicationSupportDirectory: root,
+                safariDirectory: safariDirectory
+            ).loadRecentSections()
+            Issue.record("Expected Safari history read to require Full Disk Access")
+        } catch let error as BrowserHistoryStoreError {
+            #expect(error.requiresFullDiskAccess)
+        }
+    }
+
+    @Test func sqliteAuthorizationFailuresArePermissionErrors() {
+        #expect(BrowserHistoryStore.isPermissionSQLiteCode(SQLITE_AUTH))
+        #expect(BrowserHistoryStore.isPermissionSQLiteCode(SQLITE_PERM))
+        #expect(BrowserHistoryStore.isPermissionSQLiteCode(SQLITE_AUTH | (3 << 8)))
+        #expect(!BrowserHistoryStore.isPermissionSQLiteCode(SQLITE_BUSY))
     }
 
     @Test func menuPreferencesDefaultToDiaAndTenRecords() {
@@ -94,9 +197,9 @@ struct BrowserHistoryStoreTests {
                 == BrowserHistoryPreferences.defaultMenuRecordLimit
         )
 
-        defaults.set("dia,firefox", forKey: BrowserHistoryPreferences.enabledSourcesStorageKey)
+        defaults.set("dia,firefox,safari", forKey: BrowserHistoryPreferences.enabledSourcesStorageKey)
         defaults.set(4, forKey: BrowserHistoryPreferences.menuRecordLimitStorageKey)
-        #expect(BrowserHistoryPreferences.enabledBrowsers(defaults: defaults) == [.dia])
+        #expect(BrowserHistoryPreferences.enabledBrowsers(defaults: defaults) == [.dia, .safari])
         #expect(BrowserHistoryPreferences.menuRecordLimit(defaults: defaults) == 4)
     }
 
@@ -126,6 +229,56 @@ struct BrowserHistoryStoreTests {
 
     private func execute(_ sql: String, in database: OpaquePointer) throws {
         guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            throw TestDatabaseError.sqlite
+        }
+    }
+
+    private func insertSafariItem(
+        id: Int64,
+        url: String,
+        into database: OpaquePointer
+    ) throws {
+        let sql = "INSERT INTO history_items (id, url) VALUES (?, ?);"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw TestDatabaseError.sqlite
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, id)
+        sqlite3_bind_text(statement, 2, url, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw TestDatabaseError.sqlite
+        }
+    }
+
+    private func insertSafariVisit(
+        id: Int64,
+        itemID: Int64,
+        title: String,
+        date: Date,
+        loadSuccessful: Bool = true,
+        into database: OpaquePointer
+    ) throws {
+        let sql = """
+        INSERT INTO history_visits
+            (id, history_item, visit_time, title, load_successful, synthesized)
+        VALUES (?, ?, ?, ?, ?, 0);
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw TestDatabaseError.sqlite
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, id)
+        sqlite3_bind_int64(statement, 2, itemID)
+        sqlite3_bind_double(statement, 3, date.timeIntervalSinceReferenceDate)
+        sqlite3_bind_text(statement, 4, title, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int(statement, 5, loadSuccessful ? 1 : 0)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
             throw TestDatabaseError.sqlite
         }
     }

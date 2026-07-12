@@ -76,7 +76,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var menuBrowserHistoryCache: MenuBrowserHistoryCache?
     private var menuBrowserHistoryRefreshKey: MenuBrowserHistoryCacheKey?
     private var menuBrowserHistoryRefreshTask: Task<Void, Never>?
-    private var suppressStatusItemClickUntil: Date?
     private var pendingUndo: PendingBookmarkUndo?
     private var pendingUndoExpirationWorkItem: DispatchWorkItem?
     private lazy var updaterController = SPUStandardUpdaterController(
@@ -702,15 +701,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             button.refusesFirstResponder = true
             button.target = self
             button.action = #selector(statusItemClicked(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.sendAction(on: [.leftMouseDown, .rightMouseDown])
         }
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        if shouldSuppressStatusItemClickAfterMenuClose() {
-            return
-        }
-
         dismissNotificationPopover()
 
         if searchPopover?.isShown == true {
@@ -756,12 +751,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private func showStatusMenu(_ menu: NSMenu) {
         guard let button = statusItem.button else { return }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
-    }
-
-    private func shouldSuppressStatusItemClickAfterMenuClose() -> Bool {
-        guard let suppressStatusItemClickUntil else { return false }
-        self.suppressStatusItemClickUntil = nil
-        return Date() <= suppressStatusItemClickUntil
     }
 
     private func startBookmarkWatcher() {
@@ -1064,16 +1053,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func menuDidClose(_ menu: NSMenu) {
         statusItem.menu = nil
-        if mouseIsOverStatusItemButton {
-            suppressStatusItemClickUntil = Date().addingTimeInterval(0.25)
-        }
-    }
-
-    private var mouseIsOverStatusItemButton: Bool {
-        guard let button = statusItem.button else { return false }
-        let pointInWindow = button.window?.convertPoint(fromScreen: NSEvent.mouseLocation) ?? .zero
-        let pointInButton = button.convert(pointInWindow, from: nil)
-        return button.bounds.contains(pointInButton)
     }
 
     func popoverDidClose(_ notification: Notification) {

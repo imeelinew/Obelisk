@@ -64,6 +64,9 @@ struct SmokeTests {
     @MainActor @Test func bookmarkMenuTableViewReturnOpensSelection() async throws {
         try await Self.withIsolatedEnvironment { try Self.testBookmarkMenuTableViewReturnOpensSelection() }
     }
+    @MainActor @Test func browserHistoryReturnOpensSelection() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testBrowserHistoryReturnOpensSelection() }
+    }
     @MainActor @Test func archivePersistence() async throws {
         try await Self.withIsolatedEnvironment { try Self.testArchivePersistence() }
     }
@@ -570,6 +573,37 @@ struct SmokeTests {
             ].flattenedItems) == nil,
             "expected no selectable row when sections contain no bookmarks"
         )
+    }
+
+    @MainActor
+    private static func testBrowserHistoryReturnOpensSelection() throws {
+        let record = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Safari history",
+            url: "https://history.example",
+            visitedAt: Date(),
+            browser: .safari,
+            profileName: "Safari"
+        )
+        let section = BrowserHistorySection(id: "today", title: "今天", records: [record])
+        var openedRecordID: UUID?
+        let list = NativeBrowserHistoryList(
+            sections: [section],
+            selection: .constant([]),
+            faviconLoader: FaviconLoader(rootDirectory: try temporaryDirectory()),
+            faviconVersion: 0,
+            onOpen: { openedRecordID = $0.id }
+        )
+        let coordinator = NativeBrowserHistoryList.Coordinator(list)
+        let tableView = BookmarkMenuTableView()
+        tableView.dataSource = coordinator
+        tableView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("test")))
+        tableView.reloadData()
+        tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+
+        coordinator.bookmarkMenuTableViewOpenSelection(tableView)
+
+        try expect(openedRecordID == record.id, "expected Return to open the selected history record")
     }
 
     @MainActor

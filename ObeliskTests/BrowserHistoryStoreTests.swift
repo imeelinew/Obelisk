@@ -145,6 +145,70 @@ struct BrowserHistoryStoreTests {
         #expect(abs(records[0].visitedAt.timeIntervalSince(now.addingTimeInterval(-45))) < 0.001)
     }
 
+    @Test func mergesBrowsersInExactVisitTimeOrder() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskMixedHistoryTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let chromeHistoryURL = root
+            .appendingPathComponent("Google", isDirectory: true)
+            .appendingPathComponent("Chrome", isDirectory: true)
+            .appendingPathComponent("Default", isDirectory: true)
+            .appendingPathComponent("History")
+        try FileManager.default.createDirectory(
+            at: chromeHistoryURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        var chromeDatabase: OpaquePointer?
+        #expect(sqlite3_open(chromeHistoryURL.path, &chromeDatabase) == SQLITE_OK)
+        guard let chromeDatabase else { return }
+        defer { sqlite3_close(chromeDatabase) }
+        try execute(
+            "CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT, last_visit_time INTEGER NOT NULL);",
+            in: chromeDatabase
+        )
+
+        let safariDirectory = root.appendingPathComponent("Safari", isDirectory: true)
+        let safariHistoryURL = safariDirectory.appendingPathComponent("History.db")
+        try FileManager.default.createDirectory(at: safariDirectory, withIntermediateDirectories: true)
+        var safariDatabase: OpaquePointer?
+        #expect(sqlite3_open(safariHistoryURL.path, &safariDatabase) == SQLITE_OK)
+        guard let safariDatabase else { return }
+        defer { sqlite3_close(safariDatabase) }
+        try execute(
+            "CREATE TABLE history_items (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE);",
+            in: safariDatabase
+        )
+        try execute(
+            """
+            CREATE TABLE history_visits (
+                id INTEGER PRIMARY KEY,
+                history_item INTEGER NOT NULL,
+                visit_time REAL NOT NULL,
+                title TEXT,
+                load_successful BOOLEAN NOT NULL DEFAULT 1,
+                synthesized BOOLEAN NOT NULL DEFAULT 0
+            );
+            """,
+            in: safariDatabase
+        )
+
+        let now = Date()
+        try insert(id: 1, url: "https://chrome-new.example", title: "Chrome new", date: now.addingTimeInterval(-30), into: chromeDatabase)
+        try insertSafariItem(id: 1, url: "https://safari.example", into: safariDatabase)
+        try insertSafariVisit(id: 1, itemID: 1, title: "Safari middle", date: now.addingTimeInterval(-60), into: safariDatabase)
+        try insert(id: 2, url: "https://chrome-old.example", title: "Chrome old", date: now.addingTimeInterval(-90), into: chromeDatabase)
+
+        let records = try BrowserHistoryStore(
+            browsers: [.chrome, .safari],
+            applicationSupportDirectory: root,
+            safariDirectory: safariDirectory
+        ).loadRecentSections(now: now).flatMap(\.records)
+
+        #expect(records.map(\.title) == ["Chrome new", "Safari middle", "Chrome old"])
+        #expect(records.map(\.browser) == [.chrome, .safari, .chrome])
+    }
+
     @Test func firefoxRemainsVisibleButIsNotQueried() throws {
         #expect(BrowserHistoryBrowser.firefox.optionTitle == "Firefox（尚未完成）")
         #expect(BrowserHistoryBrowser.safari.optionTitle == "Safari")

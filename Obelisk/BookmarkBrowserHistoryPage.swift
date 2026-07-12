@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct BookmarkBrowserHistoryPage: View {
@@ -53,9 +54,10 @@ struct BookmarkBrowserHistoryPage: View {
                 }
             } label: {
                 HStack(spacing: 5) {
-                    if let browser = singleSelectedBrowser {
+                    ForEach(selectedBrowsers) { browser in
                         BrowserHistoryBrowserIconView(browser: browser)
-                    } else {
+                    }
+                    if selectedBrowsers.isEmpty {
                         Image(systemName: "network")
                     }
                     Text(sourceMenuTitle)
@@ -106,7 +108,11 @@ struct BookmarkBrowserHistoryPage: View {
                 selection: $selection,
                 faviconLoader: faviconLoader,
                 faviconVersion: faviconLoader.version,
-                showsURLHostOnly: showsURLHostOnly
+                showsURLHostOnly: showsURLHostOnly,
+                onOpen: { record in
+                    guard let url = URL(string: record.url) else { return }
+                    NSWorkspace.shared.open(url)
+                }
             )
         }
     }
@@ -119,17 +125,13 @@ struct BookmarkBrowserHistoryPage: View {
     }
 
     private var sourceMenuTitle: String {
-        let selected = BrowserHistoryBrowser.allCases.filter { enabledBrowsers.contains($0) }
-        switch selected.count {
-        case 0: return "选择浏览器"
-        case 1: return selected[0].title
-        default: return "已选 \(selected.count) 个浏览器"
-        }
+        selectedBrowsers.isEmpty
+            ? "选择浏览器"
+            : selectedBrowsers.map(\.title).joined(separator: ", ")
     }
 
-    private var singleSelectedBrowser: BrowserHistoryBrowser? {
-        let selected = BrowserHistoryBrowser.allCases.filter { enabledBrowsers.contains($0) }
-        return selected.count == 1 ? selected[0] : nil
+    private var selectedBrowsers: [BrowserHistoryBrowser] {
+        BrowserHistoryBrowser.allCases.filter { enabledBrowsers.contains($0) }
     }
 
     private func setBrowser(_ browser: BrowserHistoryBrowser, enabled: Bool) {

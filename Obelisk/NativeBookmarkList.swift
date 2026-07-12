@@ -835,10 +835,7 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
     var showsURLHostOnly: Bool = false
-
-    fileprivate var showsBrowserBadges: Bool {
-        Set(sections.flatMap { $0.records.map(\.browser) }).count > 1
-    }
+    var onOpen: ((BrowserHistoryRecord) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -870,6 +867,7 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
         tableView.menuDelegate = context.coordinator
         tableView.target = context.coordinator
         tableView.action = #selector(Coordinator.handleClick(_:))
+        tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
 
         let column = NSTableColumn(identifier: Self.columnIdentifier)
         column.resizingMask = .autoresizingMask
@@ -1049,9 +1047,8 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
                     bookmark: bookmark,
                     showsURLHostOnly: parent.showsURLHostOnly,
                     favicon: parent.faviconLoader.image(for: record.url),
-                    referenceIndicatorSystemImage: parent.showsBrowserBadges
-                        ? record.browser.fallbackSystemImage
-                        : nil
+                    referenceIndicatorSystemImage: nil,
+                    sourceIcon: BrowserHistoryBrowserIcon.image(for: record.browser)
                 )
                 return view
 
@@ -1127,6 +1124,17 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
             toggleSection(section)
         }
 
+        @objc func handleDoubleClick(_ sender: NSTableView) {
+            let row = sender.clickedRow
+            guard row >= 0,
+                  case .record(let section, let offset) = rowInfo(for: row),
+                  let record = record(in: section, offset: offset)
+            else {
+                return
+            }
+            parent.onOpen?(record)
+        }
+
         private func applyHoveredRow(_ row: Int) {
             guard row != hoveredRow else { return }
             let previous = hoveredRow
@@ -1163,7 +1171,16 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
         func bookmarkMenuTableViewCopySelection(_ tableView: BookmarkMenuTableView) {}
         func bookmarkMenuTableViewEditSelection(_ tableView: BookmarkMenuTableView) {}
         func bookmarkMenuTableViewDeleteSelection(_ tableView: BookmarkMenuTableView) {}
-        func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView) {}
+        func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView) {
+            guard tableView.selectedRowIndexes.count == 1,
+                  let row = tableView.selectedRowIndexes.first,
+                  case .record(let section, let offset) = rowInfo(for: row),
+                  let record = record(in: section, offset: offset)
+            else {
+                return
+            }
+            parent.onOpen?(record)
+        }
         func bookmarkMenuTableViewCancel(_ tableView: BookmarkMenuTableView) -> Bool { false }
 
         func bookmarkMenuTableView(
@@ -1634,11 +1651,14 @@ private final class BookmarkTableCellView: NSTableCellView {
     private static let faviconLayoutSize = FaviconReferenceBadge.layoutCanvasSize(forFaviconEdge: faviconEdge)
 
     private let faviconContainer = NSView()
+    private let sourceIconView = NSImageView()
     private let faviconView = NSImageView()
     private let referenceBadgeView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let urlField = NSTextField(labelWithString: "")
     private var textTrailingConstraint: NSLayoutConstraint?
+    private var faviconLeadingConstraint: NSLayoutConstraint?
+    private var faviconLeadingWithSourceConstraint: NSLayoutConstraint?
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
@@ -1653,6 +1673,10 @@ private final class BookmarkTableCellView: NSTableCellView {
         clipsToBounds = false
         faviconContainer.translatesAutoresizingMaskIntoConstraints = false
         faviconContainer.clipsToBounds = false
+
+        sourceIconView.translatesAutoresizingMaskIntoConstraints = false
+        sourceIconView.imageScaling = .scaleProportionallyUpOrDown
+        sourceIconView.isHidden = true
 
         faviconView.translatesAutoresizingMaskIntoConstraints = false
         faviconView.imageScaling = .scaleProportionallyUpOrDown
@@ -1678,7 +1702,7 @@ private final class BookmarkTableCellView: NSTableCellView {
         urlField.usesSingleLineMode = true
         urlField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        [faviconContainer, titleField, urlField].forEach(addSubview)
+        [sourceIconView, faviconContainer, titleField, urlField].forEach(addSubview)
 
         textTrailingConstraint = titleField.trailingAnchor.constraint(
             equalTo: trailingAnchor,
@@ -1687,9 +1711,22 @@ private final class BookmarkTableCellView: NSTableCellView {
 
         let badgeDiameter = Self.referenceBadgeDiameter
         let badgeOffset = FaviconReferenceBadge.badgeCenterOffset(forFaviconEdge: Self.faviconEdge)
+        faviconLeadingConstraint = faviconContainer.leadingAnchor.constraint(
+            equalTo: leadingAnchor,
+            constant: NativeBookmarkList.contentInset
+        )
+        faviconLeadingWithSourceConstraint = faviconContainer.leadingAnchor.constraint(
+            equalTo: sourceIconView.trailingAnchor,
+            constant: 8
+        )
 
         NSLayoutConstraint.activate([
-            faviconContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
+            sourceIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
+            sourceIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            sourceIconView.widthAnchor.constraint(equalToConstant: 16),
+            sourceIconView.heightAnchor.constraint(equalToConstant: 16),
+
+            faviconLeadingConstraint!,
             faviconContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
             faviconContainer.widthAnchor.constraint(equalToConstant: Self.faviconLayoutSize.width),
             faviconContainer.heightAnchor.constraint(equalToConstant: Self.faviconLayoutSize.height),
@@ -1723,8 +1760,19 @@ private final class BookmarkTableCellView: NSTableCellView {
         bookmark: Bookmark,
         showsURLHostOnly: Bool,
         favicon: NSImage?,
-        referenceIndicatorSystemImage: String?
+        referenceIndicatorSystemImage: String?,
+        sourceIcon: NSImage? = nil
     ) {
+        sourceIconView.image = sourceIcon
+        sourceIconView.isHidden = sourceIcon == nil
+        faviconLeadingConstraint?.isActive = false
+        faviconLeadingWithSourceConstraint?.isActive = false
+        if sourceIcon == nil {
+            faviconLeadingConstraint?.isActive = true
+        } else {
+            faviconLeadingWithSourceConstraint?.isActive = true
+        }
+
         let canvasSize = NSSize(width: Self.faviconEdge, height: Self.faviconEdge)
         faviconView.image = favicon ?? AppIcon.faviconPlaceholder(size: canvasSize)
         faviconView.contentTintColor = nil

@@ -106,7 +106,7 @@ struct TitleOptimizationBenchmarkResult {
     let candidates: [TitleOptimizationCandidate]
 }
 
-enum LLMModelSource: String, Codable, CaseIterable, Identifiable {
+enum LLMModelSource: String, Codable, CaseIterable, Identifiable, Sendable {
     case remote
     case local
 
@@ -120,7 +120,7 @@ enum LLMModelSource: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct LLMProfilesSettings: Codable, Equatable {
+struct LLMProfilesSettings: Codable, Equatable, Sendable {
     var activeSource: LLMModelSource = .remote
     var remote: LLMConfig = .init()
     var local: LLMConfig = .lmStudioPreset
@@ -133,7 +133,7 @@ struct LLMProfilesSettings: Codable, Equatable {
     }
 }
 
-struct LLMConfig: Codable, Equatable {
+struct LLMConfig: Codable, Equatable, Sendable {
     var apiKey: String = ""
     var model: String = ""
     var baseURL: String = "https://api.openai.com/v1/chat/completions"
@@ -175,7 +175,6 @@ struct LLMConfig: Codable, Equatable {
 
 final class LLMConfigStore {
     private static let remoteKeychainAccount = "remote"
-    private static let legacyLocalKeychainAccount = "local"
 
     private(set) var rootDirectory: URL
     private let remoteAPIKeyStore = KeychainAPIKeyStore(account: remoteKeychainAccount)
@@ -190,48 +189,17 @@ final class LLMConfigStore {
     }
 
     func loadProfiles() -> LLMProfilesSettings {
-        let legacyData = readLegacyConfigData()
-
-        var settings: LLMProfilesSettings
-        if let decoded = try? vaultStore.loadPayload().llmProfiles {
-            settings = decoded
-        } else if let legacyData,
-                  let decoded = try? JSONDecoder().decode(LLMProfilesSettings.self, from: legacyData) {
-            settings = decoded
-        } else if let legacyData,
-                  let legacy = try? JSONDecoder().decode(LLMConfig.self, from: legacyData) {
-            settings = LLMProfilesSettings(activeSource: .remote, remote: legacy, local: .lmStudioPreset)
-        } else {
-            settings = LLMProfilesSettings()
-        }
-
-        settings.remote.apiKey = loadRemoteAPIKey(legacyData: legacyData)
-
-        var shouldPurgeLegacyLocalKeychain = false
-        if settings.local.apiKey.isEmpty,
-           let legacyLocalKey = try? KeychainAPIKeyStore(account: Self.legacyLocalKeychainAccount).readAPIKey(),
-           !legacyLocalKey.isEmpty {
-            settings.local.apiKey = legacyLocalKey
-            do {
-                try save(settings)
-                shouldPurgeLegacyLocalKeychain = true
-            } catch {
-                    // Keep the keychain copy if the vault payload write failed.
-            }
-        } else if settings.local.apiKey.isEmpty {
+        let payload = try? vaultStore.loadPayload()
+        var settings = payload?.llmProfiles ?? LLMProfilesSettings()
+        settings.remote.apiKey = (try? remoteAPIKeyStore.readAPIKey()) ?? ""
+        if settings.local.apiKey.isEmpty {
             settings.local.apiKey = LLMConfig.lmStudioPreset.apiKey
-        } else if (try? KeychainAPIKeyStore(account: Self.legacyLocalKeychainAccount).readAPIKey())?.isEmpty == false {
-            shouldPurgeLegacyLocalKeychain = true
         }
 
         if settings.local.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             var local = LLMConfig.lmStudioPreset
             local.apiKey = settings.local.apiKey
             settings.local = local
-        }
-
-        if shouldPurgeLegacyLocalKeychain {
-            purgeLocalAPIKeyFromKeychain()
         }
 
         return settings
@@ -250,7 +218,6 @@ final class LLMConfigStore {
         try vaultStore.updatePayload { payload in
             payload.llmProfiles = fileSettings
         }
-        removeLegacyConfigFiles()
     }
 
     func save(_ config: LLMConfig) throws {
@@ -264,53 +231,6 @@ final class LLMConfigStore {
         try save(settings)
     }
 
-    private func loadRemoteAPIKey(legacyData: Data?) -> String {
-        if let storedKey = try? remoteAPIKeyStore.readAPIKey(), !storedKey.isEmpty {
-            return storedKey
-        }
-
-        let legacyKeychain = KeychainAPIKeyStore()
-        if let legacyStoredKey = try? legacyKeychain.readAPIKey(), !legacyStoredKey.isEmpty {
-            try? remoteAPIKeyStore.saveAPIKey(legacyStoredKey)
-            return legacyStoredKey
-        }
-
-        if let legacyData,
-           let rawJSON = try? JSONSerialization.jsonObject(with: legacyData) as? [String: Any],
-           let legacyKey = rawJSON["apiKey"] as? String,
-           !legacyKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try? remoteAPIKeyStore.saveAPIKey(legacyKey)
-            return legacyKey
-        }
-
-        return ""
-    }
-
-    private func readLegacyConfigData() -> Data? {
-        let readableURL = ObeliskPrivateStorage.existingReadableFileURL(
-            rootDirectory: rootDirectory,
-            logicalName: "llm.json"
-        )
-        guard FileManager.default.fileExists(atPath: readableURL.path) else {
-            return nil
-        }
-        return try? SecureJSONFileCodec().readData(from: readableURL)
-    }
-
-    private func removeLegacyConfigFiles() {
-        let urls = [
-            ObeliskPrivateStorage.privateFileURL(rootDirectory: rootDirectory, logicalName: "llm.json"),
-            ObeliskPrivateStorage.plaintextFileURL(rootDirectory: rootDirectory, logicalName: "llm.json")
-        ]
-        for url in urls {
-            try? LocalFileAccess.removeItem(at: url)
-        }
-    }
-
-    private func purgeLocalAPIKeyFromKeychain() {
-        try? KeychainAPIKeyStore(account: Self.legacyLocalKeychainAccount).deleteAPIKey()
-        try? KeychainAPIKeyStore(account: "profiles").deleteAPIKey()
-    }
 }
 
 @MainActor
@@ -579,13 +499,10 @@ final class TitleOptimizer {
         let configURL = configStore.configURL
         let fileConfig = configStore.load()
 
-        // OBELISK_LLM_* is the supported override; UNIBOOKMARK_LLM_* remains
-        // honored as a legacy fallback from the app's previous name.
         let env = ProcessInfo.processInfo.environment
-        let apiKey = env["OBELISK_LLM_API_KEY"] ?? env["UNIBOOKMARK_LLM_API_KEY"] ?? fileConfig.apiKey
-        let model = env["OBELISK_LLM_MODEL"] ?? env["UNIBOOKMARK_LLM_MODEL"] ?? fileConfig.model
+        let apiKey = env["OBELISK_LLM_API_KEY"] ?? fileConfig.apiKey
+        let model = env["OBELISK_LLM_MODEL"] ?? fileConfig.model
         let baseURLString = env["OBELISK_LLM_BASE_URL"]
-            ?? env["UNIBOOKMARK_LLM_BASE_URL"]
             ?? fileConfig.baseURL
 
         do {

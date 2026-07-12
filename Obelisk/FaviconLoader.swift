@@ -172,7 +172,6 @@ final class FaviconLoader {
         for location in faviconStorageLocations() {
             try? LocalFileAccess.removeItem(at: location.directory)
         }
-        ObeliskStorageMigrator.removeEmptyStorageDirectories(in: rootDirectory)
         imageCache.removeAllObjects()
     }
 

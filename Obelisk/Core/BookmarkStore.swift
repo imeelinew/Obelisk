@@ -34,30 +34,6 @@ public struct Bookmark: Codable, Identifiable, Equatable {
         self.originalTitle = originalTitle
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case id, title, url, createdAt, titleOptimized, isHidden, archivedAt
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        title = try c.decode(String.self, forKey: .title)
-        url = try c.decode(String.self, forKey: .url)
-        // Older files predate this field; fall back so legacy bookmarks just
-        // never show up in "recently added" rather than failing to load.
-        createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? .distantPast
-        titleOptimized = (try? c.decode(Bool.self, forKey: .titleOptimized)) ?? false
-        isHidden = (try? c.decode(Bool.self, forKey: .isHidden)) ?? false
-        archivedAt = try? c.decodeIfPresent(Date.self, forKey: .archivedAt)
-        isPinned = false
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(title, forKey: .title)
-        try c.encode(url, forKey: .url)
-    }
 }
 
 public struct BookmarkDatabase: Codable, Equatable {
@@ -103,16 +79,9 @@ public final class BookmarkStore {
         self.vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
     }
 
-    /// `OBELISK_HOME` is the supported storage override; `UNIBOOKMARK_HOME`
-    /// remains honored as a legacy fallback from the app's previous name.
     public static func environmentRootOverride() -> URL? {
-        let env = ProcessInfo.processInfo.environment
-        for key in ["OBELISK_HOME", "UNIBOOKMARK_HOME"] {
-            if let value = env[key], !value.isEmpty {
-                return URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
-            }
-        }
-        return nil
+        guard let value = ProcessInfo.processInfo.environment["OBELISK_HOME"], !value.isEmpty else { return nil }
+        return URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
     }
 
     public static func defaultRootDirectory() -> URL {
@@ -169,15 +138,16 @@ public final class BookmarkStore {
     }
 
     public func save(_ database: BookmarkDatabase) throws {
-        try withFileLock {
-            try FileManager.default.createDirectory(
-                at: rootDirectory,
-                withIntermediateDirectories: true
-            )
-            ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(rootDirectory)
-
-            let payload = try payloadByMerging(bookmarks: database.bookmarks)
-            try vaultStore.savePayload(payload)
+        try updatePayload { payload in
+            let currentById = Dictionary(uniqueKeysWithValues: payload.bookmarks.map { ($0.id, $0) })
+            payload.bookmarks = database.bookmarks.map { bookmark in
+                let current = currentById[bookmark.id]
+                return ObeliskVaultBookmark(
+                    bookmark: bookmark,
+                    groupId: current?.groupId,
+                    usage: current?.usage
+                )
+            }
         }
     }
 
@@ -189,31 +159,25 @@ public final class BookmarkStore {
             throw BookmarkStoreError.invalidTitle
         }
 
-        return try withFileLock {
-            var database = try load()
+        let bookmark = Bookmark(
+            title: trimmedTitle,
+            url: trimmedURL,
+            isHidden: isHidden,
+            originalTitle: trimmedTitle
+        )
+        try updatePayload { payload in
             let target = BookmarkStore.normalizedURL(trimmedURL)
-            if database.bookmarks.contains(where: { BookmarkStore.normalizedURL($0.url) == target }) {
+            if payload.bookmarks.contains(where: { BookmarkStore.normalizedURL($0.url) == target }) {
                 throw BookmarkStoreError.duplicateURL(trimmedURL)
             }
-
-            let bookmark = Bookmark(
-                title: trimmedTitle,
-                url: trimmedURL,
-                isHidden: isHidden,
-                originalTitle: trimmedTitle
-            )
-            database.bookmarks.append(bookmark)
-            database.bookmarks.sort {
-                $0.title.localizedStandardCompare($1.title) == .orderedAscending
-            }
-            try save(database)
-            return bookmark
+            payload.bookmarks.append(ObeliskVaultBookmark(bookmark: bookmark, groupId: nil, usage: nil))
         }
+        return bookmark
     }
 
-    private func withFileLock<T>(_ body: () throws -> T) throws -> T {
+    private func updatePayload(_ body: (inout ObeliskVaultPayload) throws -> Void) throws {
         do {
-            return try ObeliskRootDirectoryLock.withExclusiveAccess(rootDirectory: rootDirectory, body)
+            try vaultStore.updatePayload(body)
         } catch ObeliskStorageLockError.lockFailed {
             throw BookmarkStoreError.lockFailed
         }
@@ -231,10 +195,8 @@ public final class BookmarkStore {
         guard !ids.isEmpty else {
             return
         }
-        try withFileLock {
-            var database = try load()
-            database.bookmarks.removeAll { ids.contains($0.id) }
-            try save(database)
+        try updatePayload { payload in
+            payload.bookmarks.removeAll { ids.contains($0.id) }
         }
     }
 
@@ -243,9 +205,8 @@ public final class BookmarkStore {
             return
         }
 
-        try withFileLock {
-            var database = try load()
-            database.bookmarks = database.bookmarks.map { bookmark in
+        try updatePayload { payload in
+            payload.bookmarks = payload.bookmarks.map { bookmark in
                 guard ids.contains(bookmark.id) else { return bookmark }
                 var updated = bookmark
                 updated.archivedAt = isArchived ? date : nil
@@ -254,7 +215,6 @@ public final class BookmarkStore {
                 }
                 return updated
             }
-            try save(database)
         }
     }
 
@@ -263,19 +223,17 @@ public final class BookmarkStore {
             return
         }
 
-        try withFileLock {
-            var database = try load()
-            let validIds = Set(database.bookmarks.map(\.id))
+        try updatePayload { payload in
+            let validIds = Set(payload.bookmarks.map(\.id))
             let targetIds = ids.intersection(validIds)
             guard !targetIds.isEmpty else { return }
 
-            database.bookmarks = database.bookmarks.map { bookmark in
+            payload.bookmarks = payload.bookmarks.map { bookmark in
                 guard targetIds.contains(bookmark.id) else { return bookmark }
                 var updated = bookmark
                 updated.isPinned = isPinned && !bookmark.isHidden && bookmark.archivedAt == nil
                 return updated
             }
-            try save(database)
         }
     }
 
@@ -284,119 +242,91 @@ public final class BookmarkStore {
         guard !optimizedTitles.isEmpty else {
             return 0
         }
-        return try withFileLock {
-            var database = try load()
-            var changedCount = 0
-            for idx in database.bookmarks.indices {
-                let bookmark = database.bookmarks[idx]
+        var changedCount = 0
+        try updatePayload { payload in
+            for idx in payload.bookmarks.indices {
+                let bookmark = payload.bookmarks[idx]
                 guard !bookmark.titleOptimized,
                       let title = optimizedTitles[bookmark.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !title.isEmpty
                 else {
                     continue
                 }
-                if database.bookmarks[idx].originalTitle == nil {
-                    database.bookmarks[idx].originalTitle = bookmark.title
+                if payload.bookmarks[idx].originalTitle == nil {
+                    payload.bookmarks[idx].originalTitle = bookmark.title
                 }
                 if title != bookmark.title {
-                    database.bookmarks[idx].title = title
+                    payload.bookmarks[idx].title = title
                 }
-                database.bookmarks[idx].titleOptimized = true
+                payload.bookmarks[idx].titleOptimized = true
                 changedCount += 1
             }
-            if changedCount > 0 {
-                database.bookmarks.sort {
-                    $0.title.localizedStandardCompare($1.title) == .orderedAscending
-                }
-                try save(database)
-            }
-            return changedCount
         }
+        return changedCount
     }
 
     @discardableResult
     public func revertTitleOptimizations(ids: Set<UUID>) throws -> Int {
         guard !ids.isEmpty else { return 0 }
-        return try withFileLock {
-            var database = try load()
-            var changedCount = 0
-            for idx in database.bookmarks.indices {
-                let bookmark = database.bookmarks[idx]
+        var changedCount = 0
+        try updatePayload { payload in
+            for idx in payload.bookmarks.indices {
+                let bookmark = payload.bookmarks[idx]
                 guard ids.contains(bookmark.id), bookmark.titleOptimized else { continue }
                 guard let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !original.isEmpty
                 else {
                     continue
                 }
-                database.bookmarks[idx].title = original
-                database.bookmarks[idx].titleOptimized = false
+                payload.bookmarks[idx].title = original
+                payload.bookmarks[idx].titleOptimized = false
                 changedCount += 1
             }
-            if changedCount > 0 {
-                database.bookmarks.sort {
-                    $0.title.localizedStandardCompare($1.title) == .orderedAscending
-                }
-                try save(database)
-            }
-            return changedCount
         }
+        return changedCount
     }
 
     @discardableResult
     public func restoreAllOriginalTitles() throws -> Int {
-        try withFileLock {
-            var database = try load()
-            var changedCount = 0
-            for idx in database.bookmarks.indices {
-                let bookmark = database.bookmarks[idx]
+        var changedCount = 0
+        try updatePayload { payload in
+            for idx in payload.bookmarks.indices {
+                let bookmark = payload.bookmarks[idx]
                 guard let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !original.isEmpty
                 else {
                     continue
                 }
                 guard bookmark.title != original || bookmark.titleOptimized else { continue }
-                database.bookmarks[idx].title = original
-                database.bookmarks[idx].titleOptimized = false
+                payload.bookmarks[idx].title = original
+                payload.bookmarks[idx].titleOptimized = false
                 changedCount += 1
             }
-            if changedCount > 0 {
-                database.bookmarks.sort {
-                    $0.title.localizedStandardCompare($1.title) == .orderedAscending
-                }
-                try save(database)
-            }
-            return changedCount
         }
+        return changedCount
     }
 
     @discardableResult
     public func applyOriginalTitles(_ titles: [UUID: String], forceApplyDisplay: Bool = false) throws -> Int {
         guard !titles.isEmpty else { return 0 }
-        return try withFileLock {
-            var database = try load()
-            var changedCount = 0
-            for idx in database.bookmarks.indices {
-                let bookmark = database.bookmarks[idx]
+        var changedCount = 0
+        try updatePayload { payload in
+            for idx in payload.bookmarks.indices {
+                let bookmark = payload.bookmarks[idx]
                 guard let title = titles[bookmark.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !title.isEmpty
                 else {
                     continue
                 }
-                database.bookmarks[idx].originalTitle = title
+                payload.bookmarks[idx].originalTitle = title
                 if forceApplyDisplay || !bookmark.titleOptimized {
-                    database.bookmarks[idx].title = title
-                    database.bookmarks[idx].titleOptimized = false
+                    payload.bookmarks[idx].title = title
+                    payload.bookmarks[idx].titleOptimized = false
                 }
                 changedCount += 1
             }
-            if changedCount > 0 {
-                database.bookmarks.sort {
-                    $0.title.localizedStandardCompare($1.title) == .orderedAscending
-                }
-                try save(database)
-            }
-            return changedCount
         }
+        return changedCount
     }
 
     @discardableResult
@@ -407,31 +337,28 @@ public final class BookmarkStore {
             throw BookmarkStoreError.invalidTitle
         }
 
-        return try withFileLock {
-            var database = try load()
-            guard let idx = database.bookmarks.firstIndex(where: { $0.id == bookmark.id }) else {
-                return bookmark
-            }
+        var result = bookmark
+        try updatePayload { payload in
+            guard let idx = payload.bookmarks.firstIndex(where: { $0.id == bookmark.id }) else { return }
             let target = BookmarkStore.normalizedURL(trimmedURL)
-            if database.bookmarks.contains(where: { $0.id != bookmark.id && BookmarkStore.normalizedURL($0.url) == target }) {
+            if payload.bookmarks.contains(where: { $0.id != bookmark.id && BookmarkStore.normalizedURL($0.url) == target }) {
                 throw BookmarkStoreError.duplicateURL(trimmedURL)
             }
             var updated = bookmark
             updated.title = trimmedTitle
             updated.url = trimmedURL
-            database.bookmarks[idx] = updated
+            let groupId = payload.bookmarks[idx].groupId
+            let usage = payload.bookmarks[idx].usage
+            payload.bookmarks[idx] = ObeliskVaultBookmark(bookmark: updated, groupId: groupId, usage: usage)
             if !updated.titleOptimized {
-                database.bookmarks[idx].originalTitle = trimmedTitle
+                payload.bookmarks[idx].originalTitle = trimmedTitle
             }
             if updated.isHidden || updated.archivedAt != nil {
-                database.bookmarks[idx].isPinned = false
+                payload.bookmarks[idx].isPinned = false
             }
-            database.bookmarks.sort {
-                $0.title.localizedStandardCompare($1.title) == .orderedAscending
-            }
-            try save(database)
-            return updated
+            result = payload.bookmarks[idx].bookmark
         }
+        return result
     }
 
     private func ensureStoreExists() throws {
@@ -443,27 +370,6 @@ public final class BookmarkStore {
         if payload.bookmarks.isEmpty && payload.groups.isEmpty {
             try vaultStore.savePayload(ObeliskVaultPayload())
         }
-    }
-
-    private func payloadByMerging(bookmarks: [Bookmark]) throws -> ObeliskVaultPayload {
-        let current = try vaultStore.loadPayload()
-        let currentById = Dictionary(uniqueKeysWithValues: current.bookmarks.map { ($0.id, $0) })
-
-        let merged = bookmarks.map { bookmark -> ObeliskVaultBookmark in
-            let existing = currentById[bookmark.id]
-            return ObeliskVaultBookmark(
-                bookmark: bookmark,
-                groupId: existing?.groupId,
-                usage: existing?.usage
-            )
-        }
-
-        return ObeliskVaultPayload(
-            schemaVersion: ObeliskVaultStore.currentPayloadSchemaVersion,
-            bookmarks: merged,
-            groups: current.groups,
-            llmProfiles: current.llmProfiles
-        )
     }
 
     private func validatedWebURL(_ rawURL: String) throws -> String {

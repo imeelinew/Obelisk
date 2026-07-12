@@ -3,17 +3,6 @@ import Foundation
 enum ObeliskAppDefaults {
     static let openHiddenBookmarksIncognitoKey = "openHiddenBookmarksIncognito"
 
-    private static let professionalSidebarDebugDefaultsVersionKey = "professionalSidebarDebugDefaultsVersion"
-    private static let professionalSidebarDebugDefaultsVersion = 3
-    private static let sidebarIconTileSizeKey = "debugSidebarIconTileSize"
-    private static let sidebarIconSymbolSizeKey = "debugSidebarIconSymbolSize"
-    private static let sidebarIconCornerRadiusKey = "debugSidebarIconCornerRadius"
-    private static let professionalSidebarIconSizeKey = "debugProfessionalSidebarIconSize"
-    private static let defaultSidebarIconTileSize: Double = 22
-    private static let defaultSidebarIconSymbolSize: Double = 11
-    private static let defaultSidebarIconCornerRadius: Double = 6
-    private static let defaultProfessionalSidebarIconSize: Double = 15
-
     static func register(
         in defaults: UserDefaults = .standard,
         preservesUnauthenticatedDisabledEncryption: Bool = false
@@ -23,15 +12,10 @@ enum ObeliskAppDefaults {
             SidebarIconTheme.storageKey: SidebarIconTheme.colorful.rawValue,
             SidebarIconStyle.storageKey: SidebarIconStyle.lucide.rawValue,
             MenuBarIconStyle.storageKey: MenuBarIconStyle.outline.rawValue,
-            sidebarIconTileSizeKey: defaultSidebarIconTileSize,
-            sidebarIconSymbolSizeKey: defaultSidebarIconSymbolSize,
-            sidebarIconCornerRadiusKey: defaultSidebarIconCornerRadius,
-            professionalSidebarIconSizeKey: defaultProfessionalSidebarIconSize,
             openHiddenBookmarksIncognitoKey: true,
             LocalJSONEncryption.enabledKey: true,
             LocalJSONEncryption.disabledByAuthenticatedUserKey: false
         ])
-        migrateProfessionalSidebarDebugDefaultsIfNeeded(in: defaults)
         LocalJSONEncryption.normalizeDefault(
             in: defaults,
             hadStoredEnabledPreference: hadStoredEncryptionPreference,
@@ -40,28 +24,6 @@ enum ObeliskAppDefaults {
         TitleOptimizationPreferences.register(in: defaults)
         BookmarkAutoGroupingPreferences.register(in: defaults)
         HiddenBookmarkKeywordExclusion.register(in: defaults)
-        BookmarkListSortMode.migratePinnedSortModeIfNeeded(in: defaults)
-    }
-
-    private static func migrateProfessionalSidebarDebugDefaultsIfNeeded(in defaults: UserDefaults) {
-        var version = defaults.integer(forKey: professionalSidebarDebugDefaultsVersionKey)
-
-        if version < 1 {
-            if defaults.object(forKey: professionalSidebarIconSizeKey) == nil
-                || defaults.double(forKey: professionalSidebarIconSizeKey) == 13 {
-                defaults.set(defaultProfessionalSidebarIconSize, forKey: professionalSidebarIconSizeKey)
-            }
-            version = 1
-            defaults.set(version, forKey: professionalSidebarDebugDefaultsVersionKey)
-        }
-
-        if version < 3 {
-            defaults.set(defaultSidebarIconTileSize, forKey: sidebarIconTileSizeKey)
-            defaults.set(defaultSidebarIconSymbolSize, forKey: sidebarIconSymbolSizeKey)
-            defaults.set(defaultSidebarIconCornerRadius, forKey: sidebarIconCornerRadiusKey)
-            defaults.set(defaultProfessionalSidebarIconSize, forKey: professionalSidebarIconSizeKey)
-            defaults.set(professionalSidebarDebugDefaultsVersion, forKey: professionalSidebarDebugDefaultsVersionKey)
-        }
     }
 }
 

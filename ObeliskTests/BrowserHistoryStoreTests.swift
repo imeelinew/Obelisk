@@ -100,18 +100,6 @@ struct BrowserHistoryStoreTests {
         #expect(BrowserHistoryPreferences.menuRecordLimit(defaults: defaults) == 4)
     }
 
-    @Test func menuOrderMigratesExistingUsersToRecentBrowsing() {
-        let legacyOrder = BookmarkMenuSectionOrder.encoded([.pinned, .recent, .ungrouped])
-        #expect(
-            BookmarkMenuSectionOrder.order(collections: [], rawValue: legacyOrder)
-                == [.pinned, .recent, .browserHistory, .ungrouped]
-        )
-        #expect(
-            BookmarkMenuSectionOrder.items(collections: [], rawValue: legacyOrder).map(\.title)
-                == ["置顶", "最近添加", "最近浏览", "未分组"]
-        )
-    }
-
     private func insert(
         id: Int64,
         url: String,

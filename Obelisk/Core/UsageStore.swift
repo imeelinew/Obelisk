@@ -65,13 +65,20 @@ public final class UsageStore {
         return usage
     }
 
-    public func record(id: UUID, at date: Date = Date()) {
-        let prior = load()[id]
-        pendingRecords[id] = UsageRecord(
-            count: (prior?.count ?? 0) + 1,
+    @discardableResult
+    public func record(id: UUID, at date: Date = Date()) -> UsageRecord {
+        record(id: id, previous: pendingRecords[id] ?? load()[id], at: date)
+    }
+
+    @discardableResult
+    public func record(id: UUID, previous: UsageRecord?, at date: Date = Date()) -> UsageRecord {
+        let updated = UsageRecord(
+            count: (previous?.count ?? 0) + 1,
             lastClickedAt: date
         )
+        pendingRecords[id] = updated
         scheduleFlush()
+        return updated
     }
 
     /// Persists any pending usage immediately. Safe to call when idle.

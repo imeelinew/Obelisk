@@ -1,6 +1,16 @@
 import Foundation
 @testable import Obelisk
 
+struct BookmarkStateDatabase: Equatable {
+    var version: Int = 2
+    var hiddenIds: Set<UUID> = []
+    var manualArchivedIds: Set<UUID> = []
+    var pinnedIds: Set<UUID> = []
+    var createdAtById: [UUID: Date] = [:]
+    var titleOptimizedIds: Set<UUID> = []
+    var originalTitleById: [UUID: String] = [:]
+}
+
 /// Test-only view over the vault payload's per-bookmark state. Production code
 /// mutates bookmark state through `BookmarkStore`; this helper lets tests
 /// read and write the same state as a `BookmarkStateDatabase` snapshot.

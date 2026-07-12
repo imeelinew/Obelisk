@@ -22,7 +22,6 @@ public enum ObeliskPlaintextDataBackup {
         }
     }
 
-    private static let jsonLogicalNames = ObeliskStorageMigrator.logicalJSONFiles
     private static let payloadBackupFileName = "payload.json"
     private static let backupFolderPrefix = "Backup-"
 
@@ -49,19 +48,6 @@ public enum ObeliskPlaintextDataBackup {
                 to: destinationRoot.appendingPathComponent(payloadBackupFileName)
             )
             exportedJSONFiles.append(payloadBackupFileName)
-        } else {
-            for logicalName in jsonLogicalNames {
-                guard let plaintext = try readPlaintextJSON(
-                    logicalName: logicalName,
-                    from: rootDirectory,
-                    codec: codec
-                ) else {
-                    continue
-                }
-                let destinationURL = destinationRoot.appendingPathComponent(logicalName)
-                try LocalFileAccess.writeData(plaintext, to: destinationURL)
-                exportedJSONFiles.append(logicalName)
-            }
         }
 
         let faviconCount = try exportFavicons(
@@ -90,34 +76,6 @@ public enum ObeliskPlaintextDataBackup {
         return backupFolderPrefix + formatter.string(from: date)
     }
 
-    private static func readPlaintextJSON(
-        logicalName: String,
-        from rootDirectory: URL,
-        codec: SecureJSONFileCodec
-    ) throws -> Data? {
-        let candidates = candidateJSONURLs(rootDirectory: rootDirectory, logicalName: logicalName)
-        let existing = candidates.filter { FileManager.default.fileExists(atPath: $0.path) }
-        guard !existing.isEmpty else { return nil }
-
-        if logicalName == "bookmarks.json",
-           let data = try newestNonEmptyBookmarkData(from: existing, codec: codec) {
-            return data
-        }
-
-        var lastError: Error?
-        for url in existing {
-            do {
-                return try codec.readData(from: url)
-            } catch {
-                lastError = error
-            }
-        }
-        if let lastError {
-            throw lastError
-        }
-        return nil
-    }
-
     private static func readVaultPayloadJSON(from rootDirectory: URL) throws -> Data? {
         let vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
         guard vaultStore.hasV2Payload else {
@@ -128,40 +86,6 @@ public enum ObeliskPlaintextDataBackup {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(payload)
-    }
-
-    private static func candidateJSONURLs(rootDirectory: URL, logicalName: String) -> [URL] {
-        [
-            ObeliskPrivateStorage.activeFileURL(rootDirectory: rootDirectory, logicalName: logicalName)
-        ].sorted { modificationDate(for: $0) > modificationDate(for: $1) }
-    }
-
-    private static func newestNonEmptyBookmarkData(
-        from candidates: [URL],
-        codec: SecureJSONFileCodec
-    ) throws -> Data? {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-
-        for candidate in candidates {
-            do {
-                let data = try codec.readData(from: candidate)
-                let database = try decoder.decode(BookmarkDatabase.self, from: data)
-                if !database.bookmarks.isEmpty {
-                    return data
-                }
-            } catch {
-                continue
-            }
-        }
-        for candidate in candidates {
-            do {
-                return try codec.readData(from: candidate)
-            } catch {
-                continue
-            }
-        }
-        return nil
     }
 
     private static func exportFavicons(
@@ -288,36 +212,9 @@ public enum ObeliskPlaintextDataBackup {
         return try LocalFileAccess.readData(from: url)
     }
 
-    private static func uniqueURLs(_ urls: [URL]) -> [URL] {
-        var seen = Set<String>()
-        return urls.filter { seen.insert($0.standardizedFileURL.path).inserted }
-    }
-
     private static func modificationDate(for url: URL) -> Date {
         (
             try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
         ) ?? .distantPast
-    }
-}
-
-public enum ObeliskStorageTransition {
-    @discardableResult
-    public static func backUpThenNormalize(
-        in rootDirectory: URL,
-        encrypted: Bool,
-        backup: (URL) throws -> ObeliskPlaintextDataBackup.Result? = { rootDirectory in
-            do {
-                return try ObeliskPlaintextDataBackup.createBackup(
-                    in: rootDirectory,
-                    destinationParent: rootDirectory.deletingLastPathComponent()
-                )
-            } catch ObeliskPlaintextDataBackup.BackupError.nothingToExport {
-                return nil
-            }
-        }
-    ) throws -> ObeliskPlaintextDataBackup.Result? {
-        let result = try backup(rootDirectory)
-        try ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
-        return result
     }
 }

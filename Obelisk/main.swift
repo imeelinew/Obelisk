@@ -1,15 +1,11 @@
 import AppKit
-import Carbon.HIToolbox
-import CoreSpotlight
 import Darwin
 import KeyboardShortcuts
 import Foundation
 import Observation
-import os
 import Sparkle
 import SwiftUI
 
-private let inputSourceLog = Logger(subsystem: "com.eli.Obelisk", category: "InputSource")
 private let isUITesting = CommandLine.arguments.contains("-uiTesting")
 
 @objc
@@ -124,17 +120,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         if LocalJSONEncryption.isEnabled {
             _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)
         }
-        ObeliskKeychainMigration.migrateIfNeeded()
         installMainMenu()
         configureStatusItem()
         installDefaultsObserver()
-        clearLegacySpotlightIndex()
-        clearLegacyICloudDefaults()
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
         }
         startBookmarkWatcher()
-        normalizeActiveStorageRoot()
         installKeyboardShortcutHandlers()
         setupNotificationPopover()
         refreshMenuBrowserHistoryCache()
@@ -772,18 +764,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         return Date() <= suppressStatusItemClickUntil
     }
 
-    private func clearLegacySpotlightIndex() {
-        CSSearchableIndex.default().deleteSearchableItems(withDomainIdentifiers: [
-            "com.eli.Obelisk.bookmarks",
-            "com.eli.UniBookmark.bookmarks"
-        ]) { _ in }
-    }
-
-    private func clearLegacyICloudDefaults() {
-        UserDefaults.standard.removeObject(forKey: "syncWithICloudDrive")
-        UserDefaults.standard.removeObject(forKey: "iCloudDocumentSyncRootPath")
-    }
-
     private func startBookmarkWatcher() {
         bookmarkWatcher = BookmarkFileWatcher(fileURL: store.fileURL) { [weak self] in
             // model.reload fires onChange → menubar rebuild via the callback
@@ -807,25 +787,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         statusItem.menu = nil
         DispatchQueue.main.async {
             _ = malloc_zone_pressure_relief(nil, 0)
-        }
-    }
-
-    private func normalizeActiveStorageRoot() {
-        let rootDirectory = store.rootDirectory
-        let encrypted = LocalJSONEncryption.isEnabled
-        Task.detached(priority: .utility) {
-            do {
-                try ObeliskStorageMigrator.normalizeStorage(in: rootDirectory, encrypted: encrypted)
-                await MainActor.run { [weak self] in
-                    self?.bookmarksModel.invalidateStorageCaches()
-                    self?.faviconLoader.reloadStorage()
-                    self?.bookmarksModel.reload()
-                }
-            } catch {
-                await MainActor.run { [weak self] in
-                    self?.bookmarksModel.errorMessage = error.localizedDescription
-                }
-            }
         }
     }
 
@@ -1216,87 +1177,3 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
-
-@MainActor
-enum MenuBarSearchKeyCommand: Equatable {
-    case close
-    case open
-    case passThrough
-
-    static func command(for event: NSEvent, hasMarkedText: Bool) -> MenuBarSearchKeyCommand {
-        let modifiers = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting(.numericPad)
-        guard modifiers.isEmpty, !hasMarkedText else { return .passThrough }
-
-        switch event.keyCode {
-        case UInt16(kVK_Escape):
-            return .close
-        case UInt16(kVK_Return), UInt16(kVK_ANSI_KeypadEnter):
-            return .open
-        default:
-            return .passThrough
-        }
-    }
-}
-
-@MainActor
-private final class InputSourceSwitcher {
-    func switchToUSEnglish() {
-        guard let inputSource = preferredEnglishInputSource() else {
-            inputSourceLog.error("No enabled ASCII-capable keyboard input source found")
-            return
-        }
-
-        let status = TISSelectInputSource(inputSource)
-        if status != noErr {
-            let inputSourceID = stringProperty(inputSource, kTISPropertyInputSourceID)
-            inputSourceLog.error("Failed to select input source \(inputSourceID, privacy: .public): \(status)")
-        }
-    }
-
-    private func preferredEnglishInputSource() -> TISInputSource? {
-        let preferredIDs = [
-            "com.apple.keylayout.ABC",
-            "com.apple.keylayout.US",
-            "com.apple.keylayout.USInternational-PC"
-        ]
-
-        for id in preferredIDs {
-            let filter = [kTISPropertyInputSourceID as String: id] as CFDictionary
-            guard
-                let sources = TISCreateInputSourceList(filter, false)?.takeRetainedValue() as? [TISInputSource],
-                let source = sources.first,
-                isSelectableASCIIKeyboardLayout(source)
-            else {
-                continue
-            }
-
-            return source
-        }
-
-        guard let sources = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] else {
-            return nil
-        }
-
-        return sources.first(where: isSelectableASCIIKeyboardLayout)
-    }
-
-    private func isSelectableASCIIKeyboardLayout(_ source: TISInputSource) -> Bool {
-        stringProperty(source, kTISPropertyInputSourceCategory) == (kTISCategoryKeyboardInputSource as String)
-            && stringProperty(source, kTISPropertyInputSourceType) == (kTISTypeKeyboardLayout as String)
-            && boolProperty(source, kTISPropertyInputSourceIsEnabled)
-            && boolProperty(source, kTISPropertyInputSourceIsSelectCapable)
-            && boolProperty(source, kTISPropertyInputSourceIsASCIICapable)
-    }
-
-    private func stringProperty(_ source: TISInputSource, _ key: CFString) -> String {
-        guard let rawValue = TISGetInputSourceProperty(source, key) else { return "" }
-        return Unmanaged<CFString>.fromOpaque(rawValue).takeUnretainedValue() as String
-    }
-
-    private func boolProperty(_ source: TISInputSource, _ key: CFString) -> Bool {
-        guard let rawValue = TISGetInputSourceProperty(source, key) else { return false }
-        return CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque(rawValue).takeUnretainedValue())
-    }
-}

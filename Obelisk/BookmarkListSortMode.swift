@@ -9,7 +9,6 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
     static let pinnedStorageKey = "pinnedBookmarkListSortMode"
     static let collectionsStorageKey = "bookmarkCollectionListSortMode"
     static let hiddenStorageKey = "hiddenBookmarkListSortMode"
-    static let storageKey = bookmarksStorageKey
 
     var id: String { rawValue }
 
@@ -21,23 +20,10 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
         }
     }
 
-    static var stored: BookmarkListSortMode { storedForUngrouped }
-    static var storedForBookmarks: BookmarkListSortMode { storedForUngrouped }
     static var storedForUngrouped: BookmarkListSortMode { stored(for: bookmarksStorageKey) }
-    static var storedForPinned: BookmarkListSortMode {
-        migratePinnedSortModeIfNeeded()
-        return stored(for: pinnedStorageKey)
-    }
+    static var storedForPinned: BookmarkListSortMode { stored(for: pinnedStorageKey) }
     static var storedForCollections: BookmarkListSortMode { stored(for: collectionsStorageKey) }
     static var storedForHiddenBookmarks: BookmarkListSortMode { stored(for: hiddenStorageKey) }
-
-    static func migratePinnedSortModeIfNeeded(in defaults: UserDefaults = .standard) {
-        guard defaults.object(forKey: pinnedStorageKey) == nil else { return }
-        if let raw = defaults.string(forKey: bookmarksStorageKey),
-           BookmarkListSortMode(rawValue: raw) != nil {
-            defaults.set(raw, forKey: pinnedStorageKey)
-        }
-    }
 
     func sorted(
         _ bookmarks: [Bookmark],
@@ -79,63 +65,3 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
         BookmarkListSortMode(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .name
     }
 }
-
-
-enum BookmarkSearchMatcher {
-    static func matches(bookmark: Bookmark, query: String) -> Bool {
-        let normalizedQuery = normalized(query)
-        guard !normalizedQuery.isEmpty else { return true }
-
-        let collapsedQuery = collapsed(normalizedQuery)
-        return searchableStrings(for: bookmark).contains { value in
-            let normalizedValue = normalized(value)
-            guard !normalizedValue.isEmpty else { return false }
-            if normalizedValue.contains(normalizedQuery) {
-                return true
-            }
-
-            let pinyinValue = pinyin(normalizedValue)
-            return pinyinValue.contains(normalizedQuery)
-                || collapsed(pinyinValue).contains(collapsedQuery)
-                || initials(from: pinyinValue).contains(collapsedQuery)
-        }
-    }
-
-    private static func searchableStrings(for bookmark: Bookmark) -> [String] {
-        var values = [bookmark.title, bookmark.url]
-        if let originalTitle = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !originalTitle.isEmpty,
-           originalTitle != bookmark.title {
-            values.append(originalTitle)
-        }
-        return values
-    }
-
-    private static func normalized(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-            .lowercased()
-    }
-
-    private static func pinyin(_ value: String) -> String {
-        let latin = (value as NSString).applyingTransform(.toLatin, reverse: false) ?? value
-        return normalized((latin as NSString).applyingTransform(.stripDiacritics, reverse: false) ?? latin)
-    }
-
-    private static func collapsed(_ value: String) -> String {
-        value.unicodeScalars
-            .filter { CharacterSet.alphanumerics.contains($0) }
-            .map(String.init)
-            .joined()
-    }
-
-    private static func initials(from value: String) -> String {
-        value
-            .split { !$0.isLetter && !$0.isNumber }
-            .compactMap(\.first)
-            .map(String.init)
-            .joined()
-    }
-}
-

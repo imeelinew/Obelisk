@@ -62,7 +62,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func windowDidClose(_ notification: Notification) {
+    func windowWillClose(_ notification: Notification) {
         if let closingWindow = notification.object as? NSWindow {
             closingWindow.delegate = nil
         }

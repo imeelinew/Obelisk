@@ -347,12 +347,6 @@ final class BookmarksModel {
     static let archiveAfterDaysKey = "archiveAfterDays"
     static let aiFeaturesEnabledKey = "aiFeaturesEnabled"
     static let developerFeaturesEnabledKey = "developerFeaturesEnabled"
-    static let defaultDebugSidebarIconTileSize: Double = 22
-    static let defaultDebugSidebarIconSymbolSize: Double = 11
-    static let defaultDebugSidebarIconCornerRadius: Double = 6
-    static let defaultDebugProfessionalSidebarIconSize: Double = 15
-    static let defaultDebugProfessionalSidebarLabelSpacing: Double = 12
-    static let defaultDebugProfessionalSidebarLeadingInset: Double = 6
     static let minArchiveAfterDays = 3
     static let maxArchiveAfterDays = 30
     static let defaultArchiveAfterDays = 30
@@ -369,6 +363,9 @@ final class BookmarksModel {
     /// User-defined collections, sorted by `sortOrder` then name.
     private(set) var collections: [BookmarkCollection] = []
     private var membershipByBookmarkId: [UUID: UUID] = [:]
+    private var usageByBookmarkId: [UUID: UsageRecord] = [:]
+    private var searchIndex = BookmarkSearchIndex(bookmarks: [])
+    private var visibleBookmarksSnapshot: [Bookmark] = []
     var errorMessage: String?
     private(set) var loadErrorMessage: String?
 
@@ -446,7 +443,9 @@ final class BookmarksModel {
             // when there are actually orphans.
             usageStore.cleanup(validIds: Set(all.map(\.id)))
             let usage = usageStore.load()
+            usageByBookmarkId = usage
             bookmarks = all
+            searchIndex = BookmarkSearchIndex(bookmarks: all)
             let groupData = groupStore.load()
             collections = groupData.collections.sorted {
                 if $0.sortOrder != $1.sortOrder {
@@ -460,6 +459,7 @@ final class BookmarksModel {
                 bookmarkIds: Set(all.map(\.id))
             )
             let visibleBookmarks = visibleBookmarks(from: all, usage: usage)
+            visibleBookmarksSnapshot = visibleBookmarks
             pinned = BookmarkListSortMode.storedForPinned.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
             recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
             let priorLoadError = loadErrorMessage
@@ -482,8 +482,9 @@ final class BookmarksModel {
         let priorOthers = others.map(\.id)
         let priorPinned = pinned.map(\.id)
 
-        let usage = usageStore.load()
+        let usage = usageByBookmarkId
         let visibleBookmarks = visibleBookmarks(from: bookmarks, usage: usage)
+        visibleBookmarksSnapshot = visibleBookmarks
         pinned = BookmarkListSortMode.storedForPinned.sorted(visibleBookmarks.filter(\.isPinned), usage: usage)
         recomputeMenuSpotlight(from: visibleBookmarks, usage: usage)
 
@@ -581,7 +582,7 @@ final class BookmarksModel {
             return
         }
         recentGroupLimit = nextRecent
-        let usage = usageStore.load()
+        let usage = usageByBookmarkId
         recomputeMenuSpotlight(from: visibleBookmarks(from: bookmarks, usage: usage), usage: usage)
         onChange?()
     }
@@ -605,12 +606,19 @@ final class BookmarksModel {
     }
 
     func recordUsage(for bookmark: Bookmark) {
-        usageStore.record(id: bookmark.id)
-        reload()
+        usageByBookmarkId[bookmark.id] = usageStore.record(
+            id: bookmark.id,
+            previous: usageByBookmarkId[bookmark.id]
+        )
+        let visible = visibleBookmarks(from: bookmarks, usage: usageByBookmarkId)
+        visibleBookmarksSnapshot = visible
+        pinned = BookmarkListSortMode.storedForPinned.sorted(visible.filter(\.isPinned), usage: usageByBookmarkId)
+        recomputeMenuSpotlight(from: visible, usage: usageByBookmarkId)
+        onChange?()
     }
 
     func sortedBookmarks(_ bookmarks: [Bookmark], sortMode: BookmarkListSortMode) -> [Bookmark] {
-        sortMode.sorted(bookmarks, usage: usageStore.load())
+        sortMode.sorted(bookmarks, usage: usageByBookmarkId)
     }
 
     func visibleUngroupedSections(
@@ -636,11 +644,8 @@ final class BookmarksModel {
         sortMode: BookmarkListSortMode,
         showsSortControl: Bool = false
     ) -> [BookmarkListSection] {
-        let usage = usageStore.load()
-        let bookmarks = sortMode.sorted(
-            visibleBookmarks(from: self.bookmarks, usage: usage).filter(\.isPinned),
-            usage: usage
-        )
+        let usage = usageByBookmarkId
+        let bookmarks = sortMode.sorted(visibleBookmarksSnapshot.filter(\.isPinned), usage: usage)
         guard !bookmarks.isEmpty else { return [] }
         return [
             BookmarkListSection(
@@ -657,12 +662,12 @@ final class BookmarksModel {
         includeEmptyCollections: Bool = false,
         showsSortControlOnFirstSection: Bool = false
     ) -> [BookmarkListSection] {
+        let visibleByCollection = Dictionary(grouping: visibleBookmarksSnapshot.filter { !$0.isPinned }) {
+            membershipByBookmarkId[$0.id]
+        }
         var sections: [BookmarkListSection] = []
         for collection in collections {
-            let bookmarks = sortedVisibleBookmarks(
-                collectionId: collection.id,
-                sortMode: sortMode
-            )
+            let bookmarks = sortMode.sorted(visibleByCollection[collection.id] ?? [], usage: usageByBookmarkId)
             guard includeEmptyCollections || !bookmarks.isEmpty else { continue }
             sections.append(
                 BookmarkListSection(
@@ -682,7 +687,7 @@ final class BookmarksModel {
         collectionSortMode: BookmarkListSortMode,
         ungroupedSortMode: BookmarkListSortMode
     ) -> [BookmarkListSection] {
-        let usage = usageStore.load()
+        let usage = usageByBookmarkId
         var sections: [BookmarkListSection] = []
 
         let pinnedBookmarks = pinnedSortMode.sorted(
@@ -699,14 +704,12 @@ final class BookmarksModel {
             )
         }
 
+        let unpinnedCandidates = candidates.filter { !pinnedIds.contains($0.id) }
+        let candidatesByCollection = Dictionary(grouping: unpinnedCandidates) {
+            membershipByBookmarkId[$0.id]
+        }
         for collection in collections {
-            let bookmarks = collectionSortMode.sorted(
-                candidates.filter {
-                    !pinnedIds.contains($0.id)
-                        && membershipByBookmarkId[$0.id] == collection.id
-                },
-                usage: usage
-            )
+            let bookmarks = collectionSortMode.sorted(candidatesByCollection[collection.id] ?? [], usage: usage)
             guard !bookmarks.isEmpty else { continue }
             sections.append(
                 BookmarkListSection(
@@ -718,10 +721,7 @@ final class BookmarksModel {
         }
 
         let ungroupedBookmarks = ungroupedSortMode.sorted(
-            candidates.filter {
-                !pinnedIds.contains($0.id)
-                    && membershipByBookmarkId[$0.id] == nil
-            },
+            candidatesByCollection[nil] ?? [],
             usage: usage
         )
         if !ungroupedBookmarks.isEmpty {
@@ -738,13 +738,13 @@ final class BookmarksModel {
 
     func searchBookmarks(matching query: String, inCollection collectionId: UUID? = nil) -> [Bookmark] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matchingIDs = searchIndex.matchingIDs(query: trimmedQuery)
         return bookmarks.filter { bookmark in
             guard !bookmark.isHidden else { return false }
             if let collectionId, membershipByBookmarkId[bookmark.id] != collectionId {
                 return false
             }
-            guard !trimmedQuery.isEmpty else { return true }
-            return BookmarkSearchMatcher.matches(bookmark: bookmark, query: trimmedQuery)
+            return matchingIDs.contains(bookmark.id)
         }
     }
 
@@ -778,9 +778,8 @@ final class BookmarksModel {
         collectionId: UUID?,
         sortMode: BookmarkListSortMode
     ) -> [Bookmark] {
-        let usage = usageStore.load()
-        let visible = visibleBookmarks(from: bookmarks, usage: usage)
-        let scoped = visible.filter { bookmark in
+        let usage = usageByBookmarkId
+        let scoped = visibleBookmarksSnapshot.filter { bookmark in
             !bookmark.isPinned &&
             membershipByBookmarkId[bookmark.id] == collectionId
         }
@@ -951,7 +950,7 @@ final class BookmarksModel {
 
     private func autoGroupingCandidates(scopedTo bookmarkIds: Set<UUID>) -> [Bookmark] {
         let scope = bookmarkIds.isEmpty ? nil : bookmarkIds
-        let usage = usageStore.load()
+        let usage = usageByBookmarkId
         return visibleBookmarks(from: bookmarks, usage: usage)
             .filter { bookmark in
                 if let scope, !scope.contains(bookmark.id) {
@@ -1336,8 +1335,7 @@ final class BookmarksModel {
     }
 
     func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
-        let usage = usageStore.load()
-        return isEffectivelyArchived(bookmark, in: bookmarks, usage: usage)
+        isEffectivelyArchived(bookmark, in: bookmarks, usage: usageByBookmarkId)
     }
 
     private struct AutoArchiveContext {

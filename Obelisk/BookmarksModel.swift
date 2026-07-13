@@ -346,7 +346,6 @@ final class BookmarksModel {
     static let autoArchiveEnabledKey = "autoArchiveIdleBookmarks"
     static let archiveAfterDaysKey = "archiveAfterDays"
     static let aiFeaturesEnabledKey = "aiFeaturesEnabled"
-    static let developerFeaturesEnabledKey = "developerFeaturesEnabled"
     static let minArchiveAfterDays = 3
     static let maxArchiveAfterDays = 30
     static let defaultArchiveAfterDays = 30
@@ -1240,67 +1239,6 @@ final class BookmarksModel {
                 return "已恢复 \(count) 个标题"
             }
             return "已恢复原标题"
-        } catch {
-            return error.localizedDescription
-        }
-    }
-
-    func restoreAllOriginalTitles() -> String {
-        guard UserDefaults.standard.bool(forKey: Self.developerFeaturesEnabledKey) else {
-            return "开发者选项已关闭"
-        }
-
-        do {
-            let count = try store.restoreAllOriginalTitles()
-            reload()
-            if count == 0 {
-                return "没有可恢复的原标题"
-            }
-            return "已恢复 \(count) 个标题"
-        } catch {
-            return error.localizedDescription
-        }
-    }
-
-    func fetchAllOriginalTitles() async -> String {
-        guard UserDefaults.standard.bool(forKey: Self.developerFeaturesEnabledKey) else {
-            return "开发者选项已关闭"
-        }
-
-        guard !isOptimizingTitles else {
-            return "标题优化正在进行中"
-        }
-
-        isOptimizingTitles = true
-        defer { isOptimizingTitles = false }
-
-        let fetcher = PageMetadataFetcher()
-        var titles: [UUID: String] = [:]
-        var failedCount = 0
-
-        for bookmark in bookmarks {
-            guard let url = URL(string: bookmark.url) else {
-                failedCount += 1
-                continue
-            }
-            if let title = await fetcher.title(for: url) {
-                titles[bookmark.id] = title
-            } else {
-                failedCount += 1
-            }
-        }
-
-        guard !titles.isEmpty else {
-            return failedCount > 0 ? "未能获取任何原标题" : "没有书签可处理"
-        }
-
-        do {
-            let count = try store.applyOriginalTitles(titles, forceApplyDisplay: true)
-            reload()
-            if failedCount > 0 {
-                return "已应用 \(count) 个标题，\(failedCount) 个失败"
-            }
-            return "已应用 \(count) 个标题"
         } catch {
             return error.localizedDescription
         }

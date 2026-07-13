@@ -558,8 +558,6 @@ private extension BookmarkManagerView.SettingsPage {
             return [Self.rgb(0.72, 0.52, 1.0), Self.rgb(0.42, 0.24, 0.86)]
         case .settings:
             return [Self.rgb(0.52, 0.64, 0.78), Self.rgb(0.28, 0.38, 0.52)]
-        case .developer:
-            return [Self.rgb(1.0, 0.78, 0.30), Self.rgb(0.92, 0.52, 0.08)]
         }
     }
 

@@ -61,7 +61,6 @@ struct BookmarkManagerView: View {
     @State private var selection: Set<Bookmark.ID> = []
     @State private var presentation: Presentation?
     @State private var deleteConfirmation: DeleteConfirmation?
-    @State private var refreshAllFaviconConfirmation = false
     @State private var toast: Toast?
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var selectedCollectionId: UUID?
@@ -111,17 +110,10 @@ struct BookmarkManagerView: View {
     @State private var renameCollectionName = ""
     @State private var collectionToDelete: BookmarkCollection?
     @State private var newHiddenBookmarkExcludedURLKeyword = ""
-    @State private var isFetchingOriginalTitles = false
     @State private var pendingAutoIntelligenceTask: Task<Void, Never>?
     @State private var pendingLLMConfigSaveTask: Task<Void, Never>?
-    @State private var isCreatingPlaintextBackup = false
     @State private var isCreatingEncryptedBackup = false
     @State private var isRestoringVaultKey = false
-    @State private var restoreAllOriginalTitlesConfirmation = false
-    @State private var refetchAllOriginalTitlesConfirmation = false
-    @AppStorage(BookmarksModel.developerFeaturesEnabledKey) private var developerFeaturesEnabled = false
-    @State private var enableDeveloperFeaturesConfirmation = false
-    @State private var resetDeveloperOptionsConfirmation = false
     @State private var draggingMenuBarSectionID: BookmarkMenuSectionID?
     @State private var menuBarDragStartIndex: Int?
     @State private var menuBarDragTargetIndex: Int?
@@ -210,7 +202,6 @@ struct BookmarkManagerView: View {
         case ai
         case privacy
         case settings
-        case developer
 
         var id: String { rawValue }
 
@@ -226,7 +217,7 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks, .collections, .browserHistory, .search, .hiddenBookmarks, .archive: return .content
             case .appearance, .menuBar, .shortcuts:     return .preferences
-            case .ai, .privacy, .settings, .developer:  return .advanced
+            case .ai, .privacy, .settings:              return .advanced
             }
         }
 
@@ -244,7 +235,6 @@ struct BookmarkManagerView: View {
             case .ai:              return "Intelligence"
             case .privacy:         return "隐私"
             case .settings:        return "设置"
-            case .developer:       return "开发者选项"
             }
         }
 
@@ -263,7 +253,6 @@ struct BookmarkManagerView: View {
             case .ai:              return IntelligenceSymbolIcon.symbolName
             case .privacy:         return "lock.fill"
             case .settings:        return "gearshape.fill"
-            case .developer:       return "wrench.fill"
             }
         }
 
@@ -281,7 +270,6 @@ struct BookmarkManagerView: View {
             case .ai:              return "astroid"
             case .privacy:         return "hat-glasses"
             case .settings:        return "settings"
-            case .developer:       return "wrench"
             }
         }
 
@@ -815,11 +803,6 @@ struct BookmarkManagerView: View {
         showToast("刷新 favicon 成功")
     }
 
-    private func refreshAllFavicons() {
-        faviconLoader.refreshAll(urlStrings: model.bookmarks.map(\.url))
-        showToast("刷新全部 favicon 成功")
-    }
-
     private func openHiddenBookmark(_ bookmark: Bookmark) {
         if faviconLoader.image(for: bookmark.url) == nil {
             refreshFavicon(for: bookmark)
@@ -1043,88 +1026,6 @@ struct BookmarkManagerView: View {
         }
     }
 
-    private func restoreAllOriginalTitles() {
-        let message = model.restoreAllOriginalTitles()
-        showToast(message, kind: message.hasPrefix("已恢复") ? .success : .error)
-    }
-
-    private func fetchAllOriginalTitles() {
-        guard developerFeaturesEnabled else {
-            showToast("开发者选项已关闭", kind: .error)
-            return
-        }
-
-        Task {
-            isFetchingOriginalTitles = true
-            let message = await model.fetchAllOriginalTitles()
-            isFetchingOriginalTitles = false
-            showToast(message)
-        }
-    }
-
-    private func enableDeveloperFeatures() {
-        developerFeaturesEnabled = true
-        enableDeveloperFeaturesConfirmation = false
-    }
-
-    private func resetDeveloperOptionsToDefaults() {
-        resetDeveloperOptionsConfirmation = false
-        // Default state of developer options is "off".
-        developerFeaturesEnabled = false
-        showToast("已恢复开发者选项默认值")
-    }
-
-    private func createPlaintextDataBackup() {
-        guard developerFeaturesEnabled else {
-            showToast("开发者选项已关闭", kind: .error)
-            return
-        }
-        guard !isCreatingPlaintextBackup else { return }
-
-        Task {
-            isCreatingPlaintextBackup = true
-            guard await AuthenticationGate.authenticate(reason: "导出 Obelisk 明文数据备份") else {
-                isCreatingPlaintextBackup = false
-                showToast("已取消明文备份", kind: .error)
-                return
-            }
-
-            guard let destinationParent = choosePlaintextBackupParentDirectory() else {
-                isCreatingPlaintextBackup = false
-                showToast("已取消明文备份", kind: .error)
-                return
-            }
-
-            let rootDirectory = model.rootDirectory
-            do {
-                let result = try await Task.detached(priority: .utility) {
-                    try ObeliskPlaintextDataBackup.createBackup(
-                        in: rootDirectory,
-                        destinationParent: destinationParent
-                    )
-                }.value
-                isCreatingPlaintextBackup = false
-                showToast("已备份至 \(result.destinationURL.lastPathComponent)")
-            } catch {
-                isCreatingPlaintextBackup = false
-                showToast(error.localizedDescription, kind: .error)
-            }
-        }
-    }
-
-    private func choosePlaintextBackupParentDirectory() -> URL? {
-        let panel = NSOpenPanel()
-        panel.title = "选择明文备份位置"
-        panel.prompt = "备份"
-        panel.message = "将在所选位置创建 Backup-时间戳 文件夹。"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        return panel.runModal() == .OK ? panel.url : nil
-    }
-
     private func createEncryptedDataBackup() {
         guard !isCreatingEncryptedBackup else { return }
         let panel = NSSavePanel()
@@ -1279,54 +1180,6 @@ struct BookmarkManagerView: View {
         Binding(
             get: { collectionToDelete != nil },
             set: { if !$0 { collectionToDelete = nil } }
-        )
-    }
-
-    private var refreshAllFaviconAlertBinding: Binding<Bool> {
-        Binding(
-            get: { refreshAllFaviconConfirmation },
-            set: { if !$0 { refreshAllFaviconConfirmation = false } }
-        )
-    }
-
-    private var restoreAllOriginalTitlesAlertBinding: Binding<Bool> {
-        Binding(
-            get: { restoreAllOriginalTitlesConfirmation },
-            set: { if !$0 { restoreAllOriginalTitlesConfirmation = false } }
-        )
-    }
-
-    private var refetchAllOriginalTitlesAlertBinding: Binding<Bool> {
-        Binding(
-            get: { refetchAllOriginalTitlesConfirmation },
-            set: { if !$0 { refetchAllOriginalTitlesConfirmation = false } }
-        )
-    }
-
-    private var developerFeaturesEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { developerFeaturesEnabled },
-            set: { newValue in
-                if newValue {
-                    enableDeveloperFeaturesConfirmation = true
-                } else {
-                    developerFeaturesEnabled = false
-                }
-            }
-        )
-    }
-
-    private var enableDeveloperFeaturesAlertBinding: Binding<Bool> {
-        Binding(
-            get: { enableDeveloperFeaturesConfirmation },
-            set: { if !$0 { enableDeveloperFeaturesConfirmation = false } }
-        )
-    }
-
-    private var resetDeveloperOptionsAlertBinding: Binding<Bool> {
-        Binding(
-            get: { resetDeveloperOptionsConfirmation },
-            set: { if !$0 { resetDeveloperOptionsConfirmation = false } }
         )
     }
 
@@ -1504,9 +1357,6 @@ struct BookmarkManagerView: View {
             Text(message)
         }
         .modifier(ExtraAlerts(
-            refreshAllFaviconAlertBinding: refreshAllFaviconAlertBinding,
-            refreshAllFaviconConfirmation: $refreshAllFaviconConfirmation,
-            refreshAllFavicons: refreshAllFavicons,
             customTransparencyAlertBinding: customTransparencyAlertBinding,
             showCustomTransparencyAlert: $showCustomTransparencyAlert,
             customTransparencyEnabled: $customTransparencyEnabled,
@@ -1519,19 +1369,7 @@ struct BookmarkManagerView: View {
             renameCollection: renameCollection,
             deleteCollectionAlertBinding: deleteCollectionAlertBinding,
             collectionToDelete: $collectionToDelete,
-            deleteCollection: deleteCollection,
-            restoreAllOriginalTitlesAlertBinding: restoreAllOriginalTitlesAlertBinding,
-            restoreAllOriginalTitlesConfirmation: $restoreAllOriginalTitlesConfirmation,
-            restoreAllOriginalTitles: restoreAllOriginalTitles,
-            refetchAllOriginalTitlesAlertBinding: refetchAllOriginalTitlesAlertBinding,
-            refetchAllOriginalTitlesConfirmation: $refetchAllOriginalTitlesConfirmation,
-            fetchAllOriginalTitles: fetchAllOriginalTitles,
-            enableDeveloperFeaturesAlertBinding: enableDeveloperFeaturesAlertBinding,
-            enableDeveloperFeaturesConfirmation: $enableDeveloperFeaturesConfirmation,
-            enableDeveloperFeatures: enableDeveloperFeatures,
-            resetDeveloperOptionsAlertBinding: resetDeveloperOptionsAlertBinding,
-            resetDeveloperOptionsConfirmation: $resetDeveloperOptionsConfirmation,
-            resetDeveloperOptionsToDefaults: resetDeveloperOptionsToDefaults
+            deleteCollection: deleteCollection
         ))
     }
 
@@ -1686,8 +1524,6 @@ struct BookmarkManagerView: View {
                 privacyPage
             case .settings:
                 appSettingsPage
-            case .developer:
-                developerOptionsPage
             }
         }
         .navigationTitle(settingsPage.title)
@@ -2629,99 +2465,11 @@ struct BookmarkManagerView: View {
                 }
             }
 
-            Section("网站图标") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("自动获取网站图标")
-                    Text("Obelisk 会向书签对应的网站（必要时经 DuckDuckGo 图标服务）请求图标，获取后缓存在本地。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
         .navigationTitle("隐私")
-    }
-
-    private var developerOptionsPage: some View {
-        Form {
-            Section("开发者选项") {
-                Toggle("开启开发者选项", isOn: developerFeaturesEnabledBinding)
-            }
-
-            if developerFeaturesEnabled {
-                Section("数据备份") {
-                    LabeledContent {
-                        Button {
-                            createPlaintextDataBackup()
-                        } label: {
-                            Text(isCreatingPlaintextBackup ? "备份中…" : "备份")
-                        }
-                        .disabled(isCreatingPlaintextBackup)
-                    } label: {
-                        Text("备份明文数据")
-                    }
-                }
-
-                Section("Favicon") {
-                    LabeledContent {
-                        Button(role: .destructive) {
-                            refreshAllFaviconConfirmation = true
-                        } label: {
-                            Text("刷新")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("刷新全部 favicon")
-                            Text("重新下载所有书签的网站图标，此操作不可撤销。")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("标题") {
-                    LabeledContent {
-                        Button(role: .destructive) {
-                            restoreAllOriginalTitlesConfirmation = true
-                        } label: {
-                            Text("恢复")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                        .disabled(isFetchingOriginalTitles || model.bookmarks.isEmpty || model.isOptimizingTitles)
-                    } label: {
-                        Text("恢复全部原标题")
-                    }
-
-                    LabeledContent {
-                        Button(role: .destructive) {
-                            refetchAllOriginalTitlesConfirmation = true
-                        } label: {
-                            Text(isFetchingOriginalTitles ? "获取中…" : "覆盖")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                        .disabled(isFetchingOriginalTitles || model.bookmarks.isEmpty || model.isOptimizingTitles)
-                    } label: {
-                        Text("重新获取并覆盖全部标题")
-                    }
-                }
-
-                Section("高级") {
-                    Button("恢复默认设置") {
-                        resetDeveloperOptionsConfirmation = true
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
-        .settingsContentMargins()
-        .navigationTitle("开发者选项")
     }
 
     @ToolbarContentBuilder

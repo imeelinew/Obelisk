@@ -175,9 +175,6 @@ struct SmokeTests {
     @MainActor @Test func bookmarkCollectionMembership() async throws {
         try await Self.withIsolatedEnvironment { try Self.testBookmarkCollectionMembership() }
     }
-    @MainActor @Test func plaintextDataBackup() async throws {
-        try await Self.withIsolatedEnvironment { try Self.testPlaintextDataBackup() }
-    }
     @MainActor @Test func freshAppDefaultsEnableCoreWorkflows() async throws {
         try await Self.withIsolatedEnvironment { try Self.testFreshAppDefaultsEnableCoreWorkflows() }
     }
@@ -1515,32 +1512,6 @@ struct SmokeTests {
         }
         try expect(!vault.databaseExists, "expected failed initialization to remove the database")
         try expect(!FileManager.default.fileExists(atPath: recoveryURL.path), "expected failed initialization to remove the recovery document")
-    }
-
-    private static func testPlaintextDataBackup() throws {
-        let root = try temporaryDirectory()
-        let store = BookmarkStore(rootDirectory: root)
-        _ = try store.add(title: "Backup Me", url: "https://backup-me.example")
-
-        let backupParent = root.appendingPathComponent("Downloads", isDirectory: true)
-        let result = try ObeliskPlaintextDataBackup.createBackup(
-            in: root,
-            destinationParent: backupParent
-        )
-        try expect(result.destinationURL.lastPathComponent.hasPrefix("Backup-"), "expected dated backup folder name")
-        try expect(
-            result.destinationURL.deletingLastPathComponent() == backupParent,
-            "expected plaintext backup to live directly inside the selected directory"
-        )
-        let payloadURL = result.destinationURL.appendingPathComponent("payload.json")
-        try expect(FileManager.default.fileExists(atPath: payloadURL.path), "expected plaintext payload backup")
-        try expect(
-            !FileManager.default.fileExists(atPath: result.destinationURL.appendingPathComponent("Data").path),
-            "expected plaintext backup not to wrap files in Data"
-        )
-        let raw = try String(contentsOf: payloadURL, encoding: .utf8)
-        try expect(raw.contains("backup-me.example"), "expected backup to contain bookmark URL")
-        try expect(raw.first == "{", "expected backup to be ordinary JSON")
     }
 
     private static func testFreshAppDefaultsEnableCoreWorkflows() throws {

@@ -127,20 +127,6 @@ final class FaviconLoader {
         fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
     }
 
-    func refreshAll(urlStrings: [String]) {
-        clearStorage()
-        inFlight.removeAll()
-        index.removeAll()
-        imageCache.removeAllObjects()
-        saveIndex()
-        version &+= 1
-        onIconLoaded?()
-
-        for urlString in Set(urlStrings) {
-            _ = image(for: urlString)
-        }
-    }
-
     func reloadStorage() {
         inFlight.removeAll()
         index.removeAll()
@@ -153,11 +139,6 @@ final class FaviconLoader {
     func updateRootDirectory(_ rootDirectory: URL) {
         self.rootDirectory = rootDirectory
         reloadStorage()
-    }
-
-    func clearStorage() {
-        try? LocalFileAccess.removeItem(at: cacheDirectory)
-        imageCache.removeAllObjects()
     }
 
     /// Drops window-driven image and networking state while preserving the

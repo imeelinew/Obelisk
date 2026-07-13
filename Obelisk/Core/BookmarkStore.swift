@@ -280,26 +280,6 @@ public final class BookmarkStore {
     }
 
     @discardableResult
-    public func restoreAllOriginalTitles() throws -> Int {
-        var changedCount = 0
-        try updatePayload { payload in
-            for idx in payload.bookmarks.indices {
-                let bookmark = payload.bookmarks[idx]
-                guard let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !original.isEmpty
-                else {
-                    continue
-                }
-                guard bookmark.title != original || bookmark.titleOptimized else { continue }
-                payload.bookmarks[idx].title = original
-                payload.bookmarks[idx].titleOptimized = false
-                changedCount += 1
-            }
-        }
-        return changedCount
-    }
-
-    @discardableResult
     public func applyOriginalTitles(_ titles: [UUID: String], forceApplyDisplay: Bool = false) throws -> Int {
         guard !titles.isEmpty else { return 0 }
         var changedCount = 0

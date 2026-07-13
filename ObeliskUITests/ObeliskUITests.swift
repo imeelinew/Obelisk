@@ -50,6 +50,24 @@ final class ObeliskUITests: XCTestCase {
     }
 
     @MainActor
+    func testMenuBarSearchPopoverCentersOnStatusItemAfterColdLaunch() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTesting"]
+        app.launch()
+
+        let statusMenuBar = app.menuBars.element(boundBy: 1)
+        XCTAssertTrue(statusMenuBar.waitForExistence(timeout: 8))
+        let statusItem = statusMenuBar.descendants(matching: .any).firstMatch
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 3))
+
+        app.typeKey("s", modifierFlags: .option)
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        XCTAssertEqual(searchField.frame.midX, statusItem.frame.midX, accuracy: 4)
+        XCTAssertGreaterThan(searchField.frame.minY, statusItem.frame.maxY)
+    }
+
+    @MainActor
     func testManualArchiveCanBeRestoredWhenAutoArchiveIsDisabled() throws {
         let app = XCUIApplication()
         app.launchArguments = [

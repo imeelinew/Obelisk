@@ -40,7 +40,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private let menuBrowserHistoryCacheTTL: TimeInterval = 30
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
     private static let browserHistoryMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskBrowserHistoryMenuItem")
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    // macOS 27 can leave status items created before application launch attached
+    // to a placeholder host window at the screen edge. Create ours only after
+    // applicationDidFinishLaunching first accesses it, and give that host a
+    // stable identity so NSPopover always receives the rendered item's frame.
+    private lazy var statusItem: NSStatusItem = {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = "com.eli.Obelisk.statusItem.main"
+        return item
+    }()
     private let store = BookmarkStore()
     private let usageStore = UsageStore()
     private var bookmarkWatcher: BookmarkFileWatcher?

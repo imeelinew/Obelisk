@@ -4,5 +4,9 @@
 <dict>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>5Q5QT76MJU.com.eli.Obelisk</string>
+	</array>
 </dict>
 </plist>

@@ -180,7 +180,7 @@ final class LLMConfigStore {
     private let remoteAPIKeyStore = KeychainAPIKeyStore(account: remoteKeychainAccount)
     private var vaultStore: ObeliskVaultStore
     var configURL: URL {
-        vaultStore.payloadURL
+        vaultStore.databaseURL
     }
 
     init(rootDirectory: URL) {

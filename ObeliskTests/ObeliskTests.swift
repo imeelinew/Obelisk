@@ -1,25 +1,35 @@
 import AppKit
 import Carbon.HIToolbox
-import CryptoKit
 import Foundation
-import Security
+import SQLite3
 import SwiftUI
 import Testing
 @testable import Obelisk
 
+private final class FailingVaultKeyStore: VaultKeyMaterialStore {
+    func existingKeyData() throws -> Data? { nil }
+    func persistNewKeyData(_ data: Data) throws {
+        throw ObeliskStorageError.databaseOperationFailed("injected key-store failure")
+    }
+    func restoreKeyData(_ data: Data) throws {
+        throw ObeliskStorageError.databaseOperationFailed("injected key-store failure")
+    }
+}
+
 @Suite(.serialized)
 struct SmokeTests {
-    /// Every test runs against a throwaway OBELISK_HOME with encryption
-    /// disabled, restoring process-global state afterwards. These globals are
-    /// why the suite is `.serialized`.
+    /// Every test runs against a throwaway encrypted SQLite vault with an
+    /// in-memory key store. Process-global environment is why the suite is serialized.
     @MainActor
     private static func withIsolatedEnvironment(_ body: @MainActor () async throws -> Void) async throws {
         let isolatedHome = try temporaryDirectory()
         setenv("OBELISK_HOME", isolatedHome.path, 1)
-        LocalJSONEncryption.isEnabled = false
+        setenv("OBELISK_USE_IN_MEMORY_KEYSTORE", "1", 1)
+        setenv("OBELISK_RECOVERY_KEY_OUTPUT", isolatedHome.appendingPathComponent("Recovery Key.txt").path, 1)
         defer {
             unsetenv("OBELISK_HOME")
-            LocalJSONEncryption.isEnabled = false
+            unsetenv("OBELISK_USE_IN_MEMORY_KEYSTORE")
+            unsetenv("OBELISK_RECOVERY_KEY_OUTPUT")
             try? FileManager.default.removeItem(at: isolatedHome)
         }
         try await body()
@@ -67,6 +77,11 @@ struct SmokeTests {
     @MainActor @Test func browserHistoryReturnOpensSelection() async throws {
         try await Self.withIsolatedEnvironment { try Self.testBrowserHistoryReturnOpensSelection() }
     }
+    @MainActor @Test func appDelegateHandlesDockReopen() {
+        #expect(AppDelegate.instancesRespond(to: #selector(
+            NSApplicationDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)
+        )))
+    }
     @MainActor @Test func archivePersistence() async throws {
         try await Self.withIsolatedEnvironment { try Self.testArchivePersistence() }
     }
@@ -100,11 +115,8 @@ struct SmokeTests {
     @MainActor @Test func bookmarkStoreCacheInvalidation() async throws {
         try await Self.withIsolatedEnvironment { try Self.testBookmarkStoreCacheInvalidation() }
     }
-    @MainActor @Test func vaultDirectoryIsMarkedAsPackage() async throws {
-        try await Self.withIsolatedEnvironment { try Self.testVaultDirectoryIsMarkedAsPackage() }
-    }
-    @MainActor @Test func vaultPayloadUsesVaultRoot() async throws {
-        try await Self.withIsolatedEnvironment { try Self.testVaultPayloadUsesVaultRoot() }
+    @MainActor @Test func vaultUsesEncryptedSQLiteStore() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testVaultUsesEncryptedSQLiteStore() }
     }
     @MainActor @Test func hiddenDuplicateProtection() async throws {
         try await Self.withIsolatedEnvironment { try Self.testHiddenDuplicateProtection() }
@@ -151,20 +163,17 @@ struct SmokeTests {
     @MainActor @Test func encryptedBookmarkStoreRoundTrip() async throws {
         try await Self.withIsolatedEnvironment { try Self.testEncryptedBookmarkStoreRoundTrip() }
     }
-    @MainActor @Test func encryptedBookmarkStateStoreRoundTrip() async throws {
-        try await Self.withIsolatedEnvironment { try Self.testEncryptedBookmarkStateStoreRoundTrip() }
+    @MainActor @Test func recoveryKeyRestoresMissingDeviceKey() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testRecoveryKeyRestoresMissingDeviceKey() }
     }
-    @MainActor @Test func bookmarkGroupsEncryptionRoundTrip() async throws {
-        try await Self.withIsolatedEnvironment { try Self.testBookmarkGroupsEncryptionRoundTrip() }
+    @MainActor @Test func encryptedSQLiteBackupRoundTrip() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testEncryptedSQLiteBackupRoundTrip() }
+    }
+    @MainActor @Test func failedKeyPersistenceRollsBackNewVault() async throws {
+        try await Self.withIsolatedEnvironment { try Self.testFailedKeyPersistenceRollsBackNewVault() }
     }
     @MainActor @Test func bookmarkCollectionMembership() async throws {
         try await Self.withIsolatedEnvironment { try Self.testBookmarkCollectionMembership() }
-    }
-    @MainActor @Test func encryptionKeyRefusesOverwrite() async throws {
-        try await Self.withIsolatedEnvironment { try Self.testEncryptionKeyRefusesOverwrite() }
-    }
-    @MainActor @Test func encryptionKeyMissingWhenEncryptedPayloadsExist() async throws {
-        try await Self.withIsolatedEnvironment { try Self.testEncryptionKeyMissingWhenEncryptedPayloadsExist() }
     }
     @MainActor @Test func plaintextDataBackup() async throws {
         try await Self.withIsolatedEnvironment { try Self.testPlaintextDataBackup() }
@@ -174,9 +183,6 @@ struct SmokeTests {
     }
     @MainActor @Test func intelligenceIconContract() async throws {
         try await Self.withIsolatedEnvironment { try Self.testIntelligenceIconContract() }
-    }
-    @MainActor @Test func localJSONEncryptionDefaultsForceProductionEncryption() async throws {
-        try await Self.withIsolatedEnvironment { try Self.testLocalJSONEncryptionDefaultsForceProductionEncryption() }
     }
     @MainActor @Test func browserCurrentTabParsingAndPermissionMapping() async throws {
         try await Self.withIsolatedEnvironment { try Self.testBrowserCurrentTabParsingAndPermissionMapping() }
@@ -212,8 +218,8 @@ struct SmokeTests {
         }
 
         let expected = BookmarkStore.applicationSupportRootDirectory()
-        try expect(BookmarkStore.defaultRootDirectory() == expected, "expected default storage root to use Obelisk.obelisk")
-        try expect(expected.lastPathComponent == ObeliskPrivateStorage.vaultDirectoryName, "expected default storage root to remain an Obelisk vault")
+        try expect(BookmarkStore.defaultRootDirectory() == expected, "expected default storage root to use the Data directory")
+        try expect(expected.lastPathComponent == ObeliskPrivateStorage.vaultDirectoryName, "expected default storage root to remain private app data")
     }
 
     private static func testDefaultRootDirectoryUsesApplicationSupport() throws {
@@ -876,29 +882,16 @@ struct SmokeTests {
         try expect(try store.bookmarks().isEmpty, "expected root change to clear bookmark cache")
     }
 
-    private static func testVaultDirectoryIsMarkedAsPackage() throws {
+    private static func testVaultUsesEncryptedSQLiteStore() throws {
         let root = try temporaryDirectory()
-            .appendingPathComponent(ObeliskPrivateStorage.vaultDirectoryName, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-
-        ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(root)
-
-        let values = try root.resourceValues(forKeys: [.isPackageKey])
-        try expect(values.isPackage == true, "expected vault directory to be marked as a Finder package")
-    }
-
-    private static func testVaultPayloadUsesVaultRoot() throws {
-        let previous = LocalJSONEncryption.isEnabled
-        defer { LocalJSONEncryption.isEnabled = previous }
-
-        let root = try temporaryDirectory()
-        LocalJSONEncryption.isEnabled = false
         let store = BookmarkStore(rootDirectory: root)
         _ = try store.add(title: "Plain", url: "https://plain.example")
 
-        let payloadURL = ObeliskVaultStore(rootDirectory: root).payloadURL
-        try expect(store.fileURL == payloadURL, "expected active bookmark file to be the v2 payload")
-        try expect(FileManager.default.fileExists(atPath: payloadURL.path), "expected encrypted payload in vault root")
+        let databaseURL = ObeliskVaultStore(rootDirectory: root).databaseURL
+        try expect(store.fileURL == databaseURL, "expected active bookmark file to be SQLite")
+        try expect(FileManager.default.fileExists(atPath: databaseURL.path), "expected SQLite database in data root")
+        let raw = try Data(contentsOf: databaseURL)
+        try expect(!String(decoding: raw, as: UTF8.self).contains("plain.example"), "expected database not to contain plaintext URL")
     }
 
     private static func testHiddenDuplicateProtection() throws {
@@ -1445,158 +1438,83 @@ struct SmokeTests {
     }
 
     private static func testEncryptedBookmarkStoreRoundTrip() throws {
-        let previous = LocalJSONEncryption.isEnabled
-        defer { LocalJSONEncryption.isEnabled = previous }
-
         let root = try temporaryDirectory()
-        LocalJSONEncryption.isEnabled = true
-
         let store = BookmarkStore(rootDirectory: root)
         let bookmark = try store.add(title: "Private", url: "https://private.example")
         let raw = try Data(contentsOf: store.fileURL)
         let rawText = String(decoding: raw, as: UTF8.self)
-        try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted envelope marker")
-        try expect(!rawText.contains("private.example"), "expected encrypted file to hide bookmark URL")
-        try expect(store.fileURL.lastPathComponent == ObeliskVaultStore.payloadFileName, "expected bookmark store to use v2 payload")
-        try expect(store.fileURL.deletingLastPathComponent() == root, "expected encrypted bookmark store to use vault root")
+        try expect(rawText.hasPrefix("SQLite format 3"), "expected a SQLite database")
+        try expect(!rawText.contains("private.example"), "expected encrypted records to hide bookmark URL")
+        try expect(!rawText.contains("Private"), "expected encrypted records to hide bookmark title")
         try expect(try store.bookmarks().map(\.id) == [bookmark.id], "expected encrypted bookmark to read back")
-
-        LocalJSONEncryption.isEnabled = false
-        let database = try store.load()
-        try store.save(database)
-        let stillEncrypted = try String(contentsOf: store.fileURL, encoding: .utf8)
-        try expect(stillEncrypted.contains("obelisk.encrypted-json.v1"), "expected v2 payload to remain encrypted when legacy preference is disabled")
-        try expect(!stillEncrypted.contains("private.example"), "expected v2 payload to keep hiding bookmark URL")
+        try expect(try ObeliskVaultStore(rootDirectory: root).validate().bookmarks.count == 1, "expected integrity validation")
     }
 
-    private static func testEncryptedBookmarkStateStoreRoundTrip() throws {
-        let previous = LocalJSONEncryption.isEnabled
-        defer { LocalJSONEncryption.isEnabled = previous }
-
+    private static func testRecoveryKeyRestoresMissingDeviceKey() throws {
         let root = try temporaryDirectory()
-        LocalJSONEncryption.isEnabled = true
-
-        let store = BookmarkStore(rootDirectory: root)
-        let bookmark = try store.add(title: "State Private", url: "https://state-private.example", isHidden: true)
-        let pinnedBookmark = try store.add(title: "Pinned Private", url: "https://pinned-private.example")
-        try store.setArchived(true, ids: [bookmark.id])
-        try store.setPinned(true, ids: [pinnedBookmark.id])
-        _ = try store.applyTitleOptimizations([bookmark.id: "State Private Optimized"])
-
-        let stateStore = BookmarkStateStore(rootDirectory: root)
-        let stateURL = stateStore.fileURL
-        let raw = try Data(contentsOf: stateURL)
-        let rawText = String(decoding: raw, as: UTF8.self)
-
-        try expect(stateURL.lastPathComponent == ObeliskVaultStore.payloadFileName, "expected bookmark state to use v2 payload")
-        try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected encrypted state envelope marker")
-        try expect(!rawText.contains(bookmark.id.uuidString), "expected encrypted state to hide bookmark id")
-        try expect(!rawText.contains(pinnedBookmark.id.uuidString), "expected encrypted state to hide pinned bookmark id")
-        try expect(!rawText.contains("state-private.example"), "expected encrypted state to hide bookmark URL")
-        try expect(!rawText.contains("pinned-private.example"), "expected encrypted state to hide pinned bookmark URL")
-        try expect(!rawText.contains("State Private"), "expected encrypted state to hide bookmark title")
-        try expect(!rawText.contains("Pinned Private"), "expected encrypted state to hide pinned bookmark title")
-
-        let state = stateStore.load()
-        try expect(state.hiddenIds == [bookmark.id], "expected encrypted state to read hidden id")
-        try expect(state.manualArchivedIds == [bookmark.id], "expected encrypted state to read archive id")
-        try expect(state.pinnedIds == [pinnedBookmark.id], "expected encrypted state to read pinned id")
-        try expect(state.titleOptimizedIds == [bookmark.id], "expected encrypted state to read title optimized id")
-        try expect(state.createdAtById[bookmark.id] != nil, "expected encrypted state to read createdAt")
-        try expect(state.createdAtById[pinnedBookmark.id] != nil, "expected encrypted state to read pinned createdAt")
-    }
-
-    private static func testBookmarkGroupsEncryptionRoundTrip() throws {
-        let previous = LocalJSONEncryption.isEnabled
-        defer { LocalJSONEncryption.isEnabled = previous }
-
-        let root = try temporaryDirectory()
-        LocalJSONEncryption.isEnabled = false
-        let bookmark = try BookmarkStore(rootDirectory: root).add(title: "Grouped", url: "https://grouped.example")
-        let groupStore = BookmarkGroupStore(rootDirectory: root)
-        var workID: UUID?
-
-        try groupStore.update { database in
-            let work = BookmarkCollection(name: "工作", sortOrder: 0)
-            workID = work.id
-            database.collections = [work]
-            database.membershipByBookmarkId[bookmark.id] = work.id
-        }
-
-        let loaded = groupStore.load()
-        try expect(loaded.collections.count == 1, "expected collection count to round-trip")
-        try expect(loaded.collections.first?.name == "工作", "expected collection name to round-trip")
-        try expect(loaded.membershipByBookmarkId[bookmark.id] == workID, "expected membership to round-trip")
-
-        let groupsURL = groupStore.fileURL
-        let rawText = try String(contentsOf: groupsURL, encoding: .utf8)
-        try expect(rawText.contains("obelisk.encrypted-json.v1"), "expected groups payload envelope marker")
-        try expect(!rawText.contains("工作"), "expected groups payload to hide collection name")
-    }
-
-    private static func testEncryptionKeyMissingWhenEncryptedPayloadsExist() throws {
-        let root = try temporaryDirectory()
-        let service = try isolatedEncryptionKeychainService()
-        defer { deleteKeychainItems(service: service) }
-
-        let keyStore = KeychainEncryptionKeyStore(encryptedPayloadsRoot: root, keychainService: service)
-        let codec = SecureJSONFileCodec(keyStore: keyStore)
-        let encryptedURL = root.appendingPathComponent(ObeliskVaultStore.payloadFileName)
-        try FileManager.default.createDirectory(
-            at: encryptedURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        let recoveryURL = root.appendingPathComponent("Recovery Key.txt")
+        let keyStore = InMemoryVaultKeyStore()
+        let vault = ObeliskVaultStore(rootDirectory: root, keyStore: keyStore)
+        let bookmark = ObeliskVaultBookmark(
+            bookmark: Bookmark(title: "Recoverable", url: "https://recoverable.example"),
+            groupId: nil,
+            usage: nil
         )
-        try codec.writeData(Data("{\"sealed\":true}".utf8), to: encryptedURL, encrypted: true)
-        deleteKeychainItems(service: service)
-
-        do {
-            _ = try keyStore.getOrCreateKey()
-            throw SmokeTestError.failure("expected getOrCreateKey to fail when encrypted payloads exist without a key")
-        } catch let error as SecureJSONFileCodecError {
-            guard case .encryptionKeyMissing = error else { throw error }
-        }
-    }
-
-    private static func testEncryptionKeyRefusesOverwrite() throws {
-        let root = try temporaryDirectory()
-        let service = try isolatedEncryptionKeychainService()
-        defer { deleteKeychainItems(service: service) }
-
-        let keyStore = KeychainEncryptionKeyStore(encryptedPayloadsRoot: root, keychainService: service)
-        let codec = SecureJSONFileCodec(keyStore: keyStore)
-        let encryptedURL = root.appendingPathComponent(ObeliskVaultStore.payloadFileName)
-        try FileManager.default.createDirectory(
-            at: encryptedURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        try vault.bootstrap(
+            ObeliskVaultPayload(bookmarks: [bookmark]),
+            recoveryKeyOutputURL: recoveryURL
         )
-        try codec.writeData(Data("{\"protected\":true}".utf8), to: encryptedURL, encrypted: true)
 
-        let originalData = try keyStore.getExistingKey().withUnsafeBytes { Data($0) }
-        let wrongData = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        let encodedRecoveryKey = try RecoveryKeyDocument.read(from: recoveryURL)
+        keyStore.removeKeyForTesting()
 
+        let reopened = ObeliskVaultStore(rootDirectory: root, keyStore: keyStore)
         do {
-            try keyStore.persistEncryptionKeyMaterial(wrongData)
-            throw SmokeTestError.failure("expected persistEncryptionKeyMaterial to refuse overwriting encryption key")
-        } catch let error as SecureJSONFileCodecError {
-            guard case .encryptionKeyWouldOverwrite = error else { throw error }
+            _ = try reopened.loadPayload()
+            throw SmokeTestError.failure("expected missing key to fail closed")
+        } catch ObeliskStorageError.encryptionKeyMissing {
         }
 
-        let restoredData = try keyStore.getExistingKey().withUnsafeBytes { Data($0) }
-        try expect(restoredData == originalData, "expected encryption key to remain unchanged after refused overwrite")
-        let roundTrip = try codec.readData(from: encryptedURL)
-        try expect(String(decoding: roundTrip, as: UTF8.self).contains("protected"), "expected encrypted payload to remain readable")
+        try reopened.restoreKey(using: encodedRecoveryKey)
+        let restored = try reopened.validate()
+        try expect(restored.bookmarks.first?.url == "https://recoverable.example", "expected recovery key to restore data")
     }
 
-    private static func isolatedEncryptionKeychainService() throws -> String {
-        "com.eli.Obelisk.encryption.smoke.\(UUID().uuidString)"
+    private static func testEncryptedSQLiteBackupRoundTrip() throws {
+        let root = try temporaryDirectory()
+        let keyStore = InMemoryVaultKeyStore()
+        let vault = ObeliskVaultStore(rootDirectory: root, keyStore: keyStore)
+        let recoveryURL = root.appendingPathComponent("Recovery Key.txt")
+        let bookmark = ObeliskVaultBookmark(
+            bookmark: Bookmark(title: "Backup", url: "https://backup.example"),
+            groupId: nil,
+            usage: nil
+        )
+        try vault.bootstrap(ObeliskVaultPayload(bookmarks: [bookmark]), recoveryKeyOutputURL: recoveryURL)
+
+        let backupRoot = try temporaryDirectory()
+        let backupURL = backupRoot.appendingPathComponent(ObeliskVaultStore.databaseFileName)
+        try vault.createEncryptedBackup(at: backupURL)
+        try expect(!FileManager.default.fileExists(atPath: backupURL.path + "-wal"), "expected a single-file portable backup")
+        try expect(!FileManager.default.fileExists(atPath: backupURL.path + "-shm"), "expected a single-file portable backup")
+        let backupVault = ObeliskVaultStore(rootDirectory: backupRoot, keyStore: keyStore)
+        let restored = try backupVault.validate()
+        try expect(restored.bookmarks.first?.url == "https://backup.example", "expected encrypted backup round-trip")
+        let raw = String(decoding: try Data(contentsOf: backupURL), as: UTF8.self)
+        try expect(!raw.contains("backup.example"), "expected backup to remain encrypted")
     }
 
-    private static func deleteKeychainItems(service: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service
-        ]
-        _ = SecItemDelete(query as CFDictionary)
+    private static func testFailedKeyPersistenceRollsBackNewVault() throws {
+        let root = try temporaryDirectory()
+        let recoveryURL = root.appendingPathComponent("Recovery Key.txt")
+        let vault = ObeliskVaultStore(rootDirectory: root, keyStore: FailingVaultKeyStore())
+        do {
+            try vault.bootstrap(ObeliskVaultPayload(), recoveryKeyOutputURL: recoveryURL)
+            throw SmokeTestError.failure("expected key-store failure")
+        } catch ObeliskStorageError.databaseOperationFailed {
+        }
+        try expect(!vault.databaseExists, "expected failed initialization to remove the database")
+        try expect(!FileManager.default.fileExists(atPath: recoveryURL.path), "expected failed initialization to remove the recovery document")
     }
 
     private static func testPlaintextDataBackup() throws {
@@ -1622,7 +1540,7 @@ struct SmokeTests {
         )
         let raw = try String(contentsOf: payloadURL, encoding: .utf8)
         try expect(raw.contains("backup-me.example"), "expected backup to contain bookmark URL")
-        try expect(!raw.contains("obelisk.encrypted-json.v1"), "expected backup to be plaintext JSON")
+        try expect(raw.first == "{", "expected backup to be ordinary JSON")
     }
 
     private static func testFreshAppDefaultsEnableCoreWorkflows() throws {
@@ -1649,14 +1567,6 @@ struct SmokeTests {
             "expected fresh app defaults to enable incognito hidden bookmarks"
         )
         try expect(
-            freshDefaults.bool(forKey: LocalJSONEncryption.enabledKey),
-            "expected fresh app defaults to enable local JSON encryption"
-        )
-        try expect(
-            freshDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
-            "expected fresh app defaults not to mark encryption as user-disabled"
-        )
-        try expect(
             freshDefaults.string(forKey: "diaIncognitoWindowID") == nil,
             "expected fresh app defaults not to import legacy Dia window state"
         )
@@ -1675,76 +1585,6 @@ struct SmokeTests {
         try expect(
             oldDefaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey) == false,
             "expected legacy incognito preference to stay isolated"
-        )
-    }
-
-    private static func testLocalJSONEncryptionDefaultsForceProductionEncryption() throws {
-        let legacyFalseSuiteName = "com.eli.Obelisk.legacy-false.test.\(UUID().uuidString)"
-        let authenticatedDisabledSuiteName = "com.eli.Obelisk.auth-disabled.test.\(UUID().uuidString)"
-        let reenabledSuiteName = "com.eli.Obelisk.reenabled.test.\(UUID().uuidString)"
-        let uiTestingSuiteName = "com.eli.Obelisk.ui-testing.test.\(UUID().uuidString)"
-        guard
-            let legacyFalseDefaults = UserDefaults(suiteName: legacyFalseSuiteName),
-            let authenticatedDisabledDefaults = UserDefaults(suiteName: authenticatedDisabledSuiteName),
-            let reenabledDefaults = UserDefaults(suiteName: reenabledSuiteName),
-            let uiTestingDefaults = UserDefaults(suiteName: uiTestingSuiteName)
-        else {
-            throw SmokeTestError.failure("expected encryption defaults test suites")
-        }
-        defer {
-            legacyFalseDefaults.removePersistentDomain(forName: legacyFalseSuiteName)
-            authenticatedDisabledDefaults.removePersistentDomain(forName: authenticatedDisabledSuiteName)
-            reenabledDefaults.removePersistentDomain(forName: reenabledSuiteName)
-            uiTestingDefaults.removePersistentDomain(forName: uiTestingSuiteName)
-        }
-
-        legacyFalseDefaults.set(false, forKey: LocalJSONEncryption.enabledKey)
-        ObeliskAppDefaults.register(in: legacyFalseDefaults)
-        try expect(
-            legacyFalseDefaults.bool(forKey: LocalJSONEncryption.enabledKey),
-            "expected unauthenticated legacy disabled encryption default to be corrected"
-        )
-        try expect(
-            legacyFalseDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
-            "expected corrected legacy default not to mark encryption as user-disabled"
-        )
-
-        authenticatedDisabledDefaults.set(false, forKey: LocalJSONEncryption.enabledKey)
-        authenticatedDisabledDefaults.set(true, forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey)
-        ObeliskAppDefaults.register(in: authenticatedDisabledDefaults)
-        try expect(
-            authenticatedDisabledDefaults.bool(forKey: LocalJSONEncryption.enabledKey),
-            "expected authenticated user-disabled encryption setting to be corrected"
-        )
-        try expect(
-            authenticatedDisabledDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
-            "expected authenticated user-disabled marker to be cleared"
-        )
-
-        reenabledDefaults.set(true, forKey: LocalJSONEncryption.enabledKey)
-        reenabledDefaults.set(true, forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey)
-        ObeliskAppDefaults.register(in: reenabledDefaults)
-        try expect(
-            reenabledDefaults.bool(forKey: LocalJSONEncryption.enabledKey),
-            "expected re-enabled encryption setting to stay enabled"
-        )
-        try expect(
-            reenabledDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
-            "expected re-enabled encryption to clear authenticated disable marker"
-        )
-
-        uiTestingDefaults.set(false, forKey: LocalJSONEncryption.enabledKey)
-        ObeliskAppDefaults.register(
-            in: uiTestingDefaults,
-            preservesUnauthenticatedDisabledEncryption: true
-        )
-        try expect(
-            uiTestingDefaults.bool(forKey: LocalJSONEncryption.enabledKey) == false,
-            "expected explicit UI testing override to preserve disabled encryption"
-        )
-        try expect(
-            uiTestingDefaults.bool(forKey: LocalJSONEncryption.disabledByAuthenticatedUserKey) == false,
-            "expected UI testing override not to mark encryption as user-disabled"
         )
     }
 

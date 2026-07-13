@@ -41,10 +41,13 @@ struct PerformanceRegressionTests {
 
         let clock = ContinuousClock()
         let start = clock.now
-        let store = BookmarkStore(rootDirectory: root)
-        try store.save(BookmarkDatabase(bookmarks: bookmarks))
-        store.invalidateCache()
-        let loaded = try store.bookmarks()
+        let vault = ObeliskVaultStore(rootDirectory: root, keyStore: InMemoryVaultKeyStore())
+        let payload = ObeliskVaultPayload(
+            bookmarks: bookmarks.map { ObeliskVaultBookmark(bookmark: $0, groupId: nil, usage: nil) }
+        )
+        try vault.bootstrap(payload, recoveryKeyOutputURL: root.appendingPathComponent("Recovery Key.txt"))
+        vault.invalidateCache()
+        let loaded = try vault.validate().bookmarks.map(\.bookmark)
         let elapsed = start.duration(to: clock.now)
 
         #expect(loaded.count == bookmarks.count)

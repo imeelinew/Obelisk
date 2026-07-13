@@ -26,7 +26,7 @@ private let usageLog = Logger(subsystem: "com.eli.Obelisk", category: "UsageStor
 public final class UsageStore {
     public private(set) var rootDirectory: URL
     public var fileURL: URL {
-        ObeliskVaultStore(rootDirectory: rootDirectory).payloadURL
+        ObeliskVaultStore(rootDirectory: rootDirectory).databaseURL
     }
 
     private var vaultStore: ObeliskVaultStore

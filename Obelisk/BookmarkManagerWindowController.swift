@@ -27,8 +27,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
     func show() {
         if let window {
             model.reload()
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            bringToFront(window)
             return
         }
 
@@ -58,8 +57,23 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         window = win
 
         model.reload()
-        win.makeKeyAndOrderFront(nil)
+        bringToFront(win)
+    }
+
+    private func bringToFront(_ window: NSWindow) {
+        if NSApp.isHidden {
+            NSApp.unhide(nil)
+        }
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+
         NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        // Dock reopen can arrive while AppKit still considers another app's
+        // window frontmost. Explicit ordering makes the user-requested show
+        // deterministic without changing normal application activation.
+        window.orderFrontRegardless()
     }
 
     func windowWillClose(_ notification: Notification) {

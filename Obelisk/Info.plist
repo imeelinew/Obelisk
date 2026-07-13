@@ -11,27 +11,6 @@
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Obelisk</string>
-	<key>CFBundleDocumentTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeExtensions</key>
-			<array>
-				<string>obelisk</string>
-			</array>
-			<key>CFBundleTypeName</key>
-			<string>Obelisk Vault</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>LSHandlerRank</key>
-			<string>Owner</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>com.eli.obelisk.obelisk</string>
-			</array>
-			<key>LSTypeIsPackage</key>
-			<true/>
-		</dict>
-	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconName</key>
@@ -68,23 +47,5 @@
 	<!-- Sparkle checks once per day; adjust this interval in seconds if needed. -->
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>com.apple.package</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Obelisk Vault</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.eli.obelisk.obelisk</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<string>obelisk</string>
-			</dict>
-		</dict>
-	</array>
 </dict>
 </plist>

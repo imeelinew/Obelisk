@@ -22,7 +22,6 @@ final class FaviconLoader {
     private(set) var version: Int = 0
 
     @ObservationIgnored private var rootDirectory: URL
-    @ObservationIgnored private let secureCodec = SecureJSONFileCodec()
     @ObservationIgnored private var inFlight: Set<String> = []
     @ObservationIgnored private var index: [String: FaviconRecord] = [:]
     @ObservationIgnored private let imageCache = NSCache<NSString, NSImage>()
@@ -50,27 +49,15 @@ final class FaviconLoader {
     }
 
     private var cacheDirectory: URL {
-        cacheDirectory(encrypted: LocalJSONEncryption.isEnabled)
+        ObeliskPrivateStorage.faviconDirectory(in: rootDirectory)
     }
 
     private var indexURL: URL {
-        indexURL(encrypted: LocalJSONEncryption.isEnabled)
+        ObeliskPrivateStorage.faviconIndexURL(rootDirectory: rootDirectory)
     }
 
     private func iconURL(for key: String) -> URL {
-        iconURL(for: key, encrypted: LocalJSONEncryption.isEnabled)
-    }
-
-    private func cacheDirectory(encrypted: Bool) -> URL {
-        ObeliskPrivateStorage.faviconDirectory(in: rootDirectory, encrypted: encrypted)
-    }
-
-    private func indexURL(encrypted: Bool) -> URL {
-        ObeliskPrivateStorage.faviconIndexURL(rootDirectory: rootDirectory, encrypted: encrypted)
-    }
-
-    private func iconURL(for key: String, encrypted: Bool) -> URL {
-        ObeliskPrivateStorage.faviconIconURL(rootDirectory: rootDirectory, key: key, encrypted: encrypted)
+        ObeliskPrivateStorage.faviconIconURL(rootDirectory: rootDirectory, key: key)
     }
 
     func image(for urlString: String) -> NSImage? {
@@ -169,9 +156,7 @@ final class FaviconLoader {
     }
 
     func clearStorage() {
-        for location in faviconStorageLocations() {
-            try? LocalFileAccess.removeItem(at: location.directory)
-        }
+        try? LocalFileAccess.removeItem(at: cacheDirectory)
         imageCache.removeAllObjects()
     }
 
@@ -184,32 +169,6 @@ final class FaviconLoader {
         session.getAllTasks { tasks in
             tasks.forEach { $0.cancel() }
         }
-    }
-
-    private struct FaviconStorageLocation {
-        let directory: URL
-        let encrypted: Bool
-    }
-
-    private func indexURL(in location: FaviconStorageLocation) -> URL {
-        ObeliskPrivateStorage.faviconIndexURL(
-            directory: location.directory,
-            encrypted: location.encrypted
-        )
-    }
-
-    private func faviconStorageLocations() -> [FaviconStorageLocation] {
-        uniqueFaviconLocations([
-            FaviconStorageLocation(
-                directory: ObeliskPrivateStorage.faviconDirectory(in: rootDirectory),
-                encrypted: LocalJSONEncryption.isEnabled
-            )
-        ])
-    }
-
-    private func uniqueFaviconLocations(_ locations: [FaviconStorageLocation]) -> [FaviconStorageLocation] {
-        var seen = Set<String>()
-        return locations.filter { seen.insert($0.directory.standardizedFileURL.path).inserted }
     }
 
     private func fetchIfNeeded(pageURL: URL, key: String, fileURL: URL) {
@@ -498,21 +457,17 @@ final class FaviconLoader {
     // MARK: - Index persistence
 
     private func loadIndex() {
-        index = loadIndex(encrypted: LocalJSONEncryption.isEnabled)
-    }
-
-    private func loadIndex(encrypted: Bool) -> [String: FaviconRecord] {
-        loadIndex(in: FaviconStorageLocation(directory: cacheDirectory(encrypted: encrypted), encrypted: encrypted))
-    }
-
-    private func loadIndex(in location: FaviconStorageLocation) -> [String: FaviconRecord] {
-        guard let data = try? readCacheData(from: indexURL(in: location), encrypted: location.encrypted) else { return [:] }
+        guard let data = try? LocalFileAccess.readData(from: indexURL) else {
+            index = [:]
+            return
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         if let decoded = try? decoder.decode([String: FaviconRecord].self, from: data) {
-            return decoded
+            index = decoded
+        } else {
+            index = [:]
         }
-        return [:]
     }
 
     private func recordResult(key: String, success: Bool) {
@@ -525,57 +480,30 @@ final class FaviconLoader {
     }
 
     private func saveIndex() {
-        saveIndex(index, encrypted: LocalJSONEncryption.isEnabled)
-    }
-
-    private func saveIndex(_ index: [String: FaviconRecord], encrypted: Bool) {
-        saveIndex(index, in: FaviconStorageLocation(directory: cacheDirectory(encrypted: encrypted), encrypted: encrypted))
-    }
-
-    private func saveIndex(_ index: [String: FaviconRecord], in location: FaviconStorageLocation) {
         do {
             try FileManager.default.createDirectory(
-                at: location.directory,
+                at: cacheDirectory,
                 withIntermediateDirectories: true
             )
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(index)
-            try writeCacheData(data, to: indexURL(in: location), encrypted: location.encrypted)
+            try LocalFileAccess.writeData(data, to: indexURL)
         } catch {
             faviconLog.error("Failed to persist favicon index: \(error.localizedDescription)")
         }
     }
 
     private func imageFromCache(at url: URL) -> NSImage? {
-        guard let data = try? readCacheData(from: url) else { return nil }
+        guard let data = try? LocalFileAccess.readData(from: url) else { return nil }
         return NSImage(data: data)
     }
 
     private func readCacheData(from url: URL) throws -> Data {
-        try readCacheData(from: url, encrypted: LocalJSONEncryption.isEnabled)
-    }
-
-    private func readCacheData(from url: URL, encrypted: Bool) throws -> Data {
-        if encrypted {
-            return try secureCodec.readData(from: url)
-        }
-        return try LocalFileAccess.readData(from: url)
+        try LocalFileAccess.readData(from: url)
     }
 
     private func writeCacheData(_ data: Data, to url: URL) throws {
-        try writeCacheData(data, to: url, encrypted: LocalJSONEncryption.isEnabled)
-    }
-
-    private func writeCacheData(_ data: Data, to url: URL, encrypted: Bool) throws {
-        if encrypted {
-            try secureCodec.writeData(
-                data,
-                to: url,
-                encrypted: true
-            )
-        } else {
-            try LocalFileAccess.writeData(data, to: url)
-        }
+        try LocalFileAccess.writeData(data, to: url)
     }
 }

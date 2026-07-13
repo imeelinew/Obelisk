@@ -50,7 +50,6 @@ public enum BookmarkStoreError: LocalizedError {
     case invalidURL(String)
     case duplicateURL(String)
     case invalidTitle
-    case lockFailed
 
     public var errorDescription: String? {
         switch self {
@@ -60,8 +59,6 @@ public enum BookmarkStoreError: LocalizedError {
             return "这个网址已经在书签里了"
         case .invalidTitle:
             return "标题不能为空"
-        case .lockFailed:
-            return "暂时无法保存,书签文件被占用"
         }
     }
 }
@@ -69,7 +66,7 @@ public enum BookmarkStoreError: LocalizedError {
 public final class BookmarkStore {
     public private(set) var rootDirectory: URL
     public var fileURL: URL {
-        ObeliskVaultStore(rootDirectory: rootDirectory).payloadURL
+        ObeliskVaultStore(rootDirectory: rootDirectory).databaseURL
     }
 
     private var vaultStore: ObeliskVaultStore
@@ -176,11 +173,7 @@ public final class BookmarkStore {
     }
 
     private func updatePayload(_ body: (inout ObeliskVaultPayload) throws -> Void) throws {
-        do {
-            try vaultStore.updatePayload(body)
-        } catch ObeliskStorageLockError.lockFailed {
-            throw BookmarkStoreError.lockFailed
-        }
+        try vaultStore.updatePayload(body)
     }
 
     public func bookmarks() throws -> [Bookmark] {
@@ -362,14 +355,7 @@ public final class BookmarkStore {
     }
 
     private func ensureStoreExists() throws {
-        ObeliskPrivateStorage.markVaultDirectoryAsPackageIfNeeded(rootDirectory)
-        if vaultStore.hasV2Payload {
-            return
-        }
-        let payload = try vaultStore.loadPayload()
-        if payload.bookmarks.isEmpty && payload.groups.isEmpty {
-            try vaultStore.savePayload(ObeliskVaultPayload())
-        }
+        try vaultStore.createEmptyIfNeeded()
     }
 
     private func validatedWebURL(_ rawURL: String) throws -> String {

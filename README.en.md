@@ -38,7 +38,7 @@
 
 Obelisk is an elegant, native macOS bookmark manager for people who switch browsers often, want bookmarks close at hand, and do not want to keep everything inside the browser.
 
-It keeps a lightweight native menu in the menu bar for quick access, and opens a full app window when you need to organize. Bookmarks are stored locally on disk, encrypted with AES-256-GCM. The encryption key lives in the local macOS Keychain and never leaves this device. Viewing hidden bookmarks and exporting plaintext backups require Touch ID or your password.
+It keeps a lightweight native menu in the menu bar for quick access, and opens a full app window when you need to organize. Bookmarks live in a local SQLite database, with every record independently protected by authenticated AES-256-GCM encryption. The device key is stored in the macOS Data Protection Keychain, and a recovery key is generated when the vault is first created for offline safekeeping. Viewing hidden bookmarks and exporting plaintext backups require Touch ID or your password.
 
 ## Why Obelisk
 
@@ -47,7 +47,7 @@ Browser bookmarks are usually tied to one browser, buried in sidebars or nested 
 - **Menu bar first**: open pinned, recently added, and full bookmark lists without switching windows.
 - **Native settings window**: search, organize, hide, and archive bookmarks in a macOS-style window.
 - **Hidden bookmarks**: protect sensitive bookmarks with device-owner authentication.
-- **Local encrypted storage**: bookmark data lives in `Obelisk.obelisk` under your local `Application Support` folder.
+- **Local encrypted storage**: data lives in `Application Support/com.eli.Obelisk/Data/store.sqlite`; encrypted backups and recovery-key restoration are built in.
 - **AI optimization**: Obelisk supports BYOK for automatic title optimization and auto-grouping. I call this Intelligence. As your collection grows over time, the automatic cleanup stays convenient and easy to scan.
 
 ## Menu Bar

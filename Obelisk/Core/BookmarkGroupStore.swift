@@ -72,7 +72,7 @@ public final class BookmarkGroupStore {
     public private(set) var rootDirectory: URL
 
     public var fileURL: URL {
-        ObeliskVaultStore(rootDirectory: rootDirectory).payloadURL
+        ObeliskVaultStore(rootDirectory: rootDirectory).databaseURL
     }
 
     private var vaultStore: ObeliskVaultStore

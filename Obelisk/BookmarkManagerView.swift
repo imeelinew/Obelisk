@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum BookmarkDisplayMode: String, CaseIterable, Identifiable {
     case list
@@ -114,6 +115,8 @@ struct BookmarkManagerView: View {
     @State private var pendingAutoIntelligenceTask: Task<Void, Never>?
     @State private var pendingLLMConfigSaveTask: Task<Void, Never>?
     @State private var isCreatingPlaintextBackup = false
+    @State private var isCreatingEncryptedBackup = false
+    @State private var isRestoringVaultKey = false
     @State private var restoreAllOriginalTitlesConfirmation = false
     @State private var refetchAllOriginalTitlesConfirmation = false
     @AppStorage(BookmarksModel.developerFeaturesEnabledKey) private var developerFeaturesEnabled = false
@@ -1120,6 +1123,57 @@ struct BookmarkManagerView: View {
         panel.allowsMultipleSelection = false
         panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
         return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    private func createEncryptedDataBackup() {
+        guard !isCreatingEncryptedBackup else { return }
+        let panel = NSSavePanel()
+        panel.title = "备份加密数据库"
+        panel.prompt = "备份"
+        panel.nameFieldStringValue = "Obelisk Backup \(Self.backupTimestamp()).sqlite"
+        panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        isCreatingEncryptedBackup = true
+        do {
+            try model.createEncryptedBackup(at: destination)
+            isCreatingEncryptedBackup = false
+            showToast("已创建加密备份")
+        } catch {
+            isCreatingEncryptedBackup = false
+            showToast(error.localizedDescription, kind: .error)
+        }
+    }
+
+    private func restoreVaultKey() {
+        guard !isRestoringVaultKey else { return }
+        let panel = NSOpenPanel()
+        panel.title = "选择 Obelisk 恢复密钥"
+        panel.prompt = "恢复"
+        panel.message = "恢复密钥只会在验证能够解密当前数据库后写入钥匙串。"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.plainText, .json]
+        panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        guard panel.runModal() == .OK, let source = panel.url else { return }
+
+        isRestoringVaultKey = true
+        do {
+            try model.restoreVaultKey(from: source)
+            isRestoringVaultKey = false
+            showToast("数据密钥已恢复")
+        } catch {
+            isRestoringVaultKey = false
+            showToast(error.localizedDescription, kind: .error)
+        }
+    }
+
+    private static func backupTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HHmmss"
+        return formatter.string(from: Date())
     }
 
     private func showToast(_ message: String, kind: Toast.Kind = .success) {
@@ -2492,6 +2546,36 @@ struct BookmarkManagerView: View {
 
     private var privacyPage: some View {
         Form {
+            Section("数据安全") {
+                LabeledContent {
+                    Button(isCreatingEncryptedBackup ? "备份中…" : "备份") {
+                        createEncryptedDataBackup()
+                    }
+                    .disabled(isCreatingEncryptedBackup)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("创建加密数据库备份")
+                        Text("备份保持逐记录 AES-256-GCM 加密，可与恢复密钥分开保存。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                LabeledContent {
+                    Button(isRestoringVaultKey ? "恢复中…" : "选择密钥…") {
+                        restoreVaultKey()
+                    }
+                    .disabled(isRestoringVaultKey)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("使用恢复密钥")
+                        Text("钥匙串记录丢失后，用首次建库时生成的恢复密钥重新解锁现有数据。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             Section("隐藏书签") {
                 Toggle("在侧边栏显示隐藏书签", isOn: $showHiddenBookmarksPage)
 

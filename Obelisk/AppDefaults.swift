@@ -3,24 +3,13 @@ import Foundation
 enum ObeliskAppDefaults {
     static let openHiddenBookmarksIncognitoKey = "openHiddenBookmarksIncognito"
 
-    static func register(
-        in defaults: UserDefaults = .standard,
-        preservesUnauthenticatedDisabledEncryption: Bool = false
-    ) {
-        let hadStoredEncryptionPreference = defaults.object(forKey: LocalJSONEncryption.enabledKey) != nil
+    static func register(in defaults: UserDefaults = .standard) {
         defaults.register(defaults: [
             SidebarIconTheme.storageKey: SidebarIconTheme.colorful.rawValue,
             SidebarIconStyle.storageKey: SidebarIconStyle.lucide.rawValue,
             MenuBarIconStyle.storageKey: MenuBarIconStyle.outline.rawValue,
-            openHiddenBookmarksIncognitoKey: true,
-            LocalJSONEncryption.enabledKey: true,
-            LocalJSONEncryption.disabledByAuthenticatedUserKey: false
+            openHiddenBookmarksIncognitoKey: true
         ])
-        LocalJSONEncryption.normalizeDefault(
-            in: defaults,
-            hadStoredEnabledPreference: hadStoredEncryptionPreference,
-            preservesUnauthenticatedDisabledState: preservesUnauthenticatedDisabledEncryption
-        )
         TitleOptimizationPreferences.register(in: defaults)
         BookmarkAutoGroupingPreferences.register(in: defaults)
         HiddenBookmarkKeywordExclusion.register(in: defaults)

@@ -7,6 +7,8 @@ import Sparkle
 import SwiftUI
 
 private let isUITesting = CommandLine.arguments.contains("-uiTesting")
+private let isUnitTesting = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    || ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
 
 @objc
 private protocol StandardMenuActionSelectors {
@@ -16,14 +18,19 @@ private protocol StandardMenuActionSelectors {
     func redo(_ sender: Any?)
 }
 
-private func configureUITestingEnvironmentIfNeeded() {
-    guard isUITesting else { return }
+private func configureTestingEnvironmentIfNeeded() {
+    guard isUITesting || isUnitTesting else { return }
 
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("ObeliskUITests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("ObeliskTests-\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     setenv("OBELISK_HOME", root.path, 1)
-    LocalJSONEncryption.isEnabled = false
+    setenv("OBELISK_USE_IN_MEMORY_KEYSTORE", "1", 1)
+    setenv(
+        "OBELISK_RECOVERY_KEY_OUTPUT",
+        root.appendingPathComponent("Recovery Key.txt").path,
+        1
+    )
 }
 
 @MainActor
@@ -115,10 +122,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let storageRoot = BookmarkStore.defaultRootDirectory()
-        if LocalJSONEncryption.isEnabled {
-            _ = KeychainEncryptionKeyStore().recoverEncryptionKeyIfNeeded(rootDirectory: storageRoot)
-        }
         installMainMenu()
         configureStatusItem()
         installDefaultsObserver()
@@ -1144,13 +1147,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         return true
     }
 
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        openManager()
+        return true
+    }
+
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         false
     }
 }
 
-configureUITestingEnvironmentIfNeeded()
-ObeliskAppDefaults.register(preservesUnauthenticatedDisabledEncryption: isUITesting)
+configureTestingEnvironmentIfNeeded()
+ObeliskAppDefaults.register()
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

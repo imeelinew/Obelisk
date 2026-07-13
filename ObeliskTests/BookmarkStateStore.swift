@@ -17,7 +17,7 @@ struct BookmarkStateDatabase: Equatable {
 final class BookmarkStateStore {
     private(set) var rootDirectory: URL
     var fileURL: URL {
-        ObeliskVaultStore(rootDirectory: rootDirectory).payloadURL
+        ObeliskVaultStore(rootDirectory: rootDirectory).databaseURL
     }
 
     private var vaultStore: ObeliskVaultStore

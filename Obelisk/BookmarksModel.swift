@@ -394,6 +394,21 @@ final class BookmarksModel {
         groupStore.invalidateCache()
     }
 
+    func createEncryptedBackup(at destination: URL) throws {
+        try ObeliskVaultStore(rootDirectory: rootDirectory).createEncryptedBackup(at: destination)
+    }
+
+    func restoreVaultKey(from recoveryDocumentURL: URL) throws {
+        let encodedRecoveryKey = try RecoveryKeyDocument.read(from: recoveryDocumentURL)
+        let vault = ObeliskVaultStore(rootDirectory: rootDirectory)
+        try vault.restoreKey(using: encodedRecoveryKey)
+        invalidateStorageCaches()
+        reload()
+        if let loadErrorMessage {
+            throw ObeliskStorageError.databaseOperationFailed(loadErrorMessage)
+        }
+    }
+
     func updateStorageRootDirectory(_ rootDirectory: URL) {
         groupStore.updateRootDirectory(rootDirectory)
     }

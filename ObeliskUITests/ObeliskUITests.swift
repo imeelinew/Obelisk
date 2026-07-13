@@ -29,6 +29,27 @@ final class ObeliskUITests: XCTestCase {
     }
 
     @MainActor
+    func testDockActivationReopensClosedManagerWindow() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTesting"]
+        app.launch()
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 8))
+        window.buttons[XCUIIdentifierCloseWindow].click()
+        XCTAssertFalse(window.waitForExistence(timeout: 2))
+
+        let dock = XCUIApplication(bundleIdentifier: "com.apple.dock")
+        let dockIcons = dock.descendants(matching: .any).matching(identifier: "Obelisk")
+        // A separately installed release can be pinned alongside the running
+        // UI-test build. The latter is the final matching Dock item.
+        let dockIcon = dockIcons.element(boundBy: max(0, dockIcons.count - 1))
+        XCTAssertTrue(dockIcon.waitForExistence(timeout: 3))
+        dockIcon.click()
+        XCTAssertTrue(app.windows.element(boundBy: 0).waitForExistence(timeout: 8))
+    }
+
+    @MainActor
     func testManualArchiveCanBeRestoredWhenAutoArchiveIsDisabled() throws {
         let app = XCUIApplication()
         app.launchArguments = [

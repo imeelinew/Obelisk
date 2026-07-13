@@ -43,7 +43,14 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         let win = NSWindow(contentViewController: hosting)
         win.title = BookmarkManagerView.SettingsPage.bookmarks.title
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        win.collectionBehavior = [.fullScreenNone, .fullScreenDisallowsTiling]
+        // Obelisk has one manager window. When it is reopened from the Dock,
+        // present that window on the Space the user is currently looking at
+        // instead of activating the app while leaving its window elsewhere.
+        win.collectionBehavior = [
+            .moveToActiveSpace,
+            .fullScreenNone,
+            .fullScreenDisallowsTiling
+        ]
         // ARC owns the window through `self.window`. Letting AppKit release it as
         // well can over-release the SwiftUI hosting hierarchy when the close
         // button drains the current event's autorelease pool.

@@ -6,6 +6,23 @@
     <description>Sparkle appcast for Obelisk</description>
     <language>en</language>
     <item>
+      <title>Obelisk 1.8.3</title>
+      <link>https://github.com/imeelinew/Obelisk/releases/tag/v1.8.3</link>
+      <sparkle:version>7</sparkle:version>
+      <sparkle:shortVersionString>1.8.3</sparkle:shortVersionString>
+      <pubDate>Mon, 13 Jul 2026 02:01:51 +0000</pubDate>
+      <description>&lt;h2&gt;新功能&lt;/h2&gt;
+&lt;h3&gt;全新本地加密存储&lt;/h3&gt;
+&lt;ul&gt;&lt;li&gt;使用 SQLite 作为唯一数据存储，每条书签独立采用 AES-256-GCM 认证加密&lt;/li&gt;&lt;li&gt;数据密钥迁移至 macOS Data Protection Keychain，减少传统文件钥匙串授权弹窗&lt;/li&gt;&lt;li&gt;首次建库生成独立恢复密钥；钥匙串记录丢失后可重新解锁现有数据库&lt;/li&gt;&lt;li&gt;隐私设置新增单文件加密数据库备份和恢复密钥导入&lt;/li&gt;&lt;/ul&gt;
+&lt;h2&gt;修复与改进&lt;/h2&gt;
+&lt;ul&gt;&lt;li&gt;书签修改改为增量事务写入，不再重写整个数据集&lt;/li&gt;&lt;li&gt;数据库、WAL 与备份统一使用严格的私有文件权限&lt;/li&gt;&lt;li&gt;Favicon 移至可重新生成的缓存目录&lt;/li&gt;&lt;li&gt;初始化或密钥写入失败时自动回滚，不留下半初始化数据库&lt;/li&gt;&lt;li&gt;修复从 Dock 再次点击 Obelisk 时未重新打开管理窗口的问题&lt;/li&gt;&lt;li&gt;完善存储恢复、备份、故障回滚和大型书签库性能测试&lt;/li&gt;&lt;/ul&gt;
+&lt;h2&gt;升级说明&lt;/h2&gt;
+&lt;p&gt;1.8.3 使用全新的 v3 存储格式，不再读取旧版 &lt;code&gt;.obelisk&lt;/code&gt; 数据包。升级前请确认数据已完成迁移或妥善备份。恢复密钥应与加密数据库备份分开保存。&lt;/p&gt;
+&lt;h2&gt;安装&lt;/h2&gt;
+&lt;p&gt;下载 &lt;code&gt;Obelisk-1.8.3.zip&lt;/code&gt;，解压后将 &lt;code&gt;Obelisk.app&lt;/code&gt; 拖入「应用程序」文件夹。Universal Binary（Apple Silicon + Intel）。需要 macOS 26 或更高版本。&lt;/p&gt;</description>
+      <enclosure url="https://github.com/imeelinew/Obelisk/releases/download/v1.8.3/Obelisk-1.8.3.zip" sparkle:edSignature="6osFGRl28d7K8+VWuTN+pI3bElUgHvUFm1K1lNjCRMR8KptEHJv/kM/oyzEr+iMTNeKAhdq8TPDAPoabXhpiDg==" length="5674739" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Obelisk 1.8.1</title>
       <link>https://github.com/imeelinew/Obelisk/releases/tag/v1.8.1</link>
       <sparkle:version>5</sparkle:version>

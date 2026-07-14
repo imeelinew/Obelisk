@@ -1,4 +1,5 @@
 import Foundation
+import ObeliskCore
 
 struct NativeBookmarkRowSelectionKey: Hashable, Equatable {
     var sectionOccurrence: Int

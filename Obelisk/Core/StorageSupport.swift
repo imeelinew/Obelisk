@@ -2,8 +2,6 @@ import Foundation
 import Security
 
 enum ObeliskPrivateStorage {
-    static let vaultDirectoryName = "Data"
-
     static func faviconDirectory(in rootDirectory: URL) -> URL {
         if BookmarkStore.environmentRootOverride() != nil {
             return rootDirectory
@@ -74,7 +72,7 @@ final class KeychainAPIKeyStore {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = item as? Data else {
-            throw ObeliskStorageError.keychainReadFailed(status)
+            throw KeychainAPIKeyStoreError.operation(status)
         }
         return String(data: data, encoding: .utf8)
     }
@@ -93,20 +91,20 @@ final class KeychainAPIKeyStore {
         let query = baseQuery()
         if SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess {
             let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-            guard status == errSecSuccess else { throw ObeliskStorageError.keychainWriteFailed(status) }
+            guard status == errSecSuccess else { throw KeychainAPIKeyStoreError.operation(status) }
             return
         }
 
         var addQuery = query
         addQuery.merge(attributes) { _, new in new }
         let status = SecItemAdd(addQuery as CFDictionary, nil)
-        guard status == errSecSuccess else { throw ObeliskStorageError.keychainWriteFailed(status) }
+        guard status == errSecSuccess else { throw KeychainAPIKeyStoreError.operation(status) }
     }
 
     func deleteAPIKey() throws {
         let status = SecItemDelete(baseQuery() as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw ObeliskStorageError.keychainWriteFailed(status)
+            throw KeychainAPIKeyStoreError.operation(status)
         }
     }
 
@@ -121,5 +119,17 @@ final class KeychainAPIKeyStore {
             kSecAttrAccount as String: account,
             kSecUseDataProtectionKeychain as String: true
         ]
+    }
+}
+
+enum KeychainAPIKeyStoreError: LocalizedError {
+    case operation(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .operation(let status):
+            let message = (SecCopyErrorMessageString(status, nil) as String?) ?? "unknown Security error"
+            return "钥匙串操作失败（\(status)：\(message)）"
+        }
     }
 }

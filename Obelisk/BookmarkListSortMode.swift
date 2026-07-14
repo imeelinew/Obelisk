@@ -1,4 +1,5 @@
 import Foundation
+import ObeliskCore
 
 enum BookmarkListSortMode: String, CaseIterable, Identifiable {
     case name
@@ -43,7 +44,7 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
                 return Self.isOrderedByName(lhs, before: rhs)
             }
         case .frequency:
-            return UsageStore.frecencySorted(among: bookmarks, usage: usage, now: now)
+            return BookmarkUsageRanking.frecencySorted(among: bookmarks, usage: usage, now: now)
         }
     }
 

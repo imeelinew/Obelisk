@@ -1,4 +1,5 @@
 import AppKit
+import ObeliskCore
 import SwiftUI
 
 /// Menu bar popover notification shown after a silent bookmark add.

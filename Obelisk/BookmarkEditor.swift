@@ -1,3 +1,4 @@
+import ObeliskCore
 import SwiftUI
 
 struct BookmarkEditor: View {
@@ -214,4 +215,3 @@ struct BookmarkEditor: View {
 }
 
 // MARK: - Hidden Bookmarks Locking
-

@@ -8,6 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		C1C0A0012FC4A00000000001 /* Obelisk.icon in Resources */ = {isa = PBXBuildFile; fileRef = C1C0A0022FC4A00000000002 /* Obelisk.icon */; };
+		E10B00123005D00000000012 /* ObeliskCore in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00023005D00000000002 /* ObeliskCore */; };
+		E10B00133005D00000000013 /* ObeliskData in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00033005D00000000003 /* ObeliskData */; };
+		E10B00143005D00000000014 /* ObeliskSync in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00043005D00000000004 /* ObeliskSync */; };
+		E10B00153005D00000000015 /* ObeliskCore in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00053005D00000000005 /* ObeliskCore */; };
+		E10B00163005D00000000016 /* ObeliskData in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00063005D00000000006 /* ObeliskData */; };
+		E10B00173005D00000000017 /* ObeliskSync in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00073005D00000000007 /* ObeliskSync */; };
 		E1KS00032FC4A00100000003 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = E1KS00022FC4A00100000002 /* KeyboardShortcuts */; };
 		E1SP00032FC4A00100000003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E1SP00022FC4A00100000002 /* Sparkle */; };
 /* End PBXBuildFile section */
@@ -27,12 +33,29 @@
 			remoteGlobalIDString = 45B26F152FC4874D009BAE8A;
 			remoteInfo = Obelisk;
 		};
+		45BDB2543005C8A9000021E6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 45B26F0E2FC4874D009BAE8A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 45BDB2463005C8A7000021E6;
+			remoteInfo = "Obelisk iOS";
+		};
+		45BDB25E3005C8A9000021E6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 45B26F0E2FC4874D009BAE8A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 45BDB2463005C8A7000021E6;
+			remoteInfo = "Obelisk iOS";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		45B26F162FC4874D009BAE8A /* Obelisk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Obelisk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		45B26F232FC4874D009BAE8A /* ObeliskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ObeliskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ObeliskUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		45BDB2473005C8A7000021E6 /* Obelisk iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Obelisk iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		45BDB2533005C8A9000021E6 /* Obelisk iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Obelisk iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		45BDB25D3005C8A9000021E6 /* Obelisk iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Obelisk iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1C0A0022FC4A00000000002 /* Obelisk.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = Obelisk.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -65,6 +88,21 @@
 			path = ObeliskUITests;
 			sourceTree = "<group>";
 		};
+		45BDB2483005C8A7000021E6 /* Obelisk iOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Obelisk iOS";
+			sourceTree = "<group>";
+		};
+		45BDB2563005C8A9000021E6 /* Obelisk iOSTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Obelisk iOSTests";
+			sourceTree = "<group>";
+		};
+		45BDB2603005C8A9000021E6 /* Obelisk iOSUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Obelisk iOSUITests";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,6 +110,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E10B00123005D00000000012 /* ObeliskCore in Frameworks */,
+				E10B00133005D00000000013 /* ObeliskData in Frameworks */,
+				E10B00143005D00000000014 /* ObeliskSync in Frameworks */,
 				E1KS00032FC4A00100000003 /* KeyboardShortcuts in Frameworks */,
 				E1SP00032FC4A00100000003 /* Sparkle in Frameworks */,
 			);
@@ -91,6 +132,30 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		45BDB2443005C8A7000021E6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E10B00153005D00000000015 /* ObeliskCore in Frameworks */,
+				E10B00163005D00000000016 /* ObeliskData in Frameworks */,
+				E10B00173005D00000000017 /* ObeliskSync in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45BDB2503005C8A9000021E6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45BDB25A3005C8A9000021E6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -101,6 +166,9 @@
 				45B26F182FC4874D009BAE8A /* Obelisk */,
 				45B26F262FC4874D009BAE8A /* ObeliskTests */,
 				45B26F302FC4874D009BAE8A /* ObeliskUITests */,
+				45BDB2483005C8A7000021E6 /* Obelisk iOS */,
+				45BDB2563005C8A9000021E6 /* Obelisk iOSTests */,
+				45BDB2603005C8A9000021E6 /* Obelisk iOSUITests */,
 				45B26F172FC4874D009BAE8A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -111,6 +179,9 @@
 				45B26F162FC4874D009BAE8A /* Obelisk.app */,
 				45B26F232FC4874D009BAE8A /* ObeliskTests.xctest */,
 				45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */,
+				45BDB2473005C8A7000021E6 /* Obelisk iOS.app */,
+				45BDB2533005C8A9000021E6 /* Obelisk iOSTests.xctest */,
+				45BDB25D3005C8A9000021E6 /* Obelisk iOSUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -135,6 +206,9 @@
 			);
 			name = Obelisk;
 			packageProductDependencies = (
+				E10B00023005D00000000002 /* ObeliskCore */,
+				E10B00033005D00000000003 /* ObeliskData */,
+				E10B00043005D00000000004 /* ObeliskSync */,
 				E1KS00022FC4A00100000002 /* KeyboardShortcuts */,
 				E1SP00022FC4A00100000002 /* Sparkle */,
 			);
@@ -188,6 +262,77 @@
 			productReference = 45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		45BDB2463005C8A7000021E6 /* Obelisk iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 45BDB2693005C8A9000021E6 /* Build configuration list for PBXNativeTarget "Obelisk iOS" */;
+			buildPhases = (
+				45BDB2433005C8A7000021E6 /* Sources */,
+				45BDB2443005C8A7000021E6 /* Frameworks */,
+				45BDB2453005C8A7000021E6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				45BDB2483005C8A7000021E6 /* Obelisk iOS */,
+			);
+			name = "Obelisk iOS";
+			packageProductDependencies = (
+				E10B00053005D00000000005 /* ObeliskCore */,
+				E10B00063005D00000000006 /* ObeliskData */,
+				E10B00073005D00000000007 /* ObeliskSync */,
+			);
+			productName = "Obelisk iOS";
+			productReference = 45BDB2473005C8A7000021E6 /* Obelisk iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		45BDB2523005C8A9000021E6 /* Obelisk iOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 45BDB26A3005C8A9000021E6 /* Build configuration list for PBXNativeTarget "Obelisk iOSTests" */;
+			buildPhases = (
+				45BDB24F3005C8A9000021E6 /* Sources */,
+				45BDB2503005C8A9000021E6 /* Frameworks */,
+				45BDB2513005C8A9000021E6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				45BDB2553005C8A9000021E6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				45BDB2563005C8A9000021E6 /* Obelisk iOSTests */,
+			);
+			name = "Obelisk iOSTests";
+			packageProductDependencies = (
+			);
+			productName = "Obelisk iOSTests";
+			productReference = 45BDB2533005C8A9000021E6 /* Obelisk iOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		45BDB25C3005C8A9000021E6 /* Obelisk iOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 45BDB26B3005C8A9000021E6 /* Build configuration list for PBXNativeTarget "Obelisk iOSUITests" */;
+			buildPhases = (
+				45BDB2593005C8A9000021E6 /* Sources */,
+				45BDB25A3005C8A9000021E6 /* Frameworks */,
+				45BDB25B3005C8A9000021E6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				45BDB25F3005C8A9000021E6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				45BDB2603005C8A9000021E6 /* Obelisk iOSUITests */,
+			);
+			name = "Obelisk iOSUITests";
+			packageProductDependencies = (
+			);
+			productName = "Obelisk iOSUITests";
+			productReference = 45BDB25D3005C8A9000021E6 /* Obelisk iOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -195,7 +340,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2650;
+				LastSwiftUpdateCheck = 2700;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					45B26F152FC4874D009BAE8A = {
@@ -208,6 +353,17 @@
 					45B26F2C2FC4874D009BAE8A = {
 						CreatedOnToolsVersion = 26.5;
 						TestTargetID = 45B26F152FC4874D009BAE8A;
+					};
+					45BDB2463005C8A7000021E6 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					45BDB2523005C8A9000021E6 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 45BDB2463005C8A7000021E6;
+					};
+					45BDB25C3005C8A9000021E6 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 45BDB2463005C8A7000021E6;
 					};
 				};
 			};
@@ -222,6 +378,7 @@
 			mainGroup = 45B26F0D2FC4874D009BAE8A;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				E10B00013005D00000000001 /* XCLocalSwiftPackageReference "Packages/ObeliskKit" */,
 				E1KS00012FC4A00100000001 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 				E1SP00012FC4A00100000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
@@ -233,6 +390,9 @@
 				45B26F152FC4874D009BAE8A /* Obelisk */,
 				45B26F222FC4874D009BAE8A /* ObeliskTests */,
 				45B26F2C2FC4874D009BAE8A /* ObeliskUITests */,
+				45BDB2463005C8A7000021E6 /* Obelisk iOS */,
+				45BDB2523005C8A9000021E6 /* Obelisk iOSTests */,
+				45BDB25C3005C8A9000021E6 /* Obelisk iOSUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -254,6 +414,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		45B26F2B2FC4874D009BAE8A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45BDB2453005C8A7000021E6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45BDB2513005C8A9000021E6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45BDB25B3005C8A9000021E6 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -284,6 +465,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		45BDB2433005C8A7000021E6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45BDB24F3005C8A9000021E6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45BDB2593005C8A9000021E6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -296,6 +498,16 @@
 			isa = PBXTargetDependency;
 			target = 45B26F152FC4874D009BAE8A /* Obelisk */;
 			targetProxy = 45B26F2E2FC4874D009BAE8A /* PBXContainerItemProxy */;
+		};
+		45BDB2553005C8A9000021E6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 45BDB2463005C8A7000021E6 /* Obelisk iOS */;
+			targetProxy = 45BDB2543005C8A9000021E6 /* PBXContainerItemProxy */;
+		};
+		45BDB25F3005C8A9000021E6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 45BDB2463005C8A7000021E6 /* Obelisk iOS */;
+			targetProxy = 45BDB25E3005C8A9000021E6 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -427,7 +639,7 @@
 				CODE_SIGN_ENTITLEMENTS = Obelisk/Obelisk.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 5Q5QT76MJU;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -438,7 +650,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.8.4;
+				MARKETING_VERSION = 1.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eli.Obelisk;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -456,7 +668,7 @@
 				CODE_SIGN_ENTITLEMENTS = Obelisk/Obelisk.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 5Q5QT76MJU;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -467,7 +679,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.8.4;
+				MARKETING_VERSION = 1.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eli.Obelisk;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -558,6 +770,167 @@
 			};
 			name = Release;
 		};
+		45BDB2633005C8A9000021E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5QT76MJU;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.eli.Obelisk-iOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		45BDB2643005C8A9000021E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5QT76MJU;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.eli.Obelisk-iOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		45BDB2653005C8A9000021E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5QT76MJU;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.eli.Obelisk-iOSTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Obelisk iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Obelisk iOS";
+			};
+			name = Debug;
+		};
+		45BDB2663005C8A9000021E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5QT76MJU;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.eli.Obelisk-iOSTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Obelisk iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Obelisk iOS";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		45BDB2673005C8A9000021E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5QT76MJU;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.eli.Obelisk-iOSUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Obelisk iOS";
+			};
+			name = Debug;
+		};
+		45BDB2683005C8A9000021E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5QT76MJU;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.eli.Obelisk-iOSUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Obelisk iOS";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -597,7 +970,41 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		45BDB2693005C8A9000021E6 /* Build configuration list for PBXNativeTarget "Obelisk iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				45BDB2633005C8A9000021E6 /* Debug */,
+				45BDB2643005C8A9000021E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		45BDB26A3005C8A9000021E6 /* Build configuration list for PBXNativeTarget "Obelisk iOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				45BDB2653005C8A9000021E6 /* Debug */,
+				45BDB2663005C8A9000021E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		45BDB26B3005C8A9000021E6 /* Build configuration list for PBXNativeTarget "Obelisk iOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				45BDB2673005C8A9000021E6 /* Debug */,
+				45BDB2683005C8A9000021E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		E10B00013005D00000000001 /* XCLocalSwiftPackageReference "Packages/ObeliskKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ObeliskKit;
+		};
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
 		E1KS00012FC4A00100000001 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
@@ -619,6 +1026,36 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		E10B00023005D00000000002 /* ObeliskCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10B00013005D00000000001 /* XCLocalSwiftPackageReference "Packages/ObeliskKit" */;
+			productName = ObeliskCore;
+		};
+		E10B00033005D00000000003 /* ObeliskData */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10B00013005D00000000001 /* XCLocalSwiftPackageReference "Packages/ObeliskKit" */;
+			productName = ObeliskData;
+		};
+		E10B00043005D00000000004 /* ObeliskSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10B00013005D00000000001 /* XCLocalSwiftPackageReference "Packages/ObeliskKit" */;
+			productName = ObeliskSync;
+		};
+		E10B00053005D00000000005 /* ObeliskCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10B00013005D00000000001 /* XCLocalSwiftPackageReference "Packages/ObeliskKit" */;
+			productName = ObeliskCore;
+		};
+		E10B00063005D00000000006 /* ObeliskData */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10B00013005D00000000001 /* XCLocalSwiftPackageReference "Packages/ObeliskKit" */;
+			productName = ObeliskData;
+		};
+		E10B00073005D00000000007 /* ObeliskSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10B00013005D00000000001 /* XCLocalSwiftPackageReference "Packages/ObeliskKit" */;
+			productName = ObeliskSync;
+		};
 		E1KS00022FC4A00100000002 /* KeyboardShortcuts */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = E1KS00012FC4A00100000001 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;

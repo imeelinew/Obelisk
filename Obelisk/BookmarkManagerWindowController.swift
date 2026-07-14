@@ -6,7 +6,6 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
     private let model: BookmarksModel
     private let faviconLoader: FaviconLoader
     private let addRequest: AddBookmarkRequest
-    private let onStorageRootChanged: (URL) -> Void
     private let onWindowClosed: () -> Void
     private var window: NSWindow?
 
@@ -14,13 +13,11 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         model: BookmarksModel,
         faviconLoader: FaviconLoader,
         addRequest: AddBookmarkRequest,
-        onStorageRootChanged: @escaping (URL) -> Void,
         onWindowClosed: @escaping () -> Void
     ) {
         self.model = model
         self.faviconLoader = faviconLoader
         self.addRequest = addRequest
-        self.onStorageRootChanged = onStorageRootChanged
         self.onWindowClosed = onWindowClosed
     }
 
@@ -35,8 +32,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
             rootView: BookmarkManagerView(
                 model: model,
                 faviconLoader: faviconLoader,
-                addRequest: addRequest,
-                onStorageRootChanged: onStorageRootChanged
+                addRequest: addRequest
             )
         )
 

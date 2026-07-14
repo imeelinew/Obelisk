@@ -1,3 +1,4 @@
+import ObeliskCore
 import SwiftUI
 
 struct HiddenBookmarksLockingModifier: ViewModifier {

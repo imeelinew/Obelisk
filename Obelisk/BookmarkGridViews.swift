@@ -1,4 +1,5 @@
 import AppKit
+import ObeliskCore
 import SwiftUI
 
 struct BookmarkGridSection: Identifiable, Equatable {
@@ -377,4 +378,3 @@ struct BookmarkGridCard: View {
             .background(Color(nsColor: .textBackgroundColor).opacity(0.65), in: RoundedRectangle(cornerRadius: 6))
     }
 }
-

@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import ObeliskCore
+import ObeliskData
 import Observation
 
 enum BookmarkMenuSectionID: Hashable, Identifiable {
@@ -374,8 +376,6 @@ final class BookmarksModel {
     @ObservationIgnored var onChange: (() -> Void)?
 
     private let store: BookmarkStore
-    private let usageStore: UsageStore
-    private let groupStore: BookmarkGroupStore
     private let titleOptimizer: any TitleOptimizing
     private let groupOptimizer: any BookmarkGroupingOptimizing
     private var recentGroupLimit: Int
@@ -385,31 +385,6 @@ final class BookmarksModel {
 
     var rootDirectory: URL {
         store.rootDirectory
-    }
-
-    func invalidateStorageCaches() {
-        store.invalidateCache()
-        usageStore.invalidateCache()
-        groupStore.invalidateCache()
-    }
-
-    func createEncryptedBackup(at destination: URL) throws {
-        try ObeliskVaultStore(rootDirectory: rootDirectory).createEncryptedBackup(at: destination)
-    }
-
-    func restoreVaultKey(from recoveryDocumentURL: URL) throws {
-        let encodedRecoveryKey = try RecoveryKeyDocument.read(from: recoveryDocumentURL)
-        let vault = ObeliskVaultStore(rootDirectory: rootDirectory)
-        try vault.restoreKey(using: encodedRecoveryKey)
-        invalidateStorageCaches()
-        reload()
-        if let loadErrorMessage {
-            throw ObeliskStorageError.databaseOperationFailed(loadErrorMessage)
-        }
-    }
-
-    func updateStorageRootDirectory(_ rootDirectory: URL) {
-        groupStore.updateRootDirectory(rootDirectory)
     }
 
     func collectionId(for bookmarkId: UUID) -> UUID? {
@@ -435,15 +410,12 @@ final class BookmarksModel {
 
     init(
         store: BookmarkStore,
-        usageStore: UsageStore,
         recentGroupLimit: Int = 5,
         titleOptimizer: (any TitleOptimizing)? = nil,
         groupOptimizer: (any BookmarkGroupingOptimizing)? = nil
     ) {
         self.store = store
-        self.usageStore = usageStore
-        self.groupStore = BookmarkGroupStore(rootDirectory: store.rootDirectory)
-        let defaultOptimizer = TitleOptimizer(rootDirectory: store.rootDirectory)
+        let defaultOptimizer = TitleOptimizer()
         self.titleOptimizer = titleOptimizer ?? defaultOptimizer
         self.groupOptimizer = groupOptimizer ?? defaultOptimizer
         self.recentGroupLimit = recentGroupLimit
@@ -452,23 +424,20 @@ final class BookmarksModel {
 
     func reload() {
         do {
-            let all = try store.bookmarks()
-            // Prune usage entries for deleted bookmarks. Cheap; only writes
-            // when there are actually orphans.
-            usageStore.cleanup(validIds: Set(all.map(\.id)))
-            let usage = usageStore.load()
+            let snapshot = try store.snapshot()
+            let all = snapshot.bookmarks
+            let usage = snapshot.usageByBookmarkID
             usageByBookmarkId = usage
             bookmarks = all
             searchIndex = BookmarkSearchIndex(bookmarks: all)
-            let groupData = groupStore.load()
-            collections = groupData.collections.sorted {
+            collections = snapshot.collections.sorted {
                 if $0.sortOrder != $1.sortOrder {
                     return $0.sortOrder < $1.sortOrder
                 }
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
             membershipByBookmarkId = Self.prunedMembership(
-                groupData.membershipByBookmarkId,
+                snapshot.collectionByBookmarkID,
                 collections: collections,
                 bookmarkIds: Set(all.map(\.id))
             )
@@ -610,7 +579,6 @@ final class BookmarksModel {
     func delete(ids: Set<UUID>) -> String? {
         do {
             try store.delete(ids: ids)
-            try groupStore.removeMembership(for: ids)
             reload()
             return nil
         } catch {
@@ -620,10 +588,18 @@ final class BookmarksModel {
     }
 
     func recordUsage(for bookmark: Bookmark) {
-        usageByBookmarkId[bookmark.id] = usageStore.record(
-            id: bookmark.id,
-            previous: usageByBookmarkId[bookmark.id]
-        )
+        do {
+            let date = Date()
+            try store.database.recordUsage(bookmarkID: bookmark.id, at: date)
+            let previous = usageByBookmarkId[bookmark.id]
+            usageByBookmarkId[bookmark.id] = UsageRecord(
+                count: (previous?.count ?? 0) + 1,
+                lastClickedAt: date
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
         let visible = visibleBookmarks(from: bookmarks, usage: usageByBookmarkId)
         visibleBookmarksSnapshot = visible
         pinned = BookmarkListSortMode.storedForPinned.sorted(visible.filter(\.isPinned), usage: usageByBookmarkId)
@@ -810,12 +786,10 @@ final class BookmarksModel {
         }
 
         do {
-            try groupStore.update { database in
-                let nextOrder = (database.collections.map(\.sortOrder).max() ?? -1) + 1
-                database.collections.append(
-                    BookmarkCollection(name: trimmed, sortOrder: nextOrder)
-                )
-            }
+            let nextOrder = (collections.map(\.sortOrder).max() ?? -1) + 1
+            try store.database.saveCollection(
+                BookmarkCollection(name: trimmed, sortOrder: nextOrder)
+            )
             reload()
             return nil
         } catch {
@@ -837,10 +811,11 @@ final class BookmarksModel {
         }
 
         do {
-            try groupStore.update { database in
-                guard let index = database.collections.firstIndex(where: { $0.id == id }) else { return }
-                database.collections[index].name = trimmed
+            guard var collection = collections.first(where: { $0.id == id }) else {
+                return "找不到这个分组"
             }
+            collection.name = trimmed
+            try store.database.saveCollection(collection)
             reload()
             return nil
         } catch {
@@ -850,10 +825,7 @@ final class BookmarksModel {
 
     func deleteCollection(id: UUID) -> String? {
         do {
-            try groupStore.update { database in
-                database.collections.removeAll { $0.id == id }
-                database.membershipByBookmarkId = database.membershipByBookmarkId.filter { $0.value != id }
-            }
+            try store.database.deleteCollection(id: id)
             reload()
             return nil
         } catch {
@@ -870,13 +842,7 @@ final class BookmarksModel {
         }
 
         do {
-            try groupStore.update { database in
-                if let collectionId {
-                    database.membershipByBookmarkId[bookmarkId] = collectionId
-                } else {
-                    database.membershipByBookmarkId.removeValue(forKey: bookmarkId)
-                }
-            }
+            try store.database.setCollection(collectionId, for: [bookmarkId])
             reload()
             return nil
         } catch {
@@ -891,16 +857,8 @@ final class BookmarksModel {
         }
 
         do {
-            try groupStore.update { database in
-                for bookmarkId in bookmarkIds {
-                    guard bookmarks.contains(where: { $0.id == bookmarkId }) else { continue }
-                    if let collectionId {
-                        database.membershipByBookmarkId[bookmarkId] = collectionId
-                    } else {
-                        database.membershipByBookmarkId.removeValue(forKey: bookmarkId)
-                    }
-                }
-            }
+            let validIDs = bookmarkIds.intersection(bookmarks.map(\.id))
+            try store.database.setCollection(collectionId, for: validIDs)
             reload()
             return nil
         } catch {
@@ -991,40 +949,30 @@ final class BookmarksModel {
         var groupedCount = 0
         var placements: [AutoGroupedBookmarkPlacement] = []
 
-        try groupStore.update { database in
-            var collectionIdByName: [String: UUID] = [:]
-            var collectionNameById: [UUID: String] = [:]
-            for collection in database.collections {
-                collectionIdByName[Self.normalizedCollectionName(collection.name)] = collection.id
-                collectionNameById[collection.id] = collection.name
+        let collectionIdByName = Dictionary(
+            uniqueKeysWithValues: collections.map {
+                (Self.normalizedCollectionName($0.name), $0.id)
             }
+        )
+        let collectionNameById = Dictionary(uniqueKeysWithValues: collections.map { ($0.id, $0.name) })
 
-            for bookmark in candidates {
-                guard
-                    let rawGroupName = suggestions[bookmark.id],
-                    let groupName = Self.cleanedAutoGroupName(rawGroupName)
-                else {
-                    continue
-                }
-
-                let normalizedName = Self.normalizedCollectionName(groupName)
-                guard let collectionId = collectionIdByName[normalizedName] else {
-                    continue
-                }
-                let finalGroupName = collectionNameById[collectionId] ?? groupName
-
-                guard database.membershipByBookmarkId[bookmark.id] != collectionId else {
-                    continue
-                }
-                database.membershipByBookmarkId[bookmark.id] = collectionId
-                groupedCount += 1
-                placements.append(
-                    AutoGroupedBookmarkPlacement(
-                        bookmarkId: bookmark.id,
-                        groupName: finalGroupName
-                    )
+        for bookmark in candidates {
+            guard
+                let rawGroupName = suggestions[bookmark.id],
+                let groupName = Self.cleanedAutoGroupName(rawGroupName),
+                let collectionId = collectionIdByName[Self.normalizedCollectionName(groupName)],
+                membershipByBookmarkId[bookmark.id] != collectionId
+            else {
+                continue
+            }
+            try store.database.setCollection(collectionId, for: [bookmark.id])
+            groupedCount += 1
+            placements.append(
+                AutoGroupedBookmarkPlacement(
+                    bookmarkId: bookmark.id,
+                    groupName: collectionNameById[collectionId] ?? groupName
                 )
-            }
+            )
         }
 
         return (groupedCount, placements)
@@ -1253,7 +1201,7 @@ final class BookmarksModel {
         if bookmark.archivedAt != nil {
             try? store.setArchived(false, ids: [bookmark.id])
         }
-        usageStore.record(id: bookmark.id)
+        try? store.database.recordUsage(bookmarkID: bookmark.id, at: Date())
         reload()
         NSWorkspace.shared.open(url)
     }
@@ -1280,7 +1228,7 @@ final class BookmarksModel {
 
     private func recomputeMenuSpotlight(from all: [Bookmark], usage: [UUID: UsageRecord]) {
         let spotlightCandidates = all.filter { !$0.isPinned }
-        let topRecent = usageStore.recent(among: spotlightCandidates, limit: recentGroupLimit)
+        let topRecent = BookmarkUsageRanking.recent(among: spotlightCandidates, limit: recentGroupLimit)
         let surfacedIds = Set(topRecent.map(\.id))
 
         recent = topRecent
@@ -1308,7 +1256,7 @@ final class BookmarksModel {
         }
 
         let active = all.filter { !$0.isHidden && $0.archivedAt == nil }
-        let topFrequent = usageStore.topFrequent(
+        let topFrequent = BookmarkUsageRanking.topFrequent(
             among: active,
             usage: usage,
             limit: Self.autoArchiveFrequentProtectionLimit,
@@ -1316,7 +1264,7 @@ final class BookmarksModel {
         )
         let frequentIds = Set(topFrequent.map(\.id))
         let recentCandidates = active.filter { !frequentIds.contains($0.id) }
-        let topRecent = usageStore.recent(among: recentCandidates, limit: recentGroupLimit)
+        let topRecent = BookmarkUsageRanking.recent(among: recentCandidates, limit: recentGroupLimit)
         let groupedIds = Set(
             active.compactMap { bookmark -> UUID? in
                 membershipByBookmarkId[bookmark.id]

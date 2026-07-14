@@ -1,4 +1,5 @@
 import Foundation
+import ObeliskCore
 
 enum BookmarkSearchMatcher {
     static func matches(bookmark: Bookmark, query: String) -> Bool {

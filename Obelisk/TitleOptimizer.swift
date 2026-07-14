@@ -1,4 +1,5 @@
 import Foundation
+import ObeliskCore
 
 enum TitleOptimizationTranslation {
     static let storageKey = "titleOptimizationTranslateNonChineseTitles"
@@ -50,18 +51,18 @@ enum BookmarkAutoGroupingPreferences {
 }
 
 enum TitleOptimizerError: LocalizedError {
-    case missingConfig(URL)
-    case invalidConfig(URL)
+    case missingConfig
+    case invalidConfig
     case requestFailed
     case emptyResponse
     case emptyGroupingResponse
 
     var errorDescription: String? {
         switch self {
-        case .missingConfig(let url):
-            return "还没有配置 Intelligence 模型。请创建 \(url.path), 写入 apiKey 和 model。"
-        case .invalidConfig(let url):
-            return "Intelligence 配置无效。请检查 \(url.path) 里的 apiKey 和 model。"
+        case .missingConfig:
+            return "还没有配置 Intelligence 模型。请先在设置中填写 API Key 和模型。"
+        case .invalidConfig:
+            return "Intelligence 配置无效。请检查设置中的 API Key、模型和服务地址。"
         case .requestFailed:
             return "Intelligence 请求失败,请稍后再试"
         case .emptyResponse:
@@ -175,22 +176,19 @@ struct LLMConfig: Codable, Equatable, Sendable {
 
 final class LLMConfigStore {
     private static let remoteKeychainAccount = "remote"
+    private static let profilesKey = "llmProfilesSettings"
 
-    private(set) var rootDirectory: URL
     private let remoteAPIKeyStore = KeychainAPIKeyStore(account: remoteKeychainAccount)
-    private var vaultStore: ObeliskVaultStore
-    var configURL: URL {
-        vaultStore.databaseURL
-    }
+    private let defaults: UserDefaults
 
-    init(rootDirectory: URL) {
-        self.rootDirectory = rootDirectory
-        self.vaultStore = ObeliskVaultStore(rootDirectory: rootDirectory)
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
     }
 
     func loadProfiles() -> LLMProfilesSettings {
-        let payload = try? vaultStore.loadPayload()
-        var settings = payload?.llmProfiles ?? LLMProfilesSettings()
+        let stored = defaults.data(forKey: Self.profilesKey)
+        var settings = stored.flatMap { try? JSONDecoder().decode(LLMProfilesSettings.self, from: $0) }
+            ?? LLMProfilesSettings()
         settings.remote.apiKey = (try? remoteAPIKeyStore.readAPIKey()) ?? ""
         if settings.local.apiKey.isEmpty {
             settings.local.apiKey = LLMConfig.lmStudioPreset.apiKey
@@ -215,9 +213,7 @@ final class LLMConfigStore {
         var fileSettings = settings
         fileSettings.remote.apiKey = ""
 
-        try vaultStore.updatePayload { payload in
-            payload.llmProfiles = fileSettings
-        }
+        defaults.set(try JSONEncoder().encode(fileSettings), forKey: Self.profilesKey)
     }
 
     func save(_ config: LLMConfig) throws {
@@ -286,8 +282,8 @@ final class TitleOptimizer {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init(rootDirectory: URL) {
-        self.configStore = LLMConfigStore(rootDirectory: rootDirectory)
+    init() {
+        self.configStore = LLMConfigStore()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 180
@@ -496,7 +492,6 @@ final class TitleOptimizer {
     }
 
     private func loadConfig() throws -> LoadedConfig {
-        let configURL = configStore.configURL
         let fileConfig = configStore.load()
 
         let env = ProcessInfo.processInfo.environment
@@ -508,9 +503,9 @@ final class TitleOptimizer {
         do {
             return try validate(LLMConfig(apiKey: apiKey, model: model, baseURL: baseURLString))
         } catch TitleOptimizerError.invalidConfig {
-            throw TitleOptimizerError.invalidConfig(configURL)
+            throw TitleOptimizerError.invalidConfig
         } catch {
-            throw TitleOptimizerError.missingConfig(configURL)
+            throw TitleOptimizerError.missingConfig
         }
     }
 
@@ -520,10 +515,10 @@ final class TitleOptimizer {
         let baseURLString = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !apiKey.isEmpty, !model.isEmpty else {
-            throw TitleOptimizerError.missingConfig(configStore.configURL)
+            throw TitleOptimizerError.missingConfig
         }
         guard let baseURL = URL(string: baseURLString) else {
-            throw TitleOptimizerError.invalidConfig(configStore.configURL)
+            throw TitleOptimizerError.invalidConfig
         }
 
         return LoadedConfig(apiKey: apiKey, model: model, baseURL: baseURL)

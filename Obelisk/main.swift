@@ -2,7 +2,11 @@ import AppKit
 import Darwin
 import KeyboardShortcuts
 import Foundation
+import ObeliskCore
+import ObeliskData
+import ObeliskSync
 import Observation
+import PowerSync
 import Sparkle
 import SwiftUI
 
@@ -25,12 +29,6 @@ private func configureTestingEnvironmentIfNeeded() {
         .appendingPathComponent("ObeliskTests-\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     setenv("OBELISK_HOME", root.path, 1)
-    setenv("OBELISK_USE_IN_MEMORY_KEYSTORE", "1", 1)
-    setenv(
-        "OBELISK_RECOVERY_KEY_OUTPUT",
-        root.appendingPathComponent("Recovery Key.txt").path,
-        1
-    )
 }
 
 @MainActor
@@ -49,13 +47,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         item.autosaveName = "com.eli.Obelisk.statusItem.main"
         return item
     }()
-    private let store = BookmarkStore()
-    private let usageStore = UsageStore()
-    private var bookmarkWatcher: BookmarkFileWatcher?
+    private var store: BookmarkStore!
+    private var authClient: ObeliskAuthClient!
+    private var accountWindow: ObeliskAccountWindowController?
+    private var syncConnector: ObeliskPowerSyncConnector?
+    private var databaseWatchTask: Task<Void, Never>?
     private var rebuildDebounce: DispatchWorkItem?
     private lazy var bookmarksModel = BookmarksModel(
         store: store,
-        usageStore: usageStore,
         recentGroupLimit: UserDefaults.standard.object(forKey: "menuRecentGroupLimit") as? Int ?? 5
     )
     private let addRequest = AddBookmarkRequest()
@@ -63,9 +62,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         model: bookmarksModel,
         faviconLoader: faviconLoader,
         addRequest: addRequest,
-        onStorageRootChanged: { [weak self] rootDirectory in
-            self?.handleStorageRootChanged(rootDirectory)
-        },
         onWindowClosed: { [weak self] in
             self?.handleManagerWindowClosed()
         }
@@ -132,15 +128,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
+        guard !isUnitTesting else { return }
+        do {
+            authClient = try ObeliskAuthClient(
+                configuration: .load()
+            )
+        } catch {
+            presentStartupError(error)
+            return
+        }
+        Task {
+            if let session = await authClient.restoredSession() {
+                await startApplication(session: session)
+            } else {
+                showAccountWindow()
+            }
+        }
+    }
+
+    private func startApplication(session: ObeliskAuthSession) async {
+        do {
+            store = try await BookmarkStore.open(
+                ownerID: session.accountID,
+                deviceID: session.deviceID
+            )
+        } catch {
+            presentStartupError(error)
+            return
+        }
+
         configureStatusItem()
         installDefaultsObserver()
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
         }
-        startBookmarkWatcher()
         installKeyboardShortcutHandlers()
         setupNotificationPopover()
         refreshMenuBrowserHistoryCache()
+        startDatabaseWatch()
+
+        let connector = ObeliskPowerSyncConnector(auth: authClient)
+        syncConnector = connector
+        Task {
+            do {
+                try await store.database.powerSync.connect(connector: connector)
+            } catch {
+                bookmarksModel.errorMessage = error.localizedDescription
+            }
+        }
 
         openManager()
     }
@@ -149,11 +184,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         dismissMenuBarSearchPopover()
     }
 
+    private func showAccountWindow() {
+        guard authClient != nil else { return }
+        let controller = ObeliskAccountWindowController(
+            auth: authClient,
+            onAuthenticated: { [weak self] session in
+                guard let self else { return }
+                self.accountWindow = nil
+                await self.startApplication(session: session)
+            }
+        )
+        accountWindow = controller
+        controller.show()
+    }
+
+    private func presentStartupError(_ error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "Obelisk 无法启动"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "退出")
+        alert.runModal()
+        NSApp.terminate(nil)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
         dockReopenWorkItem?.cancel()
         menuBrowserHistoryRefreshTask?.cancel()
-        usageStore.flushPendingWrites()
+        databaseWatchTask?.cancel()
     }
 
     private func installDefaultsObserver() {
@@ -766,26 +825,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
     }
 
-    private func startBookmarkWatcher() {
-        bookmarkWatcher = BookmarkFileWatcher(fileURL: store.fileURL) { [weak self] in
-            // model.reload fires onChange → menubar rebuild via the callback
-            // wired in applicationDidFinishLaunching.
-            self?.bookmarksModel.invalidateStorageCaches()
-            self?.bookmarksModel.reload()
+    private func startDatabaseWatch() {
+        databaseWatchTask?.cancel()
+        let database = store.database.powerSync
+        databaseWatchTask = Task { [weak self] in
+            do {
+                let changes = try database.watch(
+                    sql: """
+                    SELECT 'bookmark:' || id || ':' || updated_at AS version FROM bookmarks
+                    UNION ALL
+                    SELECT 'collection:' || id || ':' || updated_at AS version FROM collections
+                    UNION ALL
+                    SELECT 'usage:' || id || ':' || occurred_at AS version FROM usage_events
+                    """,
+                    parameters: []
+                ) { cursor in
+                    try cursor.getString(index: 0)
+                }
+                for try await _ in changes {
+                    guard !Task.isCancelled else { return }
+                    self?.bookmarksModel.reload()
+                }
+            } catch {
+                self?.bookmarksModel.errorMessage = error.localizedDescription
+            }
         }
-    }
-
-    private func handleStorageRootChanged(_ rootDirectory: URL) {
-        bookmarksModel.updateStorageRootDirectory(rootDirectory)
-        faviconLoader.updateRootDirectory(rootDirectory)
-        bookmarkWatcher = nil
-        startBookmarkWatcher()
-        scheduleRebuild()
     }
 
     private func handleManagerWindowClosed() {
         faviconLoader.releaseTransientMemory()
-        bookmarksModel.invalidateStorageCaches()
         statusItem.menu = nil
         DispatchQueue.main.async {
             _ = malloc_zone_pressure_relief(nil, 0)
@@ -1133,6 +1201,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     @objc private func openManager() {
         dismissNotificationPopover()
+        guard store != nil else {
+            showAccountWindow()
+            return
+        }
         managerWindow.show()
     }
 

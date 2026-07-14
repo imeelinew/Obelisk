@@ -1,0 +1,6 @@
+.env
+secrets
+obelisk-api
+server.tar.gz
+._*
+**/._*

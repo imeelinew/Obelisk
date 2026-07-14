@@ -1,0 +1,15 @@
+config:
+  edition: 3
+
+streams:
+  collections:
+    auto_subscribe: true
+    query: SELECT id, name, position_key, show_in_menu, field_versions, created_at, updated_at, deleted_at FROM collections WHERE owner_id = auth.user_id()
+
+  bookmarks:
+    auto_subscribe: true
+    query: SELECT id, collection_id, title, url, title_optimized, is_hidden, archived_at, is_pinned, original_title, position_key, field_versions, created_at, updated_at, deleted_at FROM bookmarks WHERE owner_id = auth.user_id()
+
+  usage_events:
+    auto_subscribe: true
+    query: SELECT id, bookmark_id, device_id, occurred_at, created_at FROM usage_events WHERE owner_id = auth.user_id()

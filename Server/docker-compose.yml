@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:18.4-alpine3.23
+    restart: unless-stopped
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: postgres
+      OBELISK_DATABASE_PASSWORD: ${OBELISK_DATABASE_PASSWORD:?set OBELISK_DATABASE_PASSWORD}
+      POWERSYNC_DATABASE_PASSWORD: ${POWERSYNC_DATABASE_PASSWORD:?set POWERSYNC_DATABASE_PASSWORD}
+      POWERSYNC_STORAGE_PASSWORD: ${POWERSYNC_STORAGE_PASSWORD:?set POWERSYNC_STORAGE_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      OBELISK_LISTEN_ADDRESS: :8081
+      OBELISK_DATABASE_URL: postgresql://obelisk_api:${OBELISK_DATABASE_PASSWORD}@postgres:5432/obelisk?sslmode=disable
+      OBELISK_TOKEN_ISSUER: ${OBELISK_TOKEN_ISSUER:?set OBELISK_TOKEN_ISSUER}
+      OBELISK_JWT_KEY_ID: ${OBELISK_JWT_KEY_ID:?set OBELISK_JWT_KEY_ID}
+      OBELISK_JWT_PRIVATE_KEY_PATH: /run/secrets/jwt-private.pem
+      OBELISK_ALLOWED_ORIGIN: ${OBELISK_ALLOWED_ORIGIN:-}
+    volumes:
+      - ./secrets/jwt-private.pem:/run/secrets/jwt-private.pem:ro
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD", "/obelisk-api", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  powersync:
+    image: journeyapps/powersync-service:1.23.3
+    restart: unless-stopped
+    command: ["start", "-r", "unified"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      POWERSYNC_CONFIG_PATH: /config/service.yaml
+      PS_SOURCE_URI: postgresql://powersync_role:${POWERSYNC_DATABASE_PASSWORD}@postgres:5432/obelisk
+      PS_STORAGE_URI: postgresql://powersync_storage:${POWERSYNC_STORAGE_PASSWORD}@postgres:5432/powersync_storage
+      PS_JWKS_URI: http://api:8081/.well-known/jwks.json
+      PS_ADMIN_TOKEN: ${POWERSYNC_ADMIN_TOKEN:?set POWERSYNC_ADMIN_TOKEN}
+    volumes:
+      - ./powersync/service.yaml:/config/service.yaml:ro
+      - ./powersync/sync-config.yaml:/config/sync-config.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/probes/liveness').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
+
+volumes:
+  postgres-data:

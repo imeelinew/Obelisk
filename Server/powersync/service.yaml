@@ -1,0 +1,28 @@
+_type: self-hosted
+
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_SOURCE_URI
+      sslmode: disable
+
+storage:
+  type: postgresql
+  uri: !env PS_STORAGE_URI
+  sslmode: disable
+
+port: 8080
+
+sync_config:
+  path: /config/sync-config.yaml
+
+client_auth:
+  jwks_uri: !env PS_JWKS_URI
+  audience: [powersync]
+
+api:
+  tokens:
+    - !env PS_ADMIN_TOKEN
+
+telemetry:
+  disable_telemetry_sharing: true

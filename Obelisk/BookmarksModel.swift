@@ -1229,7 +1229,7 @@ final class BookmarksModel {
         let topRecent = BookmarkUsageRanking.recent(among: recentCandidates, limit: recentGroupLimit)
         let groupedIds = Set(
             active.compactMap { bookmark -> UUID? in
-                membershipByBookmarkId[bookmark.id]
+                membershipByBookmarkId[bookmark.id] == nil ? nil : bookmark.id
             }
         )
         let pinnedIds = Set(active.filter(\.isPinned).map(\.id))

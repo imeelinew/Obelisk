@@ -156,18 +156,21 @@
     }
 
     .inline-header {
-      position: sticky;
-      z-index: 10;
+      position: absolute;
+      z-index: 20;
       top: 54px;
+      right: 0;
+      left: 0;
       height: 58px;
       display: grid;
       place-items: center;
-      margin: -16px -17px 18px;
       padding: 0 16px;
       background: rgba(242, 242, 247, 0.86);
-      border-bottom: 0.5px solid transparent;
+      border-bottom: 0.5px solid var(--separator);
       backdrop-filter: blur(24px) saturate(1.4);
     }
+
+    .detail-scroll { padding-top: 130px; }
 
     .inline-header h1 {
       font-size: 17px;
@@ -610,8 +613,8 @@
       </section>
 
       <section class="screen" data-screen="intelligence">
-        <div class="scroll">
-          <header class="inline-header"><button class="back" type="button">更多</button><h1>Intelligence</h1></header>
+        <header class="inline-header"><button class="back" type="button">更多</button><h1>Intelligence</h1></header>
+        <div class="scroll detail-scroll">
 
           <div class="section">
             <div class="section-title">Intelligence 功能</div>
@@ -651,8 +654,8 @@
       </section>
 
       <section class="screen" data-screen="cloud">
-        <div class="scroll">
-          <header class="inline-header"><button class="back" type="button">更多</button><h1>云同步</h1></header>
+        <header class="inline-header"><button class="back" type="button">更多</button><h1>云同步</h1></header>
+        <div class="scroll detail-scroll">
 
           <div class="section">
             <div class="section-title">同步</div>
@@ -690,8 +693,8 @@
       </section>
 
       <section class="screen" data-screen="hidden">
-        <div class="scroll">
-          <header class="inline-header"><button class="back" type="button">更多</button><h1>隐藏书签</h1></header>
+        <header class="inline-header"><button class="back" type="button">更多</button><h1>隐藏书签</h1></header>
+        <div class="scroll detail-scroll">
           <div class="section">
             <div class="section-title">隐藏书签</div>
             <div class="group">
@@ -705,8 +708,8 @@
       </section>
 
       <section class="screen" data-screen="archive">
-        <div class="scroll">
-          <header class="inline-header"><button class="back" type="button">更多</button><h1>归档</h1></header>
+        <header class="inline-header"><button class="back" type="button">更多</button><h1>归档</h1></header>
+        <div class="scroll detail-scroll">
           <div class="section">
             <div class="section-title">自动归档</div>
             <div class="group">
@@ -725,8 +728,8 @@
       </section>
 
       <section class="screen" data-screen="settings">
-        <div class="scroll">
-          <header class="inline-header"><button class="back" type="button">更多</button><h1>设置</h1></header>
+        <header class="inline-header"><button class="back" type="button">更多</button><h1>设置</h1></header>
+        <div class="scroll detail-scroll">
           <div class="section">
             <div class="section-title">域名显示</div>
             <div class="group">
@@ -741,8 +744,8 @@
       </section>
 
       <section class="screen" data-screen="about">
-        <div class="scroll">
-          <header class="inline-header"><button class="back" type="button">更多</button><h1>关于 Obelisk</h1></header>
+        <header class="inline-header"><button class="back" type="button">更多</button><h1>关于 Obelisk</h1></header>
+        <div class="scroll detail-scroll">
           <div class="section">
             <div class="group">
               <div class="row no-icon"><span class="row-copy"><span class="row-title">Obelisk</span></span><span class="value">1.9.0 (1)</span></div>

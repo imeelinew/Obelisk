@@ -33,6 +33,8 @@ struct Obelisk_iOSTests {
         #expect(library.bookmarks.map(\.id) == [pinned.id, visible.id])
         #expect(library.pinnedBookmarks.map(\.id) == [pinned.id])
         #expect(library.unpinnedBookmarks.map(\.id) == [visible.id])
+        #expect(library.hiddenBookmarks.map(\.id) == [hidden.id])
+        #expect(library.archivedBookmarks.map(\.id) == [archived.id])
     }
 
     @Test func searchMatchesTitleURLAndCollectionName() {
@@ -74,5 +76,49 @@ struct Obelisk_iOSTests {
         )
 
         #expect(library.recentlyOpenedBookmarks.map(\.id) == [newer.id, older.id])
+    }
+
+    @Test func automaticArchiveMatchesTheConfiguredIdleWindow() {
+        let defaults = UserDefaults.standard
+        let enabled = defaults.object(forKey: ObeliskLibraryModel.autoArchiveEnabledKey)
+        let days = defaults.object(forKey: ObeliskLibraryModel.archiveAfterDaysKey)
+        defer {
+            restore(enabled, key: ObeliskLibraryModel.autoArchiveEnabledKey, defaults: defaults)
+            restore(days, key: ObeliskLibraryModel.archiveAfterDaysKey, defaults: defaults)
+        }
+        defaults.set(true, forKey: ObeliskLibraryModel.autoArchiveEnabledKey)
+        defaults.set(3, forKey: ObeliskLibraryModel.archiveAfterDaysKey)
+
+        let now = Date()
+        let bookmarks = (0..<7).map { index in
+            Bookmark(
+                title: "Bookmark \(index)",
+                url: "https://example.com/\(index)",
+                createdAt: now.addingTimeInterval(TimeInterval(-40 + index) * 86_400)
+            )
+        }
+        let collection = BookmarkCollection(name: "长期资料")
+        let library = ObeliskLibraryModel(
+            snapshot: ObeliskLibrarySnapshot(
+                bookmarks: bookmarks,
+                collections: [collection],
+                collectionByBookmarkID: [bookmarks[0].id: collection.id]
+            ),
+            phase: .ready
+        )
+
+        #expect(library.archivedBookmarks.map(\.id) == [bookmarks[1].id])
+        #expect(
+            Set(library.bookmarks.map(\.id))
+                == Set([bookmarks[0].id] + bookmarks.dropFirst(2).map(\.id))
+        )
+    }
+
+    private func restore(_ value: Any?, key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 }

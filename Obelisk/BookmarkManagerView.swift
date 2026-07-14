@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import ObeliskCore
+import ObeliskSync
 import SwiftUI
 import UniformTypeIdentifiers
 

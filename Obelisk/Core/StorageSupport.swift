@@ -1,6 +1,5 @@
 import Foundation
 import ObeliskData
-import Security
 
 enum ObeliskPrivateStorage {
     static func faviconDirectory(in rootDirectory: URL) -> URL {
@@ -50,87 +49,5 @@ enum LocalFileAccess {
     static func removeItem(at url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
-    }
-}
-
-final class KeychainAPIKeyStore {
-    static let service = "com.eli.Obelisk.llm-apikey.v3"
-
-    private let service: String
-    private let account: String
-
-    init(account: String = "default", service: String = KeychainAPIKeyStore.service) {
-        self.account = account
-        self.service = service
-    }
-
-    func readAPIKey() throws -> String? {
-        var query = baseQuery()
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw KeychainAPIKeyStoreError.operation(status)
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    func saveAPIKey(_ key: String) throws {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            try deleteAPIKey()
-            return
-        }
-
-        let attributes: [String: Any] = [
-            kSecValueData as String: Data(trimmed.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-        let query = baseQuery()
-        if SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess {
-            let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-            guard status == errSecSuccess else { throw KeychainAPIKeyStoreError.operation(status) }
-            return
-        }
-
-        var addQuery = query
-        addQuery.merge(attributes) { _, new in new }
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainAPIKeyStoreError.operation(status) }
-    }
-
-    func deleteAPIKey() throws {
-        let status = SecItemDelete(baseQuery() as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainAPIKeyStoreError.operation(status)
-        }
-    }
-
-    func hasAPIKey() -> Bool {
-        (try? readAPIKey())?.isEmpty == false
-    }
-
-    private func baseQuery() -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true
-        ]
-    }
-}
-
-enum KeychainAPIKeyStoreError: LocalizedError {
-    case operation(OSStatus)
-
-    var errorDescription: String? {
-        switch self {
-        case .operation(let status):
-            let message = (SecCopyErrorMessageString(status, nil) as String?) ?? "unknown Security error"
-            return "钥匙串操作失败（\(status)：\(message)）"
-        }
     }
 }

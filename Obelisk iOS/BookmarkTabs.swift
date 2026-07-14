@@ -213,7 +213,7 @@ private struct CollectionBookmarksView: View {
     }
 }
 
-private struct BookmarkButton: View {
+struct BookmarkButton: View {
     let bookmark: Bookmark
     let library: ObeliskLibraryModel
     var trailingText: String?
@@ -246,6 +246,8 @@ private struct BookmarkRow: View {
     let bookmark: Bookmark
     var trailingText: String?
 
+    @AppStorage("showsURLHostOnly") private var showsURLHostOnly = true
+
     var body: some View {
         HStack(spacing: 12) {
             BookmarkFavicon(urlString: bookmark.url)
@@ -255,7 +257,7 @@ private struct BookmarkRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(host)
+                Text(showsURLHostOnly ? host : bookmark.url)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

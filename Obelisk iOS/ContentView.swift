@@ -53,6 +53,10 @@ struct ContentView: View {
                 RecentTabView(library: library)
             }
 
+            Tab("更多", systemImage: "ellipsis") {
+                MoreTabView(library: library)
+            }
+
             Tab(role: .search) {
                 SearchTabView(library: library, searchText: $searchText)
             } label: {

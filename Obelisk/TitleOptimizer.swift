@@ -1,5 +1,6 @@
 import Foundation
 import ObeliskCore
+import ObeliskSync
 
 enum TitleOptimizationTranslation {
     static let storageKey = "titleOptimizationTranslateNonChineseTitles"
@@ -105,128 +106,6 @@ struct TitleOptimizationBenchmarkResult {
     let elapsedSeconds: TimeInterval
     let optimizedTitles: [UUID: String]
     let candidates: [TitleOptimizationCandidate]
-}
-
-enum LLMModelSource: String, Codable, CaseIterable, Identifiable, Sendable {
-    case remote
-    case local
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .remote: return "远程 API"
-        case .local: return "本地模型 (LM Studio)"
-        }
-    }
-}
-
-struct LLMProfilesSettings: Codable, Equatable, Sendable {
-    var activeSource: LLMModelSource = .remote
-    var remote: LLMConfig = .init()
-    var local: LLMConfig = .lmStudioPreset
-
-    var activeConfig: LLMConfig {
-        switch activeSource {
-        case .remote: remote
-        case .local: local
-        }
-    }
-}
-
-struct LLMConfig: Codable, Equatable, Sendable {
-    var apiKey: String = ""
-    var model: String = ""
-    var baseURL: String = "https://api.openai.com/v1/chat/completions"
-
-    private enum CodingKeys: String, CodingKey {
-        case apiKey, model, baseURL
-    }
-
-    init() {}
-
-    init(apiKey: String, model: String, baseURL: String) {
-        self.apiKey = apiKey
-        self.model = model
-        self.baseURL = baseURL
-    }
-
-    static let lmStudioPreset = LLMConfig(
-        apiKey: "lm-studio",
-        model: "qwen3.5-4b",
-        baseURL: "http://localhost:1234/v1/chat/completions"
-    )
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
-        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
-        baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? "https://api.openai.com/v1/chat/completions"
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        if !apiKey.isEmpty {
-            try container.encode(apiKey, forKey: .apiKey)
-        }
-        try container.encode(model, forKey: .model)
-        try container.encode(baseURL, forKey: .baseURL)
-    }
-}
-
-final class LLMConfigStore {
-    private static let remoteKeychainAccount = "remote"
-    private static let profilesKey = "llmProfilesSettings"
-
-    private let remoteAPIKeyStore = KeychainAPIKeyStore(account: remoteKeychainAccount)
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    func loadProfiles() -> LLMProfilesSettings {
-        let stored = defaults.data(forKey: Self.profilesKey)
-        var settings = stored.flatMap { try? JSONDecoder().decode(LLMProfilesSettings.self, from: $0) }
-            ?? LLMProfilesSettings()
-        settings.remote.apiKey = (try? remoteAPIKeyStore.readAPIKey()) ?? ""
-        if settings.local.apiKey.isEmpty {
-            settings.local.apiKey = LLMConfig.lmStudioPreset.apiKey
-        }
-
-        if settings.local.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            var local = LLMConfig.lmStudioPreset
-            local.apiKey = settings.local.apiKey
-            settings.local = local
-        }
-
-        return settings
-    }
-
-    func load() -> LLMConfig {
-        loadProfiles().activeConfig
-    }
-
-    func save(_ settings: LLMProfilesSettings) throws {
-        try remoteAPIKeyStore.saveAPIKey(settings.remote.apiKey)
-
-        var fileSettings = settings
-        fileSettings.remote.apiKey = ""
-
-        defaults.set(try JSONEncoder().encode(fileSettings), forKey: Self.profilesKey)
-    }
-
-    func save(_ config: LLMConfig) throws {
-        var settings = loadProfiles()
-        switch settings.activeSource {
-        case .remote:
-            settings.remote = config
-        case .local:
-            settings.local = config
-        }
-        try save(settings)
-    }
-
 }
 
 @MainActor

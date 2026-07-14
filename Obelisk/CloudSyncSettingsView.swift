@@ -1,3 +1,4 @@
+import ObeliskSync
 import SwiftUI
 
 struct CloudSyncSettingsView: View {

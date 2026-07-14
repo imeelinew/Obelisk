@@ -1,4 +1,5 @@
 import AppKit
+import ObeliskSync
 import SwiftUI
 
 @MainActor

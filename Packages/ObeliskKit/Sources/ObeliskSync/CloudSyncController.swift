@@ -1,16 +1,15 @@
 import Foundation
 import ObeliskData
-import ObeliskSync
 import Observation
 import PowerSync
 
 @MainActor
 @Observable
-final class CloudSyncController {
-    static let enabledKey = "cloudSyncEnabled"
-    static let accountEmailKey = "cloudSyncAccountEmail"
+public final class CloudSyncController {
+    public static let enabledKey = "cloudSyncEnabled"
+    public static let accountEmailKey = "cloudSyncAccountEmail"
 
-    enum Phase: Equatable {
+    public enum Phase: Equatable {
         case off
         case authenticationRequired
         case connecting
@@ -22,21 +21,21 @@ final class CloudSyncController {
         case failed
     }
 
-    private(set) var isEnabled = false
-    private(set) var accountEmail: String?
-    private(set) var pendingUploadCount = 0
-    private(set) var connected = false
-    private(set) var connecting = false
-    private(set) var uploading = false
-    private(set) var downloading = false
-    private(set) var lastSyncedAt: Date?
-    private(set) var syncError: String?
-    private(set) var apiAvailable: Bool?
-    private(set) var isPerformingAction = false
-    private(set) var isTestingConnection = false
+    public private(set) var isEnabled = false
+    public private(set) var accountEmail: String?
+    public private(set) var pendingUploadCount = 0
+    public private(set) var connected = false
+    public private(set) var connecting = false
+    public private(set) var uploading = false
+    public private(set) var downloading = false
+    public private(set) var lastSyncedAt: Date?
+    public private(set) var syncError: String?
+    public private(set) var apiAvailable: Bool?
+    public private(set) var isPerformingAction = false
+    public private(set) var isTestingConnection = false
 
-    let apiHost: String
-    let powerSyncHost: String
+    public let apiHost: String
+    public let powerSyncHost: String
 
     private let database: ObeliskDatabase
     private let authClient: ObeliskAuthClient
@@ -45,7 +44,7 @@ final class CloudSyncController {
     private var statusTask: Task<Void, Never>?
     private var pendingCountTask: Task<Void, Never>?
 
-    init(
+    public init(
         database: ObeliskDatabase,
         authClient: ObeliskAuthClient,
         defaults: UserDefaults = .standard
@@ -59,7 +58,7 @@ final class CloudSyncController {
             ?? authClient.configuration.powerSyncURL.absoluteString
     }
 
-    var phase: Phase {
+    public var phase: Phase {
         if !isEnabled { return .off }
         if syncError != nil { return .failed }
         if !isAuthenticated { return .authenticationRequired }
@@ -71,11 +70,11 @@ final class CloudSyncController {
         return .offline
     }
 
-    var isAuthenticated: Bool {
+    public var isAuthenticated: Bool {
         session != nil
     }
 
-    var statusTitle: String {
+    public var statusTitle: String {
         switch phase {
         case .off: return "已关闭"
         case .authenticationRequired: return "需要登录"
@@ -89,7 +88,7 @@ final class CloudSyncController {
         }
     }
 
-    var apiStatusTitle: String {
+    public var apiStatusTitle: String {
         if isTestingConnection { return "测试中…" }
         switch apiAvailable {
         case true: return "可用"
@@ -98,13 +97,13 @@ final class CloudSyncController {
         }
     }
 
-    var powerSyncStatusTitle: String {
+    public var powerSyncStatusTitle: String {
         if !isEnabled { return "未启用" }
         if connecting { return "连接中" }
         return connected ? "已连接" : "未连接"
     }
 
-    func start() async {
+    public func start() async {
         isEnabled = defaults.bool(forKey: Self.enabledKey)
         observeStatus()
         observePendingUploadCount()
@@ -116,7 +115,7 @@ final class CloudSyncController {
         }
     }
 
-    func setEnabled(_ enabled: Bool) async {
+    public func setEnabled(_ enabled: Bool) async {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
@@ -134,7 +133,7 @@ final class CloudSyncController {
         }
     }
 
-    func login(email: String, password: String) async throws {
+    public func login(email: String, password: String) async throws {
         isPerformingAction = true
         syncError = nil
         defer { isPerformingAction = false }
@@ -156,7 +155,7 @@ final class CloudSyncController {
         await connect()
     }
 
-    func signOut() async throws {
+    public func signOut() async throws {
         isPerformingAction = true
         defer { isPerformingAction = false }
 
@@ -171,7 +170,7 @@ final class CloudSyncController {
         defaults.removeObject(forKey: Self.accountEmailKey)
     }
 
-    func syncNow() async {
+    public func syncNow() async {
         guard isEnabled, session != nil else { return }
         isPerformingAction = true
         defer { isPerformingAction = false }
@@ -180,7 +179,7 @@ final class CloudSyncController {
         await connect()
     }
 
-    func testConnection() async {
+    public func testConnection() async {
         isTestingConnection = true
         defer { isTestingConnection = false }
         do {

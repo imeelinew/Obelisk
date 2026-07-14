@@ -1294,7 +1294,7 @@ struct BookmarkManagerView: View {
                 deleteConfirmation = nil
             }
         } message: { confirmation in
-            Text("共计删除 \(confirmation.count) 个书签。")
+            Text("共计删除 \(confirmation.count) 个书签")
         }
         .alert(
             "提示",
@@ -1497,13 +1497,13 @@ struct BookmarkManagerView: View {
                         Image(nsImage: AppIcon.image(size: NSSize(width: 28, height: 28)))
                     }
                 } description: {
-                    Text("点击工具栏的 + 添加你的第一个书签。")
+                    Text("点击工具栏的 + 添加你的第一个书签")
                 }
             } else if bookmarkDisplayMode == .dateGrid, visibleBookmarks.isEmpty {
                 ContentUnavailableView {
                     Label("没有可见书签", systemImage: "square.grid.2x2")
                 } description: {
-                    Text("隐藏书签和归档书签不会显示在这里。")
+                    Text("隐藏书签和归档书签不会显示在这里")
                 }
             } else if bookmarkDisplayMode == .dateGrid {
                 BookmarkSectionGridView(
@@ -1531,7 +1531,7 @@ struct BookmarkManagerView: View {
                 ContentUnavailableView {
                     Label("没有未分组的书签", systemImage: "bookmark")
                 } description: {
-                    Text("已放入分组的书签在「分组」页查看。")
+                    Text("已放入分组的书签在「分组」页查看")
                 }
             } else {
                 NativeBookmarkList(
@@ -1679,7 +1679,7 @@ struct BookmarkManagerView: View {
                 ContentUnavailableView {
                     Label("还没有分组", systemImage: "folder")
                 } description: {
-                    Text("点击工具栏 + 创建分组。")
+                    Text("点击工具栏 + 创建分组")
                 }
             } else if collectionBookmarkDisplayMode == .dateGrid {
                 BookmarkSectionGridView(
@@ -1765,7 +1765,7 @@ struct BookmarkManagerView: View {
                 ContentUnavailableView {
                     Label("还没有隐藏书签", systemImage: "eye.slash")
                 } description: {
-                    Text("按 ⌥H 可以把当前浏览器标签添加为隐藏书签。")
+                    Text("按 ⌥H 可以把当前浏览器标签添加为隐藏书签")
                 }
             } else if hiddenBookmarkDisplayMode == .dateGrid {
                 VStack(spacing: 0) {
@@ -1846,7 +1846,7 @@ struct BookmarkManagerView: View {
                     ) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自动归档闲置书签")
-                            Text("开启后 Obelisk 会自动归档您一段时间没有使用的书签。")
+                            Text("开启后 Obelisk 会自动归档您一段时间没有使用的书签")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -1894,9 +1894,9 @@ struct BookmarkManagerView: View {
                     Label("没有归档书签", systemImage: "archivebox")
                 } description: {
                     if autoArchiveEnabled {
-                        Text("闲置书签会在达到设定天数后自动归档。")
+                        Text("闲置书签会在达到设定天数后自动归档")
                     } else {
-                        Text("您手动归档的书签会显示在这里。")
+                        Text("您手动归档的书签会显示在这里")
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1949,7 +1949,7 @@ struct BookmarkManagerView: View {
                 Toggle(isOn: $windowTransparencyEnabled) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("启用窗口透明效果")
-                        Text("为 Obelisk 窗口启用毛玻璃半透明材质。")
+                        Text("为 Obelisk 窗口启用毛玻璃半透明材质")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -1959,7 +1959,7 @@ struct BookmarkManagerView: View {
                     Toggle(isOn: customTransparencyBinding) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自定义透明度")
-                            Text("开启后可手动调整窗口透明度。")
+                            Text("开启后可手动调整窗口透明度")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -1983,7 +1983,7 @@ struct BookmarkManagerView: View {
                 Toggle(isOn: showsFullURLBinding) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("显示完整网站域名")
-                        Text("开启后书签列表会显示完整 URL。")
+                        Text("开启后书签列表会显示完整 URL")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -2001,8 +2001,8 @@ struct BookmarkManagerView: View {
                     .labelsHidden()
                 }
 
-                menuLimitStepper("最近添加数量", desc: "「最近添加」最多显示的书签数量。", value: $menuRecentGroupLimit)
-                menuLimitStepper("最近浏览数量", desc: "「最近浏览」最多显示的网页数量。", value: $menuBrowserHistoryLimit)
+                menuLimitStepper("最近添加数量", desc: "「最近添加」最多显示的书签数量", value: $menuRecentGroupLimit)
+                menuLimitStepper("最近浏览数量", desc: "「最近浏览」最多显示的网页数量", value: $menuBrowserHistoryLimit)
             }
         }
         .formStyle(.grouped)
@@ -2166,7 +2166,7 @@ struct BookmarkManagerView: View {
                 ShortcutRecorderRow(title: "菜单栏搜索", name: .menuBarSearch)
                 ShortcutRecorderRow(
                     title: "撤销添加",
-                    description: "添加书签 5s 内可以撤回。",
+                    description: "添加书签 5s 内可以撤回",
                     name: .undoAdd
                 )
             }
@@ -2210,7 +2210,7 @@ struct BookmarkManagerView: View {
                     Toggle(isOn: $autoOptimizeNewBookmarks) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自动优化新书签标题")
-                            Text("开启后将自动使用配置的模型优化新添加的书签标题。")
+                            Text("开启后将自动使用配置的模型优化新添加的书签标题")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -2219,7 +2219,7 @@ struct BookmarkManagerView: View {
                     Toggle(isOn: $autoGroupNewBookmarks) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("自动分组新书签")
-                            Text("开启后将自动使用配置的模型把新添加的可见书签归入合适分组。")
+                            Text("开启后将自动使用配置的模型把新添加的可见书签归入合适分组")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -2240,14 +2240,14 @@ struct BookmarkManagerView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         SecureField(
                             text: llmAPIKeyBinding,
-                            prompt: Text(llmProfiles.activeSource == .remote ? "sk-..." : "lm-studio")
+                            prompt: Text(llmProfiles.activeSource == .remote ? "sk-…" : "lm-studio")
                         ) {
                             Label("API Key", systemImage: "key")
                         }
                         Text(
                             llmProfiles.activeSource == .remote
-                                ? "用于访问云端 OpenAI 兼容服务的 API Key。"
-                                : "本地服务通常不校验 Key，填任意非空字符串即可。"
+                                ? "用于访问云端 OpenAI 兼容服务的 API Key"
+                                : "本地服务通常不校验 Key，填任意非空字符串即可"
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -2262,8 +2262,8 @@ struct BookmarkManagerView: View {
                         }
                         Text(
                             llmProfiles.activeSource == .remote
-                                ? "远程服务的模型名称，如 gpt-4.1-mini。"
-                                : "须与 LM Studio Local Server 里已加载模型的 id 一致。"
+                                ? "远程服务的模型名称，如 gpt-4.1-mini"
+                                : "须与 LM Studio Local Server 里已加载模型的 id 一致"
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -2282,8 +2282,8 @@ struct BookmarkManagerView: View {
                         }
                         Text(
                             llmProfiles.activeSource == .remote
-                                ? "远程 API 的 chat completions 地址。"
-                                : "须先在本机启动 LM Studio Local Server（默认端口 1234）。"
+                                ? "远程 API 的 chat completions 地址"
+                                : "须先在本机启动 LM Studio Local Server（默认端口 1234）"
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -2331,7 +2331,7 @@ struct BookmarkManagerView: View {
                 Toggle(isOn: $openHiddenBookmarksIncognito) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("使用无痕窗口打开隐藏书签")
-                        Text("Dia 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数。")
+                        Text("Dia 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -2372,7 +2372,7 @@ struct BookmarkManagerView: View {
                         }
                     }
 
-                    Text("包含关键字的 URL 只能添加到「隐藏书签」。")
+                    Text("包含关键字的 URL 只能添加到「隐藏书签」")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

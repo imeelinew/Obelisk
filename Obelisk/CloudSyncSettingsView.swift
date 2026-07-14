@@ -17,7 +17,7 @@ struct CloudSyncSettingsView: View {
                     Toggle(isOn: syncEnabled) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("开启云同步功能")
-                            Text("在你的设备之间同步书签、分组和使用记录。关闭云同步后，Obelisk 仍会将所有数据保存在本机。")
+                            Text("在你的设备之间同步书签、分组和使用记录，关闭云同步后，Obelisk 仍会将所有数据保存在本机")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -53,7 +53,7 @@ struct CloudSyncSettingsView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("同步将停止，登录信息会从本机移除。本地书签不会被删除。")
+            Text("同步将停止，登录信息会从本机移除，本地书签不会被删除")
         }
     }
 
@@ -93,7 +93,7 @@ struct CloudSyncSettingsView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("待上传的修改")
-                Text("关闭同步或离线期间的修改会保留在本机。")
+                Text("关闭同步或离线期间的修改会保留在本机")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -127,7 +127,7 @@ struct CloudSyncSettingsView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(cloudSync.accountEmail ?? "已连接云账户")
-                    Text("此账户用于验证云端数据的访问权限。")
+                    Text("此账户用于验证云端数据的访问权限")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -143,7 +143,7 @@ struct CloudSyncSettingsView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("退出云账户")
-                    Text("停止同步并移除本机保存的登录信息，不会删除本地书签。")
+                    Text("停止同步并移除本机保存的登录信息，不会删除本地书签")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

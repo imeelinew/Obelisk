@@ -18,6 +18,7 @@
 - Prefer native Apple controls and platform conventions. Do not force the macOS layout onto iOS.
 - A shared feature must have the same domain behavior on both platforms, even when its presentation differs.
 - Do not change existing macOS behavior while implementing iOS unless the shared behavior itself must change.
+- User-facing copy must not contain sentence-ending periods. Commas are allowed only as full-width Chinese commas (`，`), never ASCII commas.
 
 ## Storage and sync contract
 

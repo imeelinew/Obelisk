@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Obelisk iOS · 更多</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+      font-synthesis: none;
+      --accent: #0878f9;
+      --background: #f2f2f7;
+      --surface: rgba(255, 255, 255, 0.92);
+      --primary: #1c1c1e;
+      --secondary: #74747b;
+      --tertiary: #a0a0a7;
+      --separator: rgba(60, 60, 67, 0.18);
+      --glass: rgba(248, 248, 250, 0.73);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 28px 16px;
+      color: var(--primary);
+      background:
+        radial-gradient(circle at 18% 4%, rgba(82, 152, 255, 0.15), transparent 31%),
+        radial-gradient(circle at 84% 96%, rgba(151, 112, 255, 0.10), transparent 30%),
+        #e9e9ef;
+    }
+
+    button, input { font: inherit; }
+
+    .prototype {
+      display: grid;
+      justify-items: center;
+    }
+
+    .phone {
+      position: relative;
+      width: 402px;
+      height: 874px;
+      overflow: hidden;
+      border: 7px solid #19191b;
+      border-radius: 56px;
+      background: var(--background);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.20);
+    }
+
+    .status-bar {
+      position: absolute;
+      z-index: 30;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px 0 27px;
+      font-size: 15px;
+      font-weight: 650;
+      pointer-events: none;
+    }
+
+    .island {
+      position: absolute;
+      top: 11px;
+      left: 50%;
+      width: 118px;
+      height: 34px;
+      border-radius: 999px;
+      background: #050505;
+      transform: translateX(-50%);
+    }
+
+    .status-icons { display: flex; align-items: center; gap: 6px; }
+    .signal { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+    .signal i { width: 3px; border-radius: 2px; background: currentColor; }
+    .signal i:nth-child(1) { height: 4px; }
+    .signal i:nth-child(2) { height: 6px; }
+    .signal i:nth-child(3) { height: 9px; }
+    .signal i:nth-child(4) { height: 12px; }
+
+    .wifi {
+      width: 16px;
+      height: 12px;
+      border-top: 3px solid currentColor;
+      border-radius: 50% 50% 0 0;
+    }
+
+    .battery {
+      position: relative;
+      width: 24px;
+      height: 12px;
+      border: 1.5px solid currentColor;
+      border-radius: 4px;
+    }
+
+    .battery::before {
+      position: absolute;
+      inset: 2px;
+      border-radius: 2px;
+      background: currentColor;
+      content: "";
+    }
+
+    .battery::after {
+      position: absolute;
+      top: 3px;
+      right: -3px;
+      width: 2px;
+      height: 5px;
+      border-radius: 0 2px 2px 0;
+      background: currentColor;
+      content: "";
+      opacity: 0.45;
+    }
+
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: none;
+      background: var(--background);
+    }
+
+    .screen.active { display: block; }
+
+    .scroll {
+      position: absolute;
+      inset: 0;
+      overflow-y: auto;
+      padding: 70px 17px 130px;
+      scrollbar-width: none;
+    }
+
+    .scroll::-webkit-scrollbar { display: none; }
+
+    .large-header {
+      min-height: 57px;
+      display: flex;
+      align-items: flex-start;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      font-weight: 730;
+      line-height: 1.12;
+      letter-spacing: -1.1px;
+    }
+
+    .inline-header {
+      position: sticky;
+      z-index: 10;
+      top: 54px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      margin: -16px -17px 18px;
+      padding: 0 16px;
+      background: rgba(242, 242, 247, 0.86);
+      border-bottom: 0.5px solid transparent;
+      backdrop-filter: blur(24px) saturate(1.4);
+    }
+
+    .inline-header h1 {
+      font-size: 17px;
+      font-weight: 650;
+      letter-spacing: -0.25px;
+    }
+
+    .back {
+      position: absolute;
+      left: 15px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      border: 0;
+      padding: 8px 0;
+      color: var(--accent);
+      background: transparent;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .back::before {
+      width: 9px;
+      height: 9px;
+      border-bottom: 2px solid currentColor;
+      border-left: 2px solid currentColor;
+      content: "";
+      transform: rotate(45deg);
+    }
+
+    .section { margin-top: 24px; }
+    .section:first-of-type { margin-top: 18px; }
+
+    .section-title {
+      margin: 0 15px 7px;
+      color: var(--secondary);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: -0.05px;
+    }
+
+    .section-footnote {
+      margin: 7px 15px 0;
+      color: var(--secondary);
+      font-size: 12px;
+      line-height: 1.42;
+    }
+
+    .group {
+      overflow: hidden;
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: inset 0 0 0 0.5px rgba(60, 60, 67, 0.10);
+    }
+
+    .row {
+      position: relative;
+      width: 100%;
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      border: 0;
+      padding: 9px 14px;
+      color: inherit;
+      background: transparent;
+      text-align: left;
+    }
+
+    button.row { cursor: pointer; }
+    button.row:active { background: rgba(118, 118, 128, 0.10); }
+
+    .row + .row::before {
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 51px;
+      height: 0.5px;
+      background: var(--separator);
+      content: "";
+    }
+
+    .row.no-icon + .row.no-icon::before { left: 14px; }
+
+    .symbol {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      flex: none;
+      color: var(--accent);
+    }
+
+    .symbol svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .symbol.fill svg { fill: currentColor; stroke: none; }
+    .symbol.purple { color: #7856d8; }
+    .symbol.indigo { color: #5856d6; }
+    .symbol.orange { color: #dd7a19; }
+    .symbol.gray { color: #727278; }
+
+    .row-copy {
+      min-width: 0;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+    }
+
+    .row-title {
+      color: var(--primary);
+      font-size: 16px;
+      font-weight: 450;
+      line-height: 1.25;
+    }
+
+    .row-description {
+      margin-top: 3px;
+      color: var(--secondary);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .value {
+      max-width: 130px;
+      flex: none;
+      overflow: hidden;
+      color: var(--secondary);
+      font-size: 14px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status-value {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #238b3b;
+      font-size: 14px;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #34c759;
+    }
+
+    .chevron {
+      width: 8px;
+      height: 8px;
+      flex: none;
+      border-top: 1.6px solid #b0b0b6;
+      border-right: 1.6px solid #b0b0b6;
+      transform: rotate(45deg);
+    }
+
+    .switch {
+      position: relative;
+      width: 51px;
+      height: 31px;
+      flex: none;
+      border: 0;
+      border-radius: 999px;
+      background: #34c759;
+      box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+      cursor: pointer;
+      transition: background 150ms ease;
+    }
+
+    .switch::after {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 27px;
+      height: 27px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.24);
+      content: "";
+      transition: transform 160ms ease;
+    }
+
+    .switch.off { background: #dedee3; }
+    .switch.off::after { transform: translateX(-20px); }
+
+    .conditional.hidden { display: none; }
+
+    .text-button {
+      border: 0;
+      padding: 5px 0;
+      color: var(--accent);
+      background: transparent;
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    .text-button.danger { color: #d70015; }
+
+    .center-action {
+      width: 100%;
+      min-height: 48px;
+      border: 0;
+      color: var(--accent);
+      background: transparent;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .bookmark-row { min-height: 65px; }
+
+    .favicon {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      flex: none;
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .favicon.github { border-radius: 50%; background: #1f2022; }
+    .favicon.apple { border-radius: 6px; background: #161617; }
+    .favicon.swift { border-radius: 6px; background: #f05138; }
+
+    .days {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .stepper {
+      width: 84px;
+      height: 30px;
+      display: flex;
+      overflow: hidden;
+      border: 0.5px solid #c8c8cd;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .stepper button {
+      width: 42px;
+      border: 0;
+      color: var(--accent);
+      background: transparent;
+      font-size: 20px;
+    }
+
+    .stepper button + button { border-left: 0.5px solid #d5d5da; }
+
+    .tab-dock {
+      position: absolute;
+      z-index: 40;
+      right: 15px;
+      bottom: 18px;
+      left: 15px;
+      height: 72px;
+      display: flex;
+      align-items: stretch;
+      gap: 9px;
+      pointer-events: none;
+    }
+
+    .tab-group, .search-tab {
+      border: 1px solid rgba(255, 255, 255, 0.74);
+      background: var(--glass);
+      box-shadow:
+        0 9px 28px rgba(35, 43, 56, 0.16),
+        inset 0 0 0 0.5px rgba(72, 72, 80, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(28px) saturate(1.55);
+      -webkit-backdrop-filter: blur(28px) saturate(1.55);
+      pointer-events: auto;
+    }
+
+    .tab-group {
+      min-width: 0;
+      display: flex;
+      flex: 1;
+      padding: 5px;
+      border-radius: 28px;
+    }
+
+    .tab {
+      position: relative;
+      min-width: 0;
+      display: grid;
+      place-items: center;
+      align-content: center;
+      flex: 1;
+      gap: 2px;
+      border: 0;
+      border-radius: 22px;
+      color: #68686f;
+      background: transparent;
+    }
+
+    .tab::before {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border: 1px solid rgba(255, 255, 255, 0.70);
+      border-radius: inherit;
+      background: rgba(255, 255, 255, 0.70);
+      box-shadow: 0 3px 10px rgba(41, 47, 60, 0.08);
+      content: "";
+      opacity: 0;
+    }
+
+    .tab.active { color: var(--accent); }
+    .tab.active::before { opacity: 1; }
+
+    .tab svg, .search-tab svg {
+      width: 21px;
+      height: 21px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .tab-label { font-size: 9px; font-weight: 570; line-height: 1; }
+
+    .search-tab {
+      width: 72px;
+      display: grid;
+      place-items: center;
+      flex: none;
+      border-radius: 28px;
+      color: #55555c;
+    }
+
+    .home-indicator {
+      position: absolute;
+      z-index: 50;
+      bottom: 7px;
+      left: 50%;
+      width: 135px;
+      height: 5px;
+      border-radius: 999px;
+      background: #111114;
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    @media (max-width: 460px) {
+      body { padding: 0; background: var(--background); }
+      .prototype { width: 100%; }
+      .phone { width: 100vw; height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="prototype">
+    <div class="phone" aria-label="Obelisk iOS 更多页面原型">
+      <div class="status-bar" aria-hidden="true">
+        <span>9:41</span>
+        <div class="island"></div>
+        <div class="status-icons">
+          <div class="signal"><i></i><i></i><i></i><i></i></div>
+          <div class="wifi"></div>
+          <div class="battery"></div>
+        </div>
+      </div>
+
+      <section class="screen active" data-screen="more">
+        <div class="scroll">
+          <header class="large-header"><h1>更多</h1></header>
+
+          <div class="section">
+            <div class="section-title">内容</div>
+            <div class="group">
+              <button class="row" type="button" data-open="hidden">
+                <span class="symbol indigo">
+                  <svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 5.2A10.5 10.5 0 0 1 12 5c5 0 8.5 4.3 9.4 5.6.3.4.3.8 0 1.2a14.5 14.5 0 0 1-2.2 2.6M6.3 6.4a15 15 0 0 0-3.7 4.2c-.3.4-.3.8 0 1.2C3.5 13.1 7 17.4 12 17.4c1 0 2-.2 2.9-.5"></path></svg>
+                </span>
+                <span class="row-copy"><span class="row-title">隐藏书签</span></span>
+                <span class="value">7</span><span class="chevron"></span>
+              </button>
+              <button class="row" type="button" data-open="archive">
+                <span class="symbol orange fill">
+                  <svg viewBox="0 0 24 24"><path d="M4.2 3h15.6A2.2 2.2 0 0 1 22 5.2v1.1c0 .7-.4 1.3-1 1.7v10.7a2.3 2.3 0 0 1-2.3 2.3H5.3A2.3 2.3 0 0 1 3 18.7V8a2 2 0 0 1-1-1.7V5.2A2.2 2.2 0 0 1 4.2 3Zm.2 2a.4.4 0 0 0-.4.4v.4c0 .2.2.4.4.4h15.2c.2 0 .4-.2.4-.4v-.4a.4.4 0 0 0-.4-.4H4.4Zm3.8 5.1a1 1 0 0 0 0 2h7.6a1 1 0 1 0 0-2H8.2Z"></path></svg>
+                </span>
+                <span class="row-copy"><span class="row-title">归档</span></span>
+                <span class="value">12</span><span class="chevron"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">功能</div>
+            <div class="group">
+              <button class="row" type="button" data-open="intelligence">
+                <span class="symbol purple">
+                  <svg viewBox="0 0 24 24"><path d="M12 2.5c.5 3.8 2.2 5.5 6 6-3.8.5-5.5 2.2-6 6-.5-3.8-2.2-5.5-6-6 3.8-.5 5.5-2.2 6-6ZM18.5 14.5c.3 2.2 1.3 3.2 3.5 3.5-2.2.3-3.2 1.3-3.5 3.5-.3-2.2-1.3-3.2-3.5-3.5 2.2-.3 3.2-1.3 3.5-3.5ZM5 15c.2 1.3.7 1.8 2 2-1.3.2-1.8.7-2 2-.2-1.3-.7-1.8-2-2 1.3-.2 1.8-.7 2-2Z"></path></svg>
+                </span>
+                <span class="row-copy"><span class="row-title">Intelligence</span></span>
+                <span class="value">已开启</span><span class="chevron"></span>
+              </button>
+              <button class="row" type="button" data-open="cloud">
+                <span class="symbol">
+                  <svg viewBox="0 0 24 24"><path d="M7.5 18.5h10a4 4 0 0 0 .6-8A6.2 6.2 0 0 0 6.3 9a4.8 4.8 0 0 0 1.2 9.5Z"></path></svg>
+                </span>
+                <span class="row-copy"><span class="row-title">云同步</span></span>
+                <span class="status-value"><span class="dot"></span>已同步</span><span class="chevron"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Obelisk</div>
+            <div class="group">
+              <button class="row" type="button" data-open="settings">
+                <span class="symbol gray">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19 13.4a7 7 0 0 0 0-2.8l2-1.5-2-3.4-2.5 1a8 8 0 0 0-2.4-1.4L13.8 3H10l-.4 2.3a8 8 0 0 0-2.4 1.4l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2.8l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 2.4 1.4l.4 2.3h3.8l.4-2.3a8 8 0 0 0 2.4-1.4l2.4 1 2-3.4-2-1.5Z"></path></svg>
+                </span>
+                <span class="row-copy"><span class="row-title">设置</span></span>
+                <span class="chevron"></span>
+              </button>
+              <button class="row" type="button" data-open="about">
+                <span class="symbol gray">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 10.5v6M12 7.5h.01"></path></svg>
+                </span>
+                <span class="row-copy"><span class="row-title">关于 Obelisk</span></span>
+                <span class="value">1.9.0</span><span class="chevron"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="intelligence">
+        <div class="scroll">
+          <header class="inline-header"><button class="back" type="button">更多</button><h1>Intelligence</h1></header>
+
+          <div class="section">
+            <div class="section-title">Intelligence 功能</div>
+            <div class="group">
+              <div class="row no-icon">
+                <span class="row-copy">
+                  <span class="row-title">开启 Intelligence 功能</span>
+                </span>
+                <button class="switch" type="button" data-toggle="intelligence-options" aria-label="Intelligence 已开启"></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="conditional" data-conditional="intelligence-options">
+            <div class="section">
+              <div class="section-title">Intelligence 书签优化</div>
+              <div class="group">
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">自动优化新书签标题</span><span class="row-description">开启后将自动使用配置的模型优化新添加的书签标题</span></span><button class="switch" type="button"></button></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">自动分组新书签</span><span class="row-description">开启后将自动使用配置的模型把新添加的可见书签归入合适分组</span></span><button class="switch" type="button"></button></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">优化隐藏书签</span></span><button class="switch" type="button"></button></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">自动翻译非中文标题</span></span><button class="switch" type="button"></button></div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">模型配置</div>
+              <div class="group">
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">模型来源</span></span><span class="value">远程 API</span><span class="chevron"></span></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">API Key</span><span class="row-description">用于访问云端 OpenAI 兼容服务的 API Key</span></span><span class="value">••••••••••••</span><span class="chevron"></span></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">Model</span><span class="row-description">远程服务的模型名称，如 gpt-4.1-mini</span></span><span class="value">gpt-4.1-mini</span><span class="chevron"></span></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">Base URL</span><span class="row-description">远程 API 的 chat completions 地址</span></span><span class="value">api.openai.com</span><span class="chevron"></span></div>
+                <button class="center-action" type="button">测试模型连接</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="cloud">
+        <div class="scroll">
+          <header class="inline-header"><button class="back" type="button">更多</button><h1>云同步</h1></header>
+
+          <div class="section">
+            <div class="section-title">同步</div>
+            <div class="group">
+              <div class="row no-icon">
+                <span class="row-copy"><span class="row-title">开启云同步功能</span><span class="row-description">在你的设备之间同步书签、分组和使用记录，关闭云同步后，Obelisk 仍会将所有数据保存在本机</span></span>
+                <button class="switch" type="button" data-toggle="cloud-options" aria-label="云同步已开启"></button>
+              </div>
+              <div class="conditional" data-conditional="cloud-options">
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">同步状态</span><span class="row-description">上次同步：今天 18:36</span></span><span class="status-value"><span class="dot"></span>已同步</span></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">待上传的修改</span><span class="row-description">关闭同步或离线期间的修改会保留在本机</span></span><span class="value">0 项</span><button class="text-button" type="button">立即同步</button></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="conditional" data-conditional="cloud-options">
+            <div class="section">
+              <div class="section-title">云账户</div>
+              <div class="group">
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">owner@elinew.tech</span><span class="row-description">此账户用于验证云端数据的访问权限</span></span></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">退出云账户</span><span class="row-description">停止同步并移除本机保存的登录信息，不会删除本地书签</span></span><button class="text-button danger" type="button">退出账户</button></div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">云服务</div>
+              <div class="group">
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">同步服务器</span><span class="row-description">sync.elinew.tech</span></span><span class="value">可用</span></div>
+                <div class="row no-icon"><span class="row-copy"><span class="row-title">实时同步服务</span><span class="row-description">powersync.elinew.tech</span></span><span class="value">已连接</span></div>
+                <button class="center-action" type="button">测试连接</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="hidden">
+        <div class="scroll">
+          <header class="inline-header"><button class="back" type="button">更多</button><h1>隐藏书签</h1></header>
+          <div class="section">
+            <div class="section-title">隐藏书签</div>
+            <div class="group">
+              <div class="row bookmark-row"><span class="favicon github">G</span><span class="row-copy"><span class="row-title">GitHub Private</span><span class="row-description">github.com</span></span></div>
+              <div class="row bookmark-row"><span class="favicon apple">A</span><span class="row-copy"><span class="row-title">Apple Developer</span><span class="row-description">developer.apple.com</span></span></div>
+              <div class="row bookmark-row"><span class="favicon swift">S</span><span class="row-copy"><span class="row-title">Swift Forums</span><span class="row-description">forums.swift.org</span></span></div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="archive">
+        <div class="scroll">
+          <header class="inline-header"><button class="back" type="button">更多</button><h1>归档</h1></header>
+          <div class="section">
+            <div class="section-title">自动归档</div>
+            <div class="group">
+              <div class="row no-icon"><span class="row-copy"><span class="row-title">自动归档闲置书签</span><span class="row-description">开启后 Obelisk 会自动归档您一段时间没有使用的书签</span></span><button class="switch" type="button"></button></div>
+              <div class="row no-icon"><span class="row-copy"><span class="row-title">闲置天数</span><span class="row-description">Obelisk 会自动将超过这个天数没有打开的书签归档</span></span><div class="days"><span class="value">30 天</span><span class="stepper"><button type="button">−</button><button type="button">＋</button></span></div></div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-title">归档书签</div>
+            <div class="group">
+              <div class="row bookmark-row"><span class="favicon github">G</span><span class="row-copy"><span class="row-title">旧项目文档</span><span class="row-description">github.com</span></span></div>
+              <div class="row bookmark-row"><span class="favicon swift">S</span><span class="row-copy"><span class="row-title">Swift Evolution 旧提案</span><span class="row-description">github.com/apple</span></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="settings">
+        <div class="scroll">
+          <header class="inline-header"><button class="back" type="button">更多</button><h1>设置</h1></header>
+          <div class="section">
+            <div class="section-title">域名显示</div>
+            <div class="group">
+              <div class="row no-icon"><span class="row-copy"><span class="row-title">显示完整网站域名</span><span class="row-description">开启后书签列表会显示完整 URL</span></span><button class="switch off" type="button"></button></div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-title">安全</div>
+            <div class="group"><div class="row no-icon"><span class="row-copy"><span class="row-title">使用 Face ID 保护隐藏书签</span></span><button class="switch" type="button"></button></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="about">
+        <div class="scroll">
+          <header class="inline-header"><button class="back" type="button">更多</button><h1>关于 Obelisk</h1></header>
+          <div class="section">
+            <div class="group">
+              <div class="row no-icon"><span class="row-copy"><span class="row-title">Obelisk</span></span><span class="value">1.9.0 (1)</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <nav class="tab-dock" aria-label="主导航">
+        <div class="tab-group">
+          <button class="tab" type="button" aria-label="书签"><svg viewBox="0 0 24 24"><path d="M6.5 4.5h11v15l-5.5-3.7-5.5 3.7Z"></path></svg><span class="tab-label">书签</span></button>
+          <button class="tab" type="button" aria-label="分组"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9H3Z"></path></svg><span class="tab-label">分组</span></button>
+          <button class="tab" type="button" aria-label="最近浏览"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg><span class="tab-label">最近浏览</span></button>
+          <button class="tab active" type="button" data-home aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"></circle><circle cx="12" cy="12" r="1.2"></circle><circle cx="19" cy="12" r="1.2"></circle></svg><span class="tab-label">更多</span></button>
+        </div>
+        <button class="search-tab" type="button" aria-label="搜索"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 4 4"></path></svg></button>
+      </nav>
+
+      <div class="home-indicator"></div>
+    </div>
+  </main>
+
+  <script>
+    const screens = [...document.querySelectorAll('.screen')];
+
+    function showScreen(name) {
+      screens.forEach(screen => screen.classList.toggle('active', screen.dataset.screen === name));
+      const scroll = document.querySelector(`[data-screen="${name}"] .scroll`);
+      if (scroll) scroll.scrollTop = 0;
+    }
+
+    document.querySelectorAll('[data-open]').forEach(button => {
+      button.addEventListener('click', () => showScreen(button.dataset.open));
+    });
+
+    document.querySelectorAll('.back, [data-home]').forEach(button => {
+      button.addEventListener('click', () => showScreen('more'));
+    });
+
+    document.querySelectorAll('.switch').forEach(control => {
+      control.addEventListener('click', () => {
+        control.classList.toggle('off');
+        const target = control.dataset.toggle;
+        if (!target) return;
+        document.querySelectorAll(`[data-conditional="${target}"]`).forEach(section => {
+          section.classList.toggle('hidden', control.classList.contains('off'));
+        });
+      });
+    });
+  </script>
+</body>
+</html>

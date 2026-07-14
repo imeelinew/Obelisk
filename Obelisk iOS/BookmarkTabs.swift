@@ -12,7 +12,7 @@ struct BookmarksTabView: View {
                     ContentUnavailableView(
                         "还没有书签",
                         systemImage: "bookmark",
-                        description: Text("添加第一个书签后，它会显示在这里。")
+                        description: Text("添加第一个书签后，它会显示在这里")
                     )
                 } else {
                     List {
@@ -61,7 +61,7 @@ struct GroupsTabView: View {
                     ContentUnavailableView(
                         "还没有分组",
                         systemImage: "folder",
-                        description: Text("创建分组来整理你的书签。")
+                        description: Text("创建分组来整理你的书签")
                     )
                 } else {
                     List {
@@ -111,7 +111,7 @@ struct RecentTabView: View {
                     ContentUnavailableView(
                         "没有浏览记录",
                         systemImage: "clock",
-                        description: Text("从 Obelisk 打开书签后，浏览记录会显示在这里。")
+                        description: Text("从 Obelisk 打开书签后，浏览记录会显示在这里")
                     )
                 } else {
                     List {
@@ -164,7 +164,7 @@ struct SearchTabView: View {
                     ContentUnavailableView(
                         "搜索书签",
                         systemImage: "magnifyingglass",
-                        description: Text("输入标题、网址或分组名称。")
+                        description: Text("输入标题、网址或分组名称")
                     )
                 } else if results.isEmpty {
                     ContentUnavailableView.search(text: searchText)
@@ -195,7 +195,7 @@ private struct CollectionBookmarksView: View {
                 ContentUnavailableView(
                     "这个分组是空的",
                     systemImage: "folder",
-                    description: Text("添加书签时可以将它存入这个分组。")
+                    description: Text("添加书签时可以将它存入这个分组")
                 )
             } else {
                 List(bookmarks) { bookmark in

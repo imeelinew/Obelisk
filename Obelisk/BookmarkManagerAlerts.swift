@@ -72,7 +72,7 @@ struct ExtraAlerts: ViewModifier {
                 Button("取消", role: .cancel) { collectionToDelete = nil }
                 Button("删除", role: .destructive, action: deleteCollection)
             } message: { collection in
-                Text("删除「\(collection.name)」后，其中的书签将移到未分组。")
+                Text("删除「\(collection.name)」后，其中的书签将移到未分组")
             }
             .alert(
                 "开启自定义透明度?",
@@ -86,7 +86,7 @@ struct ExtraAlerts: ViewModifier {
                     showCustomTransparencyAlert = false
                 }
             } message: {
-                Text("你确定吗？开启自定义透明度可能会大幅降低可读性。")
+                Text("你确定吗？开启自定义透明度可能会大幅降低可读性")
             }
     }
 }

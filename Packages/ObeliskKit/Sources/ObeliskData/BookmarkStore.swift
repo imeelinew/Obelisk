@@ -13,7 +13,7 @@ public enum BookmarkStoreError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .invalidURL(let url):
-            "网址格式不正确,需要包含 http:// 或 https://(\(url))"
+            "网址格式不正确，需要包含 http:// 或 https://(\(url))"
         case .duplicateURL:
             "这个网址已经在书签里了"
         case .invalidTitle:

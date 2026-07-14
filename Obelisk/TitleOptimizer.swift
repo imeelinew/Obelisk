@@ -60,11 +60,11 @@ enum TitleOptimizerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingConfig:
-            return "还没有配置 Intelligence 模型。请先在设置中填写 API Key 和模型。"
+            return "还没有配置 Intelligence 模型，请先在设置中填写 API Key 和模型"
         case .invalidConfig:
-            return "Intelligence 配置无效。请检查设置中的 API Key、模型和服务地址。"
+            return "Intelligence 配置无效，请检查设置中的 API Key、模型和服务地址"
         case .requestFailed:
-            return "Intelligence 请求失败,请稍后再试"
+            return "Intelligence 请求失败，请稍后再试"
         case .emptyResponse:
             return "模型没有返回可用的标题"
         case .emptyGroupingResponse:

@@ -171,7 +171,7 @@ enum BrowserHistoryStoreError: LocalizedError {
         case .historyDatabaseNotFound:
             return "找不到所选浏览器的历史数据库"
         case .safariPermissionDenied:
-            return "无法读取 Safari 浏览历史。请在“系统设置 > 隐私与安全性 > 完整磁盘访问权限”中允许 Obelisk，然后重新启动 Obelisk。"
+            return "无法读取 Safari 浏览历史，请在“系统设置 > 隐私与安全性 > 完整磁盘访问权限”中允许 Obelisk，然后重新启动 Obelisk"
         case .openFailed(let message):
             return "无法打开浏览历史：\(message)"
         case .queryFailed(let message):

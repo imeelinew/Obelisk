@@ -76,11 +76,11 @@ struct BookmarkBrowserHistoryPage: View {
             ContentUnavailableView {
                 Label("选择浏览器", systemImage: "network")
             } description: {
-                Text("Obelisk 只读显示所选浏览器最近访问过的网页。")
+                Text("Obelisk 只读显示所选浏览器最近访问过的网页")
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if isLoading && sections.isEmpty {
-            ProgressView("正在读取最近浏览...")
+            ProgressView("正在读取最近浏览…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let errorMessage, sections.isEmpty {
             ContentUnavailableView {
@@ -99,7 +99,7 @@ struct BookmarkBrowserHistoryPage: View {
             ContentUnavailableView {
                 Label("没有最近浏览", systemImage: "clock")
             } description: {
-                Text("过去 \(BrowserHistoryStore.defaultDayLimit) 天内没有找到可显示的网页。")
+                Text("过去 \(BrowserHistoryStore.defaultDayLimit) 天内没有找到可显示的网页")
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -127,7 +127,7 @@ struct BookmarkBrowserHistoryPage: View {
     private var sourceMenuTitle: String {
         selectedBrowsers.isEmpty
             ? "选择浏览器"
-            : selectedBrowsers.map(\.title).joined(separator: ", ")
+            : selectedBrowsers.map(\.title).joined(separator: "，")
     }
 
     private var selectedBrowsers: [BrowserHistoryBrowser] {

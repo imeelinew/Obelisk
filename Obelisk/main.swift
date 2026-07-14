@@ -198,10 +198,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         )
     }
 
-    @objc private func defaultsDidChange(_ notification: Notification) {
-        configureStatusItem()
-        refreshMenuBrowserHistoryCache()
-        scheduleRebuild()
+    @objc nonisolated private func defaultsDidChange(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            self?.configureStatusItem()
+            self?.refreshMenuBrowserHistoryCache()
+            self?.scheduleRebuild()
+        }
     }
 
     /// Global shortcuts (user-customizable in Settings) fetch the frontmost

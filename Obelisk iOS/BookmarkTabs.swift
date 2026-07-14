@@ -309,20 +309,12 @@ private struct CollectionRow: View {
     let bookmarkCount: Int
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "folder.fill")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.tint)
-                .frame(width: 36, height: 36)
-                .background(.tint.opacity(0.12), in: .rect(cornerRadius: 10))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(collection.name)
-                    .foregroundStyle(.primary)
-                Text("\(bookmarkCount) 个书签")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 2) {
+            Text(collection.name)
+                .foregroundStyle(.primary)
+            Text("\(bookmarkCount) 个书签")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 }

@@ -46,6 +46,12 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             scrollView.hasHorizontalScroller = false
             scrollView.autohidesScrollers = true
             scrollView.horizontalScrollElasticity = .none
+            // NavigationSplitView already places the sidebar relative to the
+            // window toolbar. Letting NSScrollView also compensate for the
+            // full-size title bar makes its top inset change after the first
+            // layout pass, which visibly shifts the first row on launch.
+            scrollView.automaticallyAdjustsContentInsets = false
+            scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
             let tableView = NSTableView()
             tableView.frame = scrollView.contentView.bounds

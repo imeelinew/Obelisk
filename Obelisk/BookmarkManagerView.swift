@@ -1351,7 +1351,6 @@ struct BookmarkManagerView: View {
             colorfulCornerRadius: sidebarIconCornerRadius,
             professionalIconSize: professionalSidebarIconSize
         )
-        .navigationTitle("设置")
         .navigationSplitViewColumnWidth(min: 150, ideal: 180)
     }
 

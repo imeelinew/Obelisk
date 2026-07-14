@@ -8,6 +8,29 @@ import Testing
 @Suite(.serialized)
 struct ObeliskKitTests {
 
+    @Test func faviconCandidatesPreferLargeDeclaredIconsAndShareHostCache() throws {
+        let pageURL = try #require(URL(string: "https://example.com/articles/one"))
+        let html = """
+        <link rel="icon" sizes="16x16" href="/small.png">
+        <link rel="apple-touch-icon" sizes="180x180" href="/touch.png">
+        <link rel="mask-icon" sizes="any" href="/mask.svg">
+        """
+
+        let candidates = FaviconDownloader.candidateURLs(in: html, for: pageURL)
+
+        #expect(candidates.first?.absoluteString == "https://example.com/touch.png")
+        #expect(candidates.contains(URL(string: "https://example.com/favicon.ico")!))
+        #expect(candidates.last?.absoluteString == "https://icons.duckduckgo.com/ip3/example.com.ico")
+        #expect(
+            FaviconDownloader.cacheKey(for: pageURL.absoluteString)
+                == FaviconDownloader.cacheKey(for: "https://example.com/other")
+        )
+        #expect(
+            FaviconDownloader.cacheKey(for: pageURL.absoluteString)
+                != FaviconDownloader.cacheKey(for: "https://example.com:8443/other")
+        )
+    }
+
     @Test func snapshotPreservesNormalizedRelationships() {
         let collection = BookmarkCollection(name: "Reading")
         let bookmark = Bookmark(title: "Example", url: "https://example.com")

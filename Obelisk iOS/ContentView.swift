@@ -64,4 +64,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView(library: ObeliskLibraryModel())
+        .environment(FaviconStore())
 }

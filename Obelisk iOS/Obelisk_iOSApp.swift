@@ -10,10 +10,12 @@ import SwiftUI
 @main
 struct Obelisk_iOSApp: App {
     @State private var library = ObeliskLibraryModel()
+    @State private var favicons = FaviconStore()
 
     var body: some Scene {
         WindowGroup {
             ContentView(library: library)
+                .environment(favicons)
                 .task {
                     await library.start()
                 }

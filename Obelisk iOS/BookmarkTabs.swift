@@ -248,11 +248,7 @@ private struct BookmarkRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "bookmark.fill")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.tint)
-                .frame(width: 36, height: 36)
-                .background(.tint.opacity(0.12), in: .rect(cornerRadius: 10))
+            BookmarkFavicon(urlString: bookmark.url)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(bookmark.title)
@@ -278,6 +274,33 @@ private struct BookmarkRow: View {
 
     private var host: String {
         URL(string: bookmark.url)?.host ?? bookmark.url
+    }
+}
+
+private struct BookmarkFavicon: View {
+    let urlString: String
+
+    @Environment(FaviconStore.self) private var favicons
+
+    var body: some View {
+        let _ = favicons.version
+
+        Group {
+            if let image = favicons.cachedImage(for: urlString) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 24, height: 24)
+            } else {
+                Image(systemName: "globe")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 36, height: 36)
+        .task(id: urlString) {
+            favicons.load(urlString)
+        }
     }
 }
 

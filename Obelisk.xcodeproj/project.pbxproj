@@ -54,7 +54,7 @@
 		45B26F162FC4874D009BAE8A /* Obelisk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Obelisk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		45B26F232FC4874D009BAE8A /* ObeliskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ObeliskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ObeliskUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		45BDB2473005C8A7000021E6 /* Obelisk iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Obelisk iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		45BDB2473005C8A7000021E6 /* Obelisk iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "Obelisk iOS.app"; path = Obelisk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		45BDB2533005C8A9000021E6 /* Obelisk iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Obelisk iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		45BDB25D3005C8A9000021E6 /* Obelisk iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Obelisk iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1C0A0022FC4A00000000002 /* Obelisk.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = Obelisk.icon; sourceTree = "<group>"; };

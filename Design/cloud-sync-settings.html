@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Obelisk 云同步设置</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      font-synthesis: none;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 52px 28px;
+      background: #f5f5f7;
+    }
+
+    main {
+      width: min(680px, 100%);
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .introduction {
+      margin: 8px 0 30px;
+      color: #6e6e73;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    section {
+      margin-top: 26px;
+    }
+
+    h2 {
+      margin: 0 0 8px 12px;
+      color: #6e6e73;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .group {
+      overflow: hidden;
+      border: 1px solid #dedee3;
+      border-radius: 11px;
+      background: #ffffff;
+    }
+
+    .row {
+      display: flex;
+      min-height: 54px;
+      align-items: center;
+      gap: 18px;
+      padding: 11px 14px;
+    }
+
+    .row + .row {
+      border-top: 1px solid #e7e7eb;
+    }
+
+    .row-content {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .row-title {
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .row-description {
+      margin-top: 3px;
+      color: #77777c;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .value {
+      flex: none;
+      color: #6e6e73;
+      font-size: 13px;
+      text-align: right;
+    }
+
+    .switch {
+      position: relative;
+      width: 38px;
+      height: 22px;
+      flex: none;
+      border-radius: 999px;
+      background: #34c759;
+      box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 10%);
+    }
+
+    .switch::after {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgb(0 0 0 / 24%);
+      content: "";
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #238636;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #34c759;
+    }
+
+    button {
+      min-width: 76px;
+      height: 28px;
+      flex: none;
+      border: 1px solid #c9c9ce;
+      border-radius: 7px;
+      background: #ffffff;
+      color: #1d1d1f;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      box-shadow: 0 1px 1px rgb(0 0 0 / 4%);
+    }
+
+    button.primary {
+      border-color: #1671d9;
+      background: #1677e8;
+      color: #ffffff;
+    }
+
+    button.danger {
+      color: #d70015;
+    }
+
+    .help {
+      margin: 8px 12px 0;
+      color: #818187;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .footer-note {
+      margin: 28px 12px 0;
+      color: #818187;
+      font-size: 11px;
+      line-height: 1.55;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        background: #1e1e1e;
+        color: #f5f5f7;
+      }
+
+      body {
+        background: #1e1e1e;
+      }
+
+      .introduction,
+      h2,
+      .row-description,
+      .value,
+      .help,
+      .footer-note {
+        color: #a1a1a6;
+      }
+
+      .group {
+        border-color: #454548;
+        background: #2a2a2c;
+      }
+
+      .row + .row {
+        border-top-color: #444447;
+      }
+
+      button {
+        border-color: #5c5c61;
+        background: #3a3a3d;
+        color: #f5f5f7;
+      }
+
+      button.primary {
+        border-color: #2486ed;
+        background: #147ce5;
+      }
+
+      button.danger {
+        color: #ff6961;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>云同步</h1>
+
+    <section aria-labelledby="sync-heading">
+      <h2 id="sync-heading">同步</h2>
+      <div class="group">
+        <div class="row">
+          <div class="row-content">
+            <div class="row-title">开启云同步功能</div>
+            <div class="row-description">在你的设备之间同步书签、分组和使用记录。关闭云同步后，Obelisk 仍会将所有数据保存在本机。</div>
+          </div>
+          <div class="switch" role="img" aria-label="云同步功能已开启"></div>
+        </div>
+        <div class="row">
+          <div class="row-content">
+            <div class="row-title">同步状态</div>
+            <div class="row-description">上次同步：今天 12:06</div>
+          </div>
+          <div class="status"><span class="status-dot"></span>已同步</div>
+        </div>
+        <div class="row">
+          <div class="row-content">
+            <div class="row-title">待上传的修改</div>
+            <div class="row-description">关闭同步或离线期间的修改会保留在本机。</div>
+          </div>
+          <div class="value">0 项</div>
+          <button type="button" class="primary">立即同步</button>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="account-heading">
+      <h2 id="account-heading">云账户</h2>
+      <div class="group">
+        <div class="row">
+          <div class="row-content">
+            <div class="row-title">owner@elinew.tech</div>
+            <div class="row-description">此账户用于验证云端数据的访问权限。</div>
+          </div>
+          <button type="button">重新认证</button>
+        </div>
+        <div class="row">
+          <div class="row-content">
+            <div class="row-title">退出云账户</div>
+            <div class="row-description">停止同步并移除本机保存的登录信息，不会删除本地书签。</div>
+          </div>
+          <button type="button" class="danger">退出账户</button>
+        </div>
+      </div>
+      <p class="help"></p>
+    </section>
+
+    <section aria-labelledby="service-heading">
+      <h2 id="service-heading">云服务</h2>
+      <div class="group">
+        <div class="row">
+          <div class="row-content">
+            <div class="row-title">同步服务器</div>
+            <div class="row-description">api.elinew.tech</div>
+          </div>
+          <div class="value">可用</div>
+        </div>
+        <div class="row">
+          <div class="row-content">
+            <div class="row-title">实时同步服务</div>
+            <div class="row-description">sync.elinew.tech</div>
+          </div>
+          <div class="value">已连接</div>
+          <button type="button">测试连接</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

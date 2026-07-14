@@ -5,6 +5,9 @@ import ObeliskSync
 import PowerSync
 import Testing
 
+@Suite(.serialized)
+struct ObeliskKitTests {
+
 @Test func snapshotPreservesNormalizedRelationships() {
     let collection = BookmarkCollection(name: "Reading")
     let bookmark = Bookmark(title: "Example", url: "https://example.com")
@@ -178,6 +181,37 @@ import Testing
     #expect(try store.load() == authenticated)
 }
 
+@Test func authClientTestsTheConfiguredAPIHealthEndpoint() async throws {
+    MockURLProtocol.handler = { request in
+        #expect(request.httpMethod == "GET")
+        #expect(request.url?.absoluteString == "https://api.example.test/healthz")
+        #expect(request.timeoutInterval == 30)
+        return (
+            HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!,
+            Data("{\"status\":\"ok\"}".utf8)
+        )
+    }
+    defer { MockURLProtocol.handler = nil }
+
+    let sessionConfiguration = URLSessionConfiguration.ephemeral
+    sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+    let client = try ObeliskAuthClient(
+        configuration: ObeliskServerConfiguration(
+            apiURL: URL(string: "https://api.example.test")!,
+            powerSyncURL: URL(string: "https://sync.example.test")!
+        ),
+        store: MemorySessionStore(),
+        session: URLSession(configuration: sessionConfiguration)
+    )
+
+    try await client.testAPIConnection()
+}
+
 @Test func serverConfigurationRequiresExplicitEndpoints() throws {
     let configuration = try ObeliskServerConfiguration.load(environment: [
         "OBELISK_API_URL": "https://api.example.test",
@@ -198,11 +232,14 @@ import Testing
     let account = UUID()
     let device = UUID()
 
-    _ = try await ObeliskDatabase.open(rootDirectory: root, ownerID: account, deviceID: device)
+    let localDatabase = try await ObeliskDatabase.open(rootDirectory: root, deviceID: device)
+    try localDatabase.bindToCloudAccount(account)
     _ = try await ObeliskDatabase.open(rootDirectory: root, ownerID: account, deviceID: device)
     await #expect(throws: ObeliskDatabaseError.self) {
         _ = try await ObeliskDatabase.open(rootDirectory: root, ownerID: UUID(), deviceID: device)
     }
+}
+
 }
 
 private final class MemorySessionStore: ObeliskSessionStore, @unchecked Sendable {

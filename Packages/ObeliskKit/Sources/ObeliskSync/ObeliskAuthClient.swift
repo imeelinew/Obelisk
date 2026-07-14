@@ -23,8 +23,8 @@ public actor ObeliskAuthClient {
         var error: String
     }
 
-    public let configuration: ObeliskServerConfiguration
-    public let deviceID: UUID
+    public nonisolated let configuration: ObeliskServerConfiguration
+    public nonisolated let deviceID: UUID
 
     private let store: any ObeliskSessionStore
     private let session: URLSession
@@ -55,6 +55,18 @@ public actor ObeliskAuthClient {
     public func signOut() throws {
         try store.clear()
         current = nil
+    }
+
+    public func testAPIConnection() async throws {
+        var request = URLRequest(
+            url: configuration.apiURL.appending(path: "healthz"),
+            timeoutInterval: Self.requestTimeout
+        )
+        request.httpMethod = "GET"
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw ObeliskAuthError.invalidServerResponse
+        }
     }
 
     public func powerSyncCredentials() async throws -> PowerSyncCredentials {

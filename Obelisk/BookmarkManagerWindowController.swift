@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
     private let model: BookmarksModel
+    private let cloudSync: CloudSyncController
     private let faviconLoader: FaviconLoader
     private let addRequest: AddBookmarkRequest
     private let onWindowClosed: () -> Void
@@ -11,11 +12,13 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
 
     init(
         model: BookmarksModel,
+        cloudSync: CloudSyncController,
         faviconLoader: FaviconLoader,
         addRequest: AddBookmarkRequest,
         onWindowClosed: @escaping () -> Void
     ) {
         self.model = model
+        self.cloudSync = cloudSync
         self.faviconLoader = faviconLoader
         self.addRequest = addRequest
         self.onWindowClosed = onWindowClosed
@@ -31,6 +34,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         let hosting = NSHostingController(
             rootView: BookmarkManagerView(
                 model: model,
+                cloudSync: cloudSync,
                 faviconLoader: faviconLoader,
                 addRequest: addRequest
             )

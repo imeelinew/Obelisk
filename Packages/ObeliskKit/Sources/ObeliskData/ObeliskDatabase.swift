@@ -37,14 +37,24 @@ public final class ObeliskDatabase: ObeliskDataStore, @unchecked Sendable {
         try applyPrivatePermissions()
     }
 
-    public static func open(rootDirectory: URL, ownerID: UUID, deviceID: UUID) async throws -> ObeliskDatabase {
+    public static func open(
+        rootDirectory: URL,
+        ownerID: UUID? = nil,
+        deviceID: UUID
+    ) async throws -> ObeliskDatabase {
         let database = try ObeliskDatabase(
             rootDirectory: rootDirectory,
             deviceID: deviceID
         )
         _ = try await database.powerSync.getPowerSyncVersion()
-        try database.bind(to: ownerID)
+        if let ownerID {
+            try database.bind(to: ownerID)
+        }
         return database
+    }
+
+    public func bindToCloudAccount(_ accountID: UUID) throws {
+        try bind(to: accountID)
     }
 
     public func loadSnapshot() throws -> ObeliskLibrarySnapshot {

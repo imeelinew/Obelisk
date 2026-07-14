@@ -56,6 +56,7 @@ private struct CompactBorderedMenuPicker<Option: Hashable>: View {
 struct BookmarkManagerView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var model: BookmarksModel
+    @Bindable var cloudSync: CloudSyncController
     let faviconLoader: FaviconLoader
     let addRequest: AddBookmarkRequest
     @State private var selection: Set<Bookmark.ID> = []
@@ -118,6 +119,11 @@ struct BookmarkManagerView: View {
     @State private var menuBarDragOffsetY: CGFloat = 0
     @State private var lastMenuBarOrderHapticDate = Date.distantPast
     @State private var launchAtLoginEnabled = LoginItemController.isEnabled
+    @State private var cloudAccountEmail = "owner@elinew.tech"
+    @State private var cloudAccountPassword = ""
+    @State private var cloudAccountError: String?
+    @State private var isEditingCloudAccount = false
+    @State private var showCloudSignOutConfirmation = false
 
     private let menuBarOrderRowHeight: CGFloat = 50
     private var menuBarOrderBackgroundColor: Color {
@@ -198,6 +204,7 @@ struct BookmarkManagerView: View {
         case menuBar
         case shortcuts
         case ai
+        case cloudSync
         case privacy
         case settings
 
@@ -215,7 +222,7 @@ struct BookmarkManagerView: View {
             switch self {
             case .bookmarks, .collections, .browserHistory, .search, .hiddenBookmarks, .archive: return .content
             case .appearance, .menuBar, .shortcuts:     return .preferences
-            case .ai, .privacy, .settings:              return .advanced
+            case .ai, .cloudSync, .privacy, .settings:  return .advanced
             }
         }
 
@@ -231,6 +238,7 @@ struct BookmarkManagerView: View {
             case .menuBar:         return "菜单栏"
             case .shortcuts:       return "快捷键"
             case .ai:              return "Intelligence"
+            case .cloudSync:       return "云同步"
             case .privacy:         return "隐私"
             case .settings:        return "设置"
             }
@@ -249,6 +257,7 @@ struct BookmarkManagerView: View {
             case .menuBar:         return "menubar.rectangle"
             case .shortcuts:       return "command"
             case .ai:              return IntelligenceSymbolIcon.symbolName
+            case .cloudSync:       return "cloud.fill"
             case .privacy:         return "lock.fill"
             case .settings:        return "gearshape.fill"
             }
@@ -266,6 +275,7 @@ struct BookmarkManagerView: View {
             case .menuBar:         return "app-window"
             case .shortcuts:       return "command"
             case .ai:              return "astroid"
+            case .cloudSync:       return "cloud"
             case .privacy:         return "hat-glasses"
             case .settings:        return "settings"
             }
@@ -1465,6 +1475,8 @@ struct BookmarkManagerView: View {
                 shortcutsPage
             case .ai:
                 aiOptimizationPage
+            case .cloudSync:
+                cloudSyncPage
             case .privacy:
                 privacyPage
             case .settings:
@@ -1472,6 +1484,242 @@ struct BookmarkManagerView: View {
             }
         }
         .navigationTitle(settingsPage.title)
+    }
+
+    private var cloudSyncPage: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Form {
+                Section("同步") {
+                    Toggle(isOn: cloudSyncEnabledBinding) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("开启云同步功能")
+                            Text("在你的设备之间同步书签、分组和使用记录。关闭云同步后，Obelisk 仍会将所有数据保存在本机。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    LabeledContent {
+                        HStack(spacing: 7) {
+                            Circle()
+                                .fill(cloudSyncStatusColor)
+                                .frame(width: 7, height: 7)
+                            Text(cloudSync.statusTitle)
+                                .foregroundStyle(cloudSyncStatusColor)
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("同步状态")
+                            Text(cloudSyncStatusDescription)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("待上传的修改")
+                            Text("关闭同步或离线期间的修改会保留在本机。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        Text("\(cloudSync.pendingUploadCount) 项")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+
+                        Button("立即同步") {
+                            Task { await cloudSync.syncNow() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            !cloudSync.isEnabled
+                                || !cloudSync.isAuthenticated
+                                || cloudSync.isPerformingAction
+                        )
+                    }
+                }
+
+                Section("云账户") {
+                    if cloudSync.isAuthenticated, !isEditingCloudAccount {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(cloudSync.accountEmail ?? "已连接云账户")
+                                Text("此账户用于验证云端数据的访问权限。")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 12)
+                            Button("重新认证") {
+                                cloudAccountEmail = cloudSync.accountEmail ?? "owner@elinew.tech"
+                                cloudAccountPassword = ""
+                                cloudAccountError = nil
+                                isEditingCloudAccount = true
+                            }
+                        }
+
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("退出云账户")
+                                Text("停止同步并移除本机保存的登录信息，不会删除本地书签。")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 12)
+                            Button("退出账户", role: .destructive) {
+                                showCloudSignOutConfirmation = true
+                            }
+                            .disabled(cloudSync.isPerformingAction)
+                        }
+                    } else {
+                        TextField("邮箱", text: $cloudAccountEmail)
+                            .textContentType(.username)
+                        SecureField("密码", text: $cloudAccountPassword)
+                            .textContentType(.password)
+
+                        if let cloudAccountError {
+                            Text(cloudAccountError)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+
+                        HStack {
+                            if cloudSync.isAuthenticated {
+                                Button("取消") {
+                                    cloudAccountPassword = ""
+                                    cloudAccountError = nil
+                                    isEditingCloudAccount = false
+                                }
+                            }
+                            Spacer(minLength: 0)
+                            Button(cloudSync.isPerformingAction ? "请稍候…" : "登录并开启同步") {
+                                authenticateCloudAccount()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(
+                                cloudSync.isPerformingAction
+                                    || cloudAccountEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    || cloudAccountPassword.isEmpty
+                            )
+                        }
+                    }
+                }
+
+                Section("云服务") {
+                    LabeledContent {
+                        Text(cloudSync.apiStatusTitle)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("同步服务器")
+                            Text(cloudSync.apiHost)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("实时同步服务")
+                            Text(cloudSync.powerSyncHost)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        Text(cloudSync.powerSyncStatusTitle)
+                            .foregroundStyle(.secondary)
+                        Button(cloudSync.isTestingConnection ? "测试中…" : "测试连接") {
+                            Task { await cloudSync.testConnection() }
+                        }
+                        .disabled(cloudSync.isTestingConnection)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
+            .settingsContentMargins()
+        }
+        .navigationTitle("云同步")
+        .onAppear {
+            cloudAccountEmail = cloudSync.accountEmail ?? "owner@elinew.tech"
+            if cloudSync.isEnabled, !cloudSync.isAuthenticated {
+                isEditingCloudAccount = true
+            }
+        }
+        .confirmationDialog(
+            "退出云账户？",
+            isPresented: $showCloudSignOutConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("退出账户", role: .destructive) {
+                Task {
+                    do {
+                        try await cloudSync.signOut()
+                        cloudAccountPassword = ""
+                        cloudAccountError = nil
+                        isEditingCloudAccount = true
+                    } catch {
+                        cloudAccountError = error.localizedDescription
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("同步将停止，登录信息会从本机移除。本地书签不会被删除。")
+        }
+    }
+
+    private var cloudSyncEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { cloudSync.isEnabled },
+            set: { enabled in
+                if enabled, !cloudSync.isAuthenticated {
+                    isEditingCloudAccount = true
+                }
+                Task { await cloudSync.setEnabled(enabled) }
+            }
+        )
+    }
+
+    private var cloudSyncStatusColor: Color {
+        switch cloudSync.phase {
+        case .synced:
+            return Color(red: 0.13, green: 0.55, blue: 0.22)
+        case .connecting, .uploading, .downloading, .syncing:
+            return .accentColor
+        case .failed:
+            return .red
+        case .off, .authenticationRequired, .offline:
+            return .secondary
+        }
+    }
+
+    private var cloudSyncStatusDescription: String {
+        if let error = cloudSync.syncError {
+            return error
+        }
+        guard let date = cloudSync.lastSyncedAt else {
+            return "尚未完成同步"
+        }
+        return "上次同步：\(date.formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    private func authenticateCloudAccount() {
+        cloudAccountError = nil
+        Task {
+            do {
+                try await cloudSync.login(
+                    email: cloudAccountEmail,
+                    password: cloudAccountPassword
+                )
+                cloudAccountPassword = ""
+                isEditingCloudAccount = false
+            } catch {
+                cloudAccountError = error.localizedDescription
+            }
+        }
     }
 
     private var bookmarkManagementPage: some View {
@@ -2197,14 +2445,7 @@ struct BookmarkManagerView: View {
     private var aiOptimizationPage: some View {
         Form {
             Section("Intelligence 功能") {
-                Toggle(isOn: $aiFeaturesEnabled) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("开启 Intelligence 功能")
-                        Text("优化时会把书签的标题和网址发送到你配置的模型服务。隐藏书签默认不发送。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Toggle("开启 Intelligence 功能", isOn: $aiFeaturesEnabled)
             }
 
             if aiFeaturesEnabled {

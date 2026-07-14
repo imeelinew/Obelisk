@@ -3,12 +3,51 @@ import Carbon.HIToolbox
 import Foundation
 import ObeliskCore
 import ObeliskData
+import ObeliskSync
 import SwiftUI
 import Testing
 @testable import Obelisk
 
 @Suite(.serialized)
 struct FeatureRegressionTests {
+    @MainActor
+    @Test func cloudSyncStartsLocallyWithoutAnAccount() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskCloudSync-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "ObeliskCloudSyncDefaults-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let database = try await ObeliskDatabase.open(
+            rootDirectory: root,
+            deviceID: UUID()
+        )
+        let auth = try ObeliskAuthClient(
+            configuration: ObeliskServerConfiguration(
+                apiURL: URL(string: "https://api.example.test")!,
+                powerSyncURL: URL(string: "https://sync.example.test")!
+            ),
+            store: EmptyCloudSessionStore()
+        )
+        let controller = CloudSyncController(
+            database: database,
+            authClient: auth,
+            defaults: defaults
+        )
+
+        await controller.start()
+        #expect(!controller.isEnabled)
+        #expect(!controller.isAuthenticated)
+        #expect(controller.phase == .off)
+
+        await controller.setEnabled(true)
+        #expect(controller.phase == .authenticationRequired)
+
+        await controller.setEnabled(false)
+        #expect(controller.phase == .off)
+    }
+
     @MainActor
     @Test func defaultRootDirectoryUsesApplicationSupportSyncFolder() {
         let previous = ProcessInfo.processInfo.environment["OBELISK_HOME"]
@@ -606,6 +645,17 @@ struct FeatureRegressionTests {
         #expect(BookmarkManagerView.SettingsPage.ai.symbolName == IntelligenceSymbolIcon.symbolName)
     }
 
+    @Test func cloudSyncSidebarAppearsAfterIntelligence() throws {
+        let pages = BookmarkManagerView.SettingsPage.allCases
+        let intelligenceIndex = try #require(pages.firstIndex(of: .ai))
+        let cloudSyncIndex = try #require(pages.firstIndex(of: .cloudSync))
+
+        #expect(cloudSyncIndex == intelligenceIndex + 1)
+        #expect(BookmarkManagerView.SettingsPage.cloudSync.group == .advanced)
+        #expect(BookmarkManagerView.SettingsPage.cloudSync.title == "云同步")
+        #expect(BookmarkManagerView.SettingsPage.cloudSync.symbolName == "cloud.fill")
+    }
+
     @Test func browserTabParsingAndPermissionMappingRemainExplicit() {
         #expect(BrowserCurrentTab.parseScriptOutput("https://example.com/path\nExample") == .success(
             BrowserTab(url: "https://example.com/path", title: "Example")
@@ -676,6 +726,12 @@ struct FeatureRegressionTests {
             defaults.removeObject(forKey: key)
         }
     }
+}
+
+private final class EmptyCloudSessionStore: ObeliskSessionStore, @unchecked Sendable {
+    func load() throws -> ObeliskAuthSession? { nil }
+    func save(_ session: ObeliskAuthSession) throws {}
+    func clear() throws {}
 }
 
 private final class StubTitleOptimizer: TitleOptimizing {

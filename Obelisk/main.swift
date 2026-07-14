@@ -49,8 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }()
     private var store: BookmarkStore!
     private var authClient: ObeliskAuthClient!
-    private var accountWindow: ObeliskAccountWindowController?
-    private var syncConnector: ObeliskPowerSyncConnector?
+    private var cloudSync: CloudSyncController!
     private var databaseWatchTask: Task<Void, Never>?
     private var rebuildDebounce: DispatchWorkItem?
     private lazy var bookmarksModel = BookmarksModel(
@@ -60,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private let addRequest = AddBookmarkRequest()
     private lazy var managerWindow = BookmarkManagerWindowController(
         model: bookmarksModel,
+        cloudSync: cloudSync,
         faviconLoader: faviconLoader,
         addRequest: addRequest,
         onWindowClosed: { [weak self] in
@@ -138,24 +138,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             return
         }
         Task {
-            if let session = await authClient.restoredSession() {
-                await startApplication(session: session)
-            } else {
-                showAccountWindow()
-            }
+            await startApplication()
         }
     }
 
-    private func startApplication(session: ObeliskAuthSession) async {
+    private func startApplication() async {
         do {
             store = try await BookmarkStore.open(
-                ownerID: session.accountID,
-                deviceID: session.deviceID
+                deviceID: authClient.deviceID
             )
         } catch {
             presentStartupError(error)
             return
         }
+
+        cloudSync = CloudSyncController(database: store.database, authClient: authClient)
+        await cloudSync.start()
 
         configureStatusItem()
         installDefaultsObserver()
@@ -167,35 +165,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         refreshMenuBrowserHistoryCache()
         startDatabaseWatch()
 
-        let connector = ObeliskPowerSyncConnector(auth: authClient)
-        syncConnector = connector
-        Task {
-            do {
-                try await store.database.powerSync.connect(connector: connector)
-            } catch {
-                bookmarksModel.errorMessage = error.localizedDescription
-            }
-        }
-
         openManager()
     }
 
     func applicationDidResignActive(_ notification: Notification) {
         dismissMenuBarSearchPopover()
-    }
-
-    private func showAccountWindow() {
-        guard authClient != nil else { return }
-        let controller = ObeliskAccountWindowController(
-            auth: authClient,
-            onAuthenticated: { [weak self] session in
-                guard let self else { return }
-                self.accountWindow = nil
-                await self.startApplication(session: session)
-            }
-        )
-        accountWindow = controller
-        controller.show()
     }
 
     private func presentStartupError(_ error: Error) {
@@ -1201,10 +1175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     @objc private func openManager() {
         dismissNotificationPopover()
-        guard store != nil else {
-            showAccountWindow()
-            return
-        }
+        guard store != nil else { return }
         managerWindow.show()
     }
 

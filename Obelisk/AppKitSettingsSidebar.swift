@@ -540,6 +540,8 @@ private extension BookmarkManagerView.SettingsPage {
                 Self.rgb(0.54, 0.28, 0.96),
                 Self.rgb(0.22, 0.66, 1.0),
             ]
+        case .cloudSync:
+            return [Self.rgb(0.36, 0.72, 1.0), Self.rgb(0.12, 0.46, 0.92)]
         case .collections:
             return [Self.rgb(0.52, 0.72, 0.98), Self.rgb(0.22, 0.48, 0.88)]
         case .browserHistory:

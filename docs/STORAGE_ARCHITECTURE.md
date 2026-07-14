@@ -1,93 +1,115 @@
-# Obelisk 存储架构
+# Obelisk 1.9 存储与同步架构
 
-本文定义 Obelisk v3 的持久化、安全与恢复契约。实现以本文为准；任何会改变数据库格式、钥匙串身份或恢复流程的提交，都必须同步更新本文和相应测试。
+本文定义 Obelisk 1.9 的唯一持久化与同步契约。PostgreSQL 是云端事实源，PowerSync 管理每台设备上的离线 SQLite 副本，Obelisk API 负责身份认证与所有写入。生产代码不识别旧 Vault 格式，也不包含旧格式迁移器。
 
-## 设计目标
+## 设计原则
 
-- 本地数据始终加密，不提供关闭加密的运行时开关。
-- 正常启动不弹出传统文件钥匙串授权窗口。
-- 单条书签更新只重写对应记录，不重写整个数据集。
-- 钥匙串项目丢失时拒绝覆盖现有数据，并允许通过独立恢复密钥恢复。
-- 备份是单一、可搬运、仍然加密的 SQLite 文件。
-- 旧格式迁移只执行一次；正式运行时代码不包含旧格式探测或解码器。
+- 离线优先：本地增删改查不依赖网络，重连后自动同步。
+- 一个领域模型：macOS、iOS、SQLite、API 与 PostgreSQL 使用相同实体和字段语义。
+- 一个本地数据库：书签、分组和使用事件不再分散到独立文件或存储器。
+- 确定性收敛：普通字段按字段合并；并发结果不依赖请求到达顺序。
+- 幂等上传：同一个本地操作无论重试多少次，服务端只应用一次。
+- 最小钥匙串职责：钥匙串只保存登录会话，不再保存数据库加密密钥。
 
-## 威胁模型
+## 组件与数据流
 
-v3 保护静态数据库、SQLite journal 和加密备份在被单独复制时不泄露书签内容，也能检测密文或记录身份被篡改。它不试图防御已解锁用户会话中的恶意进程、被注入的 Obelisk 进程、屏幕/剪贴板采集，或拥有恢复密钥的攻击者。
+```text
+macOS / iOS UI
+      │
+      ▼
+ObeliskCore + ObeliskData
+      │ local transaction
+      ▼
+PowerSync SQLite ── queued mutations ──▶ Obelisk API ──▶ PostgreSQL
+      ▲                                      │
+      └──────── PowerSync sync streams ◀─────┘
+```
 
-“隐藏书签”的 Touch ID/密码门禁属于界面访问控制，不替代静态加密；所有书签记录在磁盘上都使用同一强度的认证加密。
+客户端永远先提交本地 SQLite 事务。PowerSync 记录 CRUD 队列；连接可用时，客户端将事务作为一个 mutation batch 发送给 Obelisk API。API 在一个 PostgreSQL 事务内完成鉴权、幂等检查、字段合并与约束校验。提交后的 PostgreSQL 变更再由 PowerSync 同步到该账户的所有设备。
 
-## 文件布局
+本地同步表不保存 `owner_id`。PowerSync stream 已按 JWT 中的账户 ID 隔离数据，本地数据库在首次登录时再通过 local-only `sync_state` 绑定唯一账户；同一个数据库不能切换到另一个账户。
+
+## 数据模型
+
+### `collections`
+
+保存分组名称、顺序键、菜单显示状态、字段版本和软删除时间。
+
+### `bookmarks`
+
+保存分组关系、标题、URL、标题优化状态、隐藏状态、归档时间、置顶状态、原始标题、顺序键、字段版本和软删除时间。
+
+### `usage_events`
+
+每次打开书签产生一个不可变事件。频率和最近使用时间由事件聚合得到；不同设备的事件只做集合并集，不执行读改写计数器，因此离线并发不会丢失点击。
+
+### 身份与运维表
+
+`accounts`、`devices`、`sessions`、`applied_mutations` 和 `schema_version` 只存在于 PostgreSQL，不通过 PowerSync 下发。
+
+## 冲突规则
+
+可编辑字段各自携带 Hybrid Logical Clock（HLC）：
+
+```text
+wall-clock milliseconds + logical counter + device UUID
+```
+
+客户端写入前先观察当前记录的最大远端版本，再生成本次版本。服务端逐字段比较 HLC，只接受严格更新的字段；相同毫秒和计数器由 device UUID 提供稳定的最终顺序。这样两台设备同时修改不同字段时两项修改都会保留，同时修改同一字段时所有副本会得到相同胜者。
+
+删除使用带版本的 `deleted_at` tombstone，不执行物理删除。隐藏、归档或删除状态优先于置顶状态；服务端统一强制该不变量。
+
+## 幂等与事务
+
+每次本地写入生成 mutation UUID，并由 PowerSync metadata 附在 CRUD 项上。服务端以 `(owner_id, device_id, mutation_id)` 为主键登记已应用操作。一个 batch 的登记与领域写入位于同一 PostgreSQL 事务中：失败时全部回滚，网络重试不会重复产生效果。
+
+## 身份认证与隔离
+
+- 密码：Argon2id 哈希后存储。
+- API access token：RS256 JWT，短时有效，audience 为 `obelisk-api`。
+- PowerSync token：独立 RS256 JWT，audience 为 `powersync`。
+- Refresh token：随机生成，数据库只保存 SHA-256 摘要，每次刷新都轮换。
+- 同步隔离：PowerSync stream 固定使用 `owner_id = auth.user_id()`。
+- 写入隔离：服务端忽略客户端声明的 owner/device，以 JWT claims 为准，并由复合外键再次约束。
+- 账户边界：没有公开注册 API。当前唯一账户只能通过服务器上的 `obelisk-api create-account` 管理命令创建。
+
+生产部署必须在 API、PowerSync 和客户端之间启用 TLS。JWT 私钥、数据库密码和 PowerSync 管理 token 不得进入仓库。
+
+## 本地文件与钥匙串
 
 ```text
 ~/Library/Application Support/com.eli.Obelisk/
-└── Data/
-    ├── store.sqlite
-    ├── store.sqlite-wal
-    └── store.sqlite-shm
+└── Sync/
+    ├── obelisk-sync.sqlite
+    ├── obelisk-sync.sqlite-wal
+    └── obelisk-sync.sqlite-shm
 
 ~/Library/Caches/com.eli.Obelisk/
 └── Favicons/
 ```
 
-数据目录权限为 `0700`，数据库及边车文件为 `0600`。Favicon 是可重新下载的非权威缓存，不进入加密数据库。
+SQLite 是可重建的离线副本，不做应用层 AES 加密。磁盘保护依赖 macOS/iOS 的系统数据保护、用户登录和设备加密。隐藏书签的设备所有者认证属于界面访问控制，并不表示对应云端行经过端到端加密。
 
-## 密钥层级
+钥匙串只保存 `ObeliskAuthSession`：
 
-1. 每个 vault 生成一个随机 256-bit 数据加密密钥（DEK）。
-2. DEK 作为 generic-password 项目存入 macOS Data Protection Keychain：
-   - service：`com.eli.Obelisk.vault.v3`
-   - account：`primary`
-   - access group：`5Q5QT76MJU.com.eli.Obelisk`
-   - accessibility：`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
-   - 所有查询都设置 `kSecUseDataProtectionKeychain = true`，不启用 iCloud 同步。
-3. 建库时另生成随机 256-bit 恢复密钥。恢复密钥使用 AES-256-GCM 包装 DEK，包装结果写入数据库 metadata；恢复密钥本身只写入用户指定的独立文件，默认是 `~/Documents/Obelisk Recovery Key.txt`，权限为 `0600`。
+- service：`com.eli.Obelisk.sync.session`
+- account：`primary`
+- accessibility：`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
 
-应用绝不从数据库重新生成 DEK。数据库存在而钥匙串项目缺失时，加载必须失败；只有恢复密钥成功解开 DEK，并且该 DEK 能完整解密当前数据库后，才允许写回钥匙串。
-
-## 数据库格式
-
-SQLite `metadata` 表仅保存格式版本、payload schema 版本、随机 vault ID 和被恢复密钥包装的 DEK。`records` 表按实体保存密文：
-
-- 每条书签一条 `bookmark` 记录；
-- 分组集合一条 `groups` 记录；
-- LLM profiles 一条 `llmProfiles` 记录。
-
-每条记录使用 AES-256-GCM 和独立随机 nonce。AAD 固定绑定：
-
-```text
-vault ID | record kind | record ID | schema version
-```
-
-因此密文不能在记录之间替换，也不能移入另一个 vault。记录 kind、ID、更新时间和总数不是秘密；标题、URL、隐藏状态、分组关系、使用记录和模型配置均在密文内。
-
-## 一致性与故障处理
-
-- SQLite 使用 WAL、`synchronous=FULL`、事务写入和 busy timeout。
-- 同一数据目录的进程内访问经串行 coordinator 协调。
-- 保存操作比较前后 payload，只删除或重写发生变化的实体记录。
-- 新 vault 初始化必须同时完成 schema、初始记录、恢复文件和钥匙串写入；任一步失败都删除新数据库和新恢复文件，不留下半初始化状态。
-- 每次恢复或迁移都执行 SQLite `quick_check` 和全记录认证解密。
-
-## 备份与恢复
-
-“创建加密数据库备份”使用 SQLite Online Backup API 获取一致快照，并切换为 DELETE journal，最终产物只有一个 `.sqlite` 文件。备份不包含恢复密钥；两者应分开保存。
-
-“使用恢复密钥”只恢复当前数据库的 DEK，不导入旧格式、不创建新数据库，也不覆盖验证失败的数据。Obelisk 不提供明文数据导出功能。
+非敏感的设备 UUID 保存在 UserDefaults。LLM 远程 API Key 使用独立的钥匙串项目。
 
 ## 签名契约
 
-Data Protection Keychain 的访问能力来自宿主应用签名，以下三项必须稳定：
+macOS 客户端的签名身份保持：
 
 - Bundle ID：`com.eli.Obelisk`
 - Team ID：`5Q5QT76MJU`
 - Keychain access group：`5Q5QT76MJU.com.eli.Obelisk`
 
-构建或发布流程必须检查最终 `.app` 的 `Identifier`、`TeamIdentifier`、签名 Authority 和 entitlements。测试宿主在应用入口即切换到临时目录和内存密钥存储，禁止触碰真实数据库或真实钥匙串。
+发布前必须检查最终 `.app` 的 Identifier、TeamIdentifier、签名 Authority 与 entitlements。任何改变 Bundle ID、Team ID 或钥匙串组的变更都必须先提供显式会话迁移方案。
 
-## 参考
+## 部署边界
 
-- [Apple TN3137: On Mac keychain APIs and implementations](https://developer.apple.com/documentation/Technotes/tn3137-on-mac-keychains)
-- [Apple: kSecUseDataProtectionKeychain](https://developer.apple.com/documentation/security/ksecusedataprotectionkeychain)
-- [Apple: Keychain Access Groups Entitlement](https://developer.apple.com/documentation/BundleResources/Entitlements/keychain-access-groups)
-- [Apple: kSecAttrAccessibleWhenUnlockedThisDeviceOnly](https://developer.apple.com/documentation/security/ksecattraccessiblewhenunlockedthisdeviceonly)
+仓库中的 `Server/` 是完整的自托管单元：PostgreSQL 18、PowerSync Service、Obelisk API 与唯一数据库 schema。开发环境可由 Docker Compose 启动；正式环境需要持久卷、数据库备份、TLS 终止、密钥轮换、日志与健康检查。
+
+发布版 `Info.plist` 必须提供 `ObeliskAPIURL` 和 `ObeliskPowerSyncURL` 两个 HTTPS 地址。开发构建可用 `OBELISK_API_URL` 与 `OBELISK_POWERSYNC_URL` 环境变量覆盖它们。服务端 `OBELISK_TOKEN_ISSUER` 必须等于公开 API 地址，仓库不提供任何虚构的生产默认值。

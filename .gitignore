@@ -29,17 +29,25 @@ Icon?
 *.swo
 *~
 
-# Local data — Obelisk stores user bookmarks under ~/Documents/Obelisk,
-# so they are never in the repo. The patterns below guard against accidentally
-# copying a data directory or test database into the project tree.
+# Local data — guard against accidentally copying a database or cache into the repository.
 bookmarks.json
 usage.json
 favicons/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.icns
 
 # Local build/package outputs
+.build/
 *.app/
 *.zip
+
+# Local server configuration and secrets
+.env
+Server/secrets/
+/Server/cloudflared/*.json
+/Server/obelisk-api
 
 # Local Lazygit binary/download
 /lazygit

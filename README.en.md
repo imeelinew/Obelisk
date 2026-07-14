@@ -6,7 +6,7 @@
 
 <p align="center">
   A native bookmark shelf that lives in your macOS menu bar.<br>
-  Fast access, shortcut-based adding, local storage, hidden bookmarks, AI optimization, and a polished app window.
+  Fast access, shortcut-based adding, offline use, multi-device sync, hidden bookmarks, AI optimization, and a polished app window.
 </p>
 
 
@@ -38,7 +38,7 @@
 
 Obelisk is an elegant, native macOS bookmark manager for people who switch browsers often, want bookmarks close at hand, and do not want to keep everything inside the browser.
 
-It keeps a lightweight native menu in the menu bar for quick access, and opens a full app window when you need to organize. Bookmarks live in a local SQLite database, with every record independently protected by authenticated AES-256-GCM encryption. The device key is stored in the macOS Data Protection Keychain, and a recovery key is generated when the vault is first created for offline safekeeping. Viewing hidden bookmarks requires Touch ID or your password.
+It keeps a lightweight native menu in the menu bar for quick access, and opens a full app window when you need to organize. Obelisk uses local SQLite for offline access and PowerSync with PostgreSQL for multi-device synchronization. macOS and the future iOS client can both create, edit, and delete while offline; changes merge by field and converge after reconnecting. Viewing hidden bookmarks still requires Touch ID or your password.
 
 ## Why Obelisk
 
@@ -47,7 +47,7 @@ Browser bookmarks are usually tied to one browser, buried in sidebars or nested 
 - **Menu bar first**: open pinned, recently added, and full bookmark lists without switching windows.
 - **Native settings window**: search, organize, hide, and archive bookmarks in a macOS-style window.
 - **Hidden bookmarks**: protect sensitive bookmarks with device-owner authentication.
-- **Local encrypted storage**: data lives in `Application Support/com.eli.Obelisk/Data/store.sqlite`; encrypted backups and recovery-key restoration are built in.
+- **Offline-first sync**: local data lives in `Application Support/com.eli.Obelisk/Sync/obelisk-sync.sqlite`; local operations upload and remote changes arrive automatically after reconnecting.
 - **AI optimization**: Obelisk supports BYOK for automatic title optimization and auto-grouping. I call this Intelligence. As your collection grows over time, the automatic cleanup stays convenient and easy to scan.
 
 ## Menu Bar

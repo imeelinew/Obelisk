@@ -88,6 +88,32 @@ struct ObeliskKitTests {
         #expect(snapshot.bookmarks.isEmpty)
     }
 
+    @Test func bookmarkStoreSharesBookmarkAndCollectionRulesAcrossPlatforms() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskStore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let database = try await ObeliskDatabase.open(rootDirectory: root, deviceID: UUID())
+        let store = BookmarkStore(database: database)
+        let collection = try store.createCollection(name: " Reading ")
+        let bookmark = try store.add(
+            title: " Example ",
+            url: "https://example.com/",
+            collectionID: collection.id
+        )
+        let snapshot = try store.snapshot()
+
+        #expect(collection.name == "Reading")
+        #expect(bookmark.title == "Example")
+        #expect(snapshot.collectionByBookmarkID[bookmark.id] == collection.id)
+        #expect(throws: BookmarkStoreError.duplicateCollectionName) {
+            try store.createCollection(name: "reading")
+        }
+        #expect(throws: BookmarkStoreError.duplicateURL("https://example.com")) {
+            try store.add(title: "Duplicate", url: "https://example.com")
+        }
+    }
+
     @Test func localWritesAdvancePastObservedRemoteVersions() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObeliskHLC-\(UUID().uuidString)", isDirectory: true)

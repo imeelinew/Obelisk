@@ -777,19 +777,8 @@ final class BookmarksModel {
     }
 
     func createCollection(name: String) -> String? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return "分组名称不能为空"
-        }
-        if collections.contains(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
-            return "已存在同名分组"
-        }
-
         do {
-            let nextOrder = (collections.map(\.sortOrder).max() ?? -1) + 1
-            try store.database.saveCollection(
-                BookmarkCollection(name: trimmed, sortOrder: nextOrder)
-            )
+            try store.createCollection(name: name)
             reload()
             return nil
         } catch {
@@ -798,24 +787,8 @@ final class BookmarksModel {
     }
 
     func renameCollection(id: UUID, name: String) -> String? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return "分组名称不能为空"
-        }
-        if collections.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
-            return "已存在同名分组"
-        }
-
-        guard collections.contains(where: { $0.id == id }) else {
-            return "找不到这个分组"
-        }
-
         do {
-            guard var collection = collections.first(where: { $0.id == id }) else {
-                return "找不到这个分组"
-            }
-            collection.name = trimmed
-            try store.database.saveCollection(collection)
+            try store.renameCollection(id: id, name: name)
             reload()
             return nil
         } catch {
@@ -825,7 +798,7 @@ final class BookmarksModel {
 
     func deleteCollection(id: UUID) -> String? {
         do {
-            try store.database.deleteCollection(id: id)
+            try store.deleteCollection(id: id)
             reload()
             return nil
         } catch {
@@ -834,15 +807,8 @@ final class BookmarksModel {
     }
 
     func setBookmarkCollection(bookmarkId: UUID, collectionId: UUID?) -> String? {
-        if let collectionId, !collections.contains(where: { $0.id == collectionId }) {
-            return "找不到这个分组"
-        }
-        guard bookmarks.contains(where: { $0.id == bookmarkId }) else {
-            return "找不到这个书签"
-        }
-
         do {
-            try store.database.setCollection(collectionId, for: [bookmarkId])
+            try store.setCollection(collectionId, for: [bookmarkId])
             reload()
             return nil
         } catch {
@@ -852,13 +818,9 @@ final class BookmarksModel {
 
     func setBookmarkCollection(bookmarkIds: Set<UUID>, collectionId: UUID?) -> String? {
         guard !bookmarkIds.isEmpty else { return nil }
-        if let collectionId, !collections.contains(where: { $0.id == collectionId }) {
-            return "找不到这个分组"
-        }
-
         do {
             let validIDs = bookmarkIds.intersection(bookmarks.map(\.id))
-            try store.database.setCollection(collectionId, for: validIDs)
+            try store.setCollection(collectionId, for: validIDs)
             reload()
             return nil
         } catch {

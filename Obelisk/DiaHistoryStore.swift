@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import ObeliskData
 import SQLite3
 
 enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {

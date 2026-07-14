@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Obelisk iOS 界面提案</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+      color: #1d1d1f;
+      background: #ececf1;
+      font-synthesis: none;
+      --accent: #0878f9;
+      --secondary: #73737a;
+      --separator: rgba(60, 60, 67, 0.16);
+      --surface: rgba(255, 255, 255, 0.86);
+      --glass: rgba(247, 247, 249, 0.72);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 32px 18px;
+      background:
+        radial-gradient(circle at 18% 8%, rgba(125, 181, 255, 0.18), transparent 34%),
+        radial-gradient(circle at 84% 92%, rgba(181, 151, 255, 0.13), transparent 34%),
+        #ececf1;
+    }
+
+    .prototype {
+      display: grid;
+      justify-items: center;
+      gap: 18px;
+    }
+
+    .prototype-note {
+      margin: 0;
+      color: #66666d;
+      font-size: 13px;
+      line-height: 1.4;
+      text-align: center;
+    }
+
+    .phone {
+      position: relative;
+      width: 402px;
+      height: 874px;
+      overflow: hidden;
+      border: 7px solid #18181a;
+      border-radius: 56px;
+      background: #f7f7f8;
+      box-shadow:
+        0 32px 80px rgba(0, 0, 0, 0.20),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+    }
+
+    .status-bar {
+      position: absolute;
+      z-index: 20;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px 0 27px;
+      pointer-events: none;
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: -0.2px;
+    }
+
+    .dynamic-island {
+      position: absolute;
+      top: 11px;
+      left: 50%;
+      width: 118px;
+      height: 34px;
+      border-radius: 999px;
+      background: #050505;
+      transform: translateX(-50%);
+    }
+
+    .status-icons {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .signal {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 12px;
+    }
+
+    .signal span {
+      width: 3px;
+      border-radius: 2px;
+      background: currentColor;
+    }
+
+    .signal span:nth-child(1) { height: 4px; }
+    .signal span:nth-child(2) { height: 6px; }
+    .signal span:nth-child(3) { height: 9px; }
+    .signal span:nth-child(4) { height: 12px; }
+
+    .wifi {
+      width: 16px;
+      height: 12px;
+      border-top: 3px solid currentColor;
+      border-radius: 50% 50% 0 0;
+      transform: scaleX(1.05);
+    }
+
+    .battery {
+      position: relative;
+      width: 24px;
+      height: 12px;
+      border: 1.5px solid currentColor;
+      border-radius: 4px;
+    }
+
+    .battery::before {
+      position: absolute;
+      inset: 2px;
+      border-radius: 2px;
+      background: currentColor;
+      content: "";
+    }
+
+    .battery::after {
+      position: absolute;
+      top: 3px;
+      right: -3px;
+      width: 2px;
+      height: 5px;
+      border-radius: 0 2px 2px 0;
+      background: currentColor;
+      content: "";
+      opacity: 0.45;
+    }
+
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: none;
+      overflow: hidden;
+      background: #f7f7f8;
+    }
+
+    .screen.active {
+      display: block;
+    }
+
+    .scroll-content {
+      position: absolute;
+      inset: 0;
+      overflow-y: auto;
+      padding: 69px 18px 138px;
+      scrollbar-width: none;
+    }
+
+    .scroll-content::-webkit-scrollbar {
+      display: none;
+    }
+
+    .navigation-header {
+      min-height: 56px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      font-weight: 720;
+      letter-spacing: -1.1px;
+      line-height: 1.12;
+    }
+
+    .toolbar-button {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      flex: none;
+      border: 1px solid rgba(255, 255, 255, 0.75);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.66);
+      color: var(--accent);
+      box-shadow:
+        0 4px 16px rgba(33, 42, 58, 0.08),
+        inset 0 0 0 0.5px rgba(60, 60, 67, 0.08);
+      backdrop-filter: blur(18px) saturate(1.35);
+    }
+
+    .toolbar-button svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2.1;
+    }
+
+    .section {
+      margin-top: 24px;
+    }
+
+    .section-title {
+      margin: 0 4px 9px;
+      color: var(--secondary);
+      font-size: 13px;
+      font-weight: 590;
+      letter-spacing: -0.05px;
+    }
+
+    .list {
+      overflow: hidden;
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: inset 0 0 0 0.5px rgba(60, 60, 67, 0.10);
+    }
+
+    .row {
+      position: relative;
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 13px;
+    }
+
+    .row + .row::before {
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 58px;
+      height: 0.5px;
+      background: var(--separator);
+      content: "";
+    }
+
+    .favicon {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      flex: none;
+      border-radius: 10px;
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 700;
+      box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+    }
+
+    .favicon.blue { background: linear-gradient(145deg, #4aa2ff, #176bd8); }
+    .favicon.black { background: #1f2022; }
+    .favicon.orange { background: linear-gradient(145deg, #ff9d42, #f04b24); }
+    .favicon.purple { background: linear-gradient(145deg, #a67cff, #6d45d8); }
+    .favicon.green { background: linear-gradient(145deg, #51c98e, #14945f); }
+    .favicon.gray { background: linear-gradient(145deg, #949aa3, #626872); }
+
+    .row-copy {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .row-title {
+      overflow: hidden;
+      color: #1f1f22;
+      font-size: 16px;
+      font-weight: 520;
+      line-height: 1.3;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row-subtitle {
+      overflow: hidden;
+      margin-top: 2px;
+      color: var(--secondary);
+      font-size: 13px;
+      line-height: 1.3;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row-meta {
+      flex: none;
+      color: #919198;
+      font-size: 12px;
+    }
+
+    .chevron {
+      width: 8px;
+      height: 8px;
+      flex: none;
+      border-top: 1.7px solid #aaaab0;
+      border-right: 1.7px solid #aaaab0;
+      transform: rotate(45deg);
+    }
+
+    .folder-icon {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      flex: none;
+      border-radius: 11px;
+    }
+
+    .folder-icon svg {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+    }
+
+    .folder-icon.blue { color: #1779ef; background: #e7f1ff; }
+    .folder-icon.purple { color: #8655db; background: #f0e9fc; }
+    .folder-icon.orange { color: #e67b17; background: #fff0df; }
+    .folder-icon.green { color: #1b9c64; background: #e2f6ec; }
+    .folder-icon.red { color: #dc4d57; background: #fce7e9; }
+
+    .empty-state {
+      min-height: 500px;
+      display: grid;
+      place-content: center;
+      justify-items: center;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .empty-symbol {
+      width: 68px;
+      height: 68px;
+      display: grid;
+      place-items: center;
+      border-radius: 22px;
+      background: rgba(118, 118, 128, 0.09);
+      color: #8b8b92;
+    }
+
+    .empty-symbol svg {
+      width: 29px;
+      height: 29px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-width: 2;
+    }
+
+    .empty-state h2 {
+      margin: 16px 0 5px;
+      font-size: 20px;
+      font-weight: 650;
+      letter-spacing: -0.35px;
+    }
+
+    .empty-state p {
+      width: 250px;
+      margin: 0;
+      color: var(--secondary);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .tab-dock {
+      position: absolute;
+      z-index: 30;
+      right: 15px;
+      bottom: 18px;
+      left: 15px;
+      height: 72px;
+      display: flex;
+      align-items: stretch;
+      gap: 9px;
+      pointer-events: none;
+    }
+
+    .tab-group,
+    .search-tab,
+    .search-field {
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      background: var(--glass);
+      box-shadow:
+        0 9px 28px rgba(35, 43, 56, 0.16),
+        inset 0 0 0 0.5px rgba(72, 72, 80, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(28px) saturate(1.55);
+      -webkit-backdrop-filter: blur(28px) saturate(1.55);
+    }
+
+    .tab-group {
+      min-width: 0;
+      display: flex;
+      flex: 1;
+      padding: 5px;
+      border-radius: 28px;
+      transition: opacity 180ms ease, transform 220ms ease;
+      pointer-events: auto;
+    }
+
+    .tab {
+      position: relative;
+      min-width: 0;
+      display: grid;
+      place-items: center;
+      align-content: center;
+      flex: 1;
+      gap: 2px;
+      border: 0;
+      border-radius: 22px;
+      background: transparent;
+      color: #68686f;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .tab::before {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border: 1px solid rgba(255, 255, 255, 0.70);
+      border-radius: inherit;
+      background: rgba(255, 255, 255, 0.68);
+      box-shadow: 0 3px 10px rgba(41, 47, 60, 0.08);
+      content: "";
+      opacity: 0;
+      transform: scale(0.86);
+      transition: opacity 160ms ease, transform 180ms ease;
+    }
+
+    .tab.active {
+      color: var(--accent);
+    }
+
+    .tab.active::before {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .tab svg,
+    .search-tab svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
+    }
+
+    .tab-label {
+      font-size: 10px;
+      font-weight: 560;
+      line-height: 1;
+    }
+
+    .search-tab {
+      width: 72px;
+      display: grid;
+      place-items: center;
+      flex: none;
+      border-radius: 28px;
+      color: #55555c;
+      cursor: pointer;
+      transition: opacity 140ms ease, transform 220ms ease;
+      pointer-events: auto;
+    }
+
+    .search-tab.active {
+      color: var(--accent);
+      background: rgba(255, 255, 255, 0.80);
+    }
+
+    .search-field {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 19px;
+      border-radius: 28px;
+      color: #77777d;
+      opacity: 0;
+      transform: scaleX(0.83);
+      transform-origin: right center;
+      transition: opacity 160ms ease, transform 220ms ease;
+      pointer-events: none;
+    }
+
+    .search-field svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-width: 2;
+    }
+
+    .search-field span {
+      font-size: 16px;
+    }
+
+    .tab-dock.searching .tab-group,
+    .tab-dock.searching .search-tab {
+      opacity: 0;
+      transform: scale(0.92);
+      pointer-events: none;
+    }
+
+    .tab-dock.searching .search-field {
+      opacity: 1;
+      transform: scaleX(1);
+      pointer-events: auto;
+    }
+
+    .home-indicator {
+      position: absolute;
+      z-index: 40;
+      bottom: 7px;
+      left: 50%;
+      width: 135px;
+      height: 5px;
+      border-radius: 999px;
+      background: #111114;
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    @media (max-width: 460px) {
+      body {
+        padding: 0;
+        background: #f7f7f8;
+      }
+
+      .prototype {
+        width: 100%;
+      }
+
+      .prototype-note {
+        display: none;
+      }
+
+      .phone {
+        width: 100vw;
+        height: 100vh;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="prototype">
+    <p class="prototype-note">点击底部项目可查看四个主界面；“搜索”按 iOS 26 原生行为独立显示。</p>
+
+    <div class="phone" aria-label="Obelisk iOS 界面原型">
+      <div class="status-bar" aria-hidden="true">
+        <span>9:41</span>
+        <div class="dynamic-island"></div>
+        <div class="status-icons">
+          <div class="signal"><span></span><span></span><span></span><span></span></div>
+          <div class="wifi"></div>
+          <div class="battery"></div>
+        </div>
+      </div>
+
+      <section class="screen active" data-screen="bookmarks">
+        <div class="scroll-content">
+          <header class="navigation-header">
+            <h1>书签</h1>
+            <button class="toolbar-button" type="button" aria-label="添加书签">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+            </button>
+          </header>
+
+          <div class="section">
+            <div class="section-title">置顶</div>
+            <div class="list">
+              <div class="row">
+                <div class="favicon black">G</div>
+                <div class="row-copy">
+                  <div class="row-title">GitHub</div>
+                  <div class="row-subtitle">github.com</div>
+                </div>
+                <div class="row-meta">置顶</div>
+              </div>
+              <div class="row">
+                <div class="favicon blue">A</div>
+                <div class="row-copy">
+                  <div class="row-title">Apple Developer</div>
+                  <div class="row-subtitle">developer.apple.com</div>
+                </div>
+                <div class="row-meta">置顶</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">全部书签</div>
+            <div class="list">
+              <div class="row">
+                <div class="favicon purple">L</div>
+                <div class="row-copy">
+                  <div class="row-title">Liquid Glass 设计规范</div>
+                  <div class="row-subtitle">developer.apple.com</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="favicon orange">S</div>
+                <div class="row-copy">
+                  <div class="row-title">Swift Forums</div>
+                  <div class="row-subtitle">forums.swift.org</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="favicon green">N</div>
+                <div class="row-copy">
+                  <div class="row-title">我的笔记</div>
+                  <div class="row-subtitle">elinew.tech</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="favicon gray">W</div>
+                <div class="row-copy">
+                  <div class="row-title">Web 标准文档</div>
+                  <div class="row-subtitle">developer.mozilla.org</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="groups">
+        <div class="scroll-content">
+          <header class="navigation-header">
+            <h1>分组</h1>
+            <button class="toolbar-button" type="button" aria-label="添加分组">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+            </button>
+          </header>
+
+          <div class="section">
+            <div class="section-title">我的分组</div>
+            <div class="list">
+              <div class="row">
+                <div class="folder-icon blue">
+                  <svg viewBox="0 0 24 24"><path d="M3 6.8A2.8 2.8 0 0 1 5.8 4h3.1l2 2h7.3A2.8 2.8 0 0 1 21 8.8v7.4a2.8 2.8 0 0 1-2.8 2.8H5.8A2.8 2.8 0 0 1 3 16.2Z"></path></svg>
+                </div>
+                <div class="row-copy">
+                  <div class="row-title">开发</div>
+                  <div class="row-subtitle">18 个书签</div>
+                </div>
+                <div class="chevron"></div>
+              </div>
+              <div class="row">
+                <div class="folder-icon purple">
+                  <svg viewBox="0 0 24 24"><path d="M3 6.8A2.8 2.8 0 0 1 5.8 4h3.1l2 2h7.3A2.8 2.8 0 0 1 21 8.8v7.4a2.8 2.8 0 0 1-2.8 2.8H5.8A2.8 2.8 0 0 1 3 16.2Z"></path></svg>
+                </div>
+                <div class="row-copy">
+                  <div class="row-title">设计</div>
+                  <div class="row-subtitle">12 个书签</div>
+                </div>
+                <div class="chevron"></div>
+              </div>
+              <div class="row">
+                <div class="folder-icon orange">
+                  <svg viewBox="0 0 24 24"><path d="M3 6.8A2.8 2.8 0 0 1 5.8 4h3.1l2 2h7.3A2.8 2.8 0 0 1 21 8.8v7.4a2.8 2.8 0 0 1-2.8 2.8H5.8A2.8 2.8 0 0 1 3 16.2Z"></path></svg>
+                </div>
+                <div class="row-copy">
+                  <div class="row-title">阅读</div>
+                  <div class="row-subtitle">9 个书签</div>
+                </div>
+                <div class="chevron"></div>
+              </div>
+              <div class="row">
+                <div class="folder-icon green">
+                  <svg viewBox="0 0 24 24"><path d="M3 6.8A2.8 2.8 0 0 1 5.8 4h3.1l2 2h7.3A2.8 2.8 0 0 1 21 8.8v7.4a2.8 2.8 0 0 1-2.8 2.8H5.8A2.8 2.8 0 0 1 3 16.2Z"></path></svg>
+                </div>
+                <div class="row-copy">
+                  <div class="row-title">工具</div>
+                  <div class="row-subtitle">7 个书签</div>
+                </div>
+                <div class="chevron"></div>
+              </div>
+              <div class="row">
+                <div class="folder-icon red">
+                  <svg viewBox="0 0 24 24"><path d="M3 6.8A2.8 2.8 0 0 1 5.8 4h3.1l2 2h7.3A2.8 2.8 0 0 1 21 8.8v7.4a2.8 2.8 0 0 1-2.8 2.8H5.8A2.8 2.8 0 0 1 3 16.2Z"></path></svg>
+                </div>
+                <div class="row-copy">
+                  <div class="row-title">影音</div>
+                  <div class="row-subtitle">5 个书签</div>
+                </div>
+                <div class="chevron"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="recent">
+        <div class="scroll-content">
+          <header class="navigation-header">
+            <h1>最近浏览</h1>
+          </header>
+
+          <div class="section">
+            <div class="section-title">今天</div>
+            <div class="list">
+              <div class="row">
+                <div class="favicon black">G</div>
+                <div class="row-copy">
+                  <div class="row-title">Obelisk</div>
+                  <div class="row-subtitle">github.com</div>
+                </div>
+                <div class="row-meta">12:42</div>
+              </div>
+              <div class="row">
+                <div class="favicon purple">L</div>
+                <div class="row-copy">
+                  <div class="row-title">Liquid Glass 设计规范</div>
+                  <div class="row-subtitle">developer.apple.com</div>
+                </div>
+                <div class="row-meta">10:18</div>
+              </div>
+              <div class="row">
+                <div class="favicon blue">A</div>
+                <div class="row-copy">
+                  <div class="row-title">SwiftUI 文档</div>
+                  <div class="row-subtitle">developer.apple.com</div>
+                </div>
+                <div class="row-meta">09:06</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">昨天</div>
+            <div class="list">
+              <div class="row">
+                <div class="favicon green">N</div>
+                <div class="row-copy">
+                  <div class="row-title">我的笔记</div>
+                  <div class="row-subtitle">elinew.tech</div>
+                </div>
+                <div class="row-meta">21:30</div>
+              </div>
+              <div class="row">
+                <div class="favicon orange">S</div>
+                <div class="row-copy">
+                  <div class="row-title">Swift Forums</div>
+                  <div class="row-subtitle">forums.swift.org</div>
+                </div>
+                <div class="row-meta">18:15</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="search">
+        <div class="scroll-content">
+          <header class="navigation-header">
+            <h1>搜索</h1>
+          </header>
+          <div class="empty-state">
+            <div class="empty-symbol">
+              <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5"></path></svg>
+            </div>
+            <h2>搜索书签</h2>
+            <p>输入标题、网址或分组名称，快速找到你保存的内容。</p>
+          </div>
+        </div>
+      </section>
+
+      <nav class="tab-dock" aria-label="主导航">
+        <div class="tab-group">
+          <button class="tab active" type="button" data-tab="bookmarks">
+            <svg viewBox="0 0 24 24"><path d="M6.5 4.5A2.5 2.5 0 0 1 9 2h6a2.5 2.5 0 0 1 2.5 2.5V22L12 18.2 6.5 22Z"></path></svg>
+            <span class="tab-label">书签</span>
+          </button>
+          <button class="tab" type="button" data-tab="groups">
+            <svg viewBox="0 0 24 24"><path d="M3 7a3 3 0 0 1 3-3h3.5l2 2H18a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z"></path></svg>
+            <span class="tab-label">分组</span>
+          </button>
+          <button class="tab" type="button" data-tab="recent">
+            <svg viewBox="0 0 24 24"><path d="M4.2 7.5A9 9 0 1 1 3 14"></path><path d="M4 3v5h5M12 7v5l3 2"></path></svg>
+            <span class="tab-label">最近浏览</span>
+          </button>
+        </div>
+        <button class="search-tab" type="button" data-tab="search" aria-label="搜索">
+          <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5"></path></svg>
+        </button>
+        <div class="search-field" role="search">
+          <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5"></path></svg>
+          <span>搜索书签</span>
+        </div>
+      </nav>
+
+      <div class="home-indicator"></div>
+    </div>
+  </main>
+
+  <script>
+    const dock = document.querySelector('.tab-dock');
+    const tabs = document.querySelectorAll('[data-tab]');
+    const screens = document.querySelectorAll('[data-screen]');
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const destination = tab.dataset.tab;
+
+        screens.forEach((screen) => {
+          screen.classList.toggle('active', screen.dataset.screen === destination);
+        });
+
+        document.querySelectorAll('.tab').forEach((item) => item.classList.remove('active'));
+        document.querySelector('.search-tab').classList.toggle('active', destination === 'search');
+        dock.classList.toggle('searching', destination === 'search');
+
+        if (destination !== 'search') {
+          tab.classList.add('active');
+        }
+      });
+    });
+
+    document.querySelector('.search-field').addEventListener('click', () => {
+      dock.classList.remove('searching');
+      document.querySelector('.search-tab').classList.add('active');
+    });
+  </script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import Foundation
+import ObeliskData
 import Security
 
 enum ObeliskPrivateStorage {

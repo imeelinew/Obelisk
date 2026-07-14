@@ -9,9 +9,14 @@ import SwiftUI
 
 @main
 struct Obelisk_iOSApp: App {
+    @State private var library = ObeliskLibraryModel()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(library: library)
+                .task {
+                    await library.start()
+                }
         }
     }
 }

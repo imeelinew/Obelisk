@@ -1,11 +1,14 @@
 import Foundation
 import ObeliskCore
-import ObeliskData
 
-public enum BookmarkStoreError: LocalizedError {
+public enum BookmarkStoreError: LocalizedError, Equatable {
     case invalidURL(String)
     case duplicateURL(String)
     case invalidTitle
+    case invalidCollectionName
+    case duplicateCollectionName
+    case missingCollection
+    case missingBookmark
 
     public var errorDescription: String? {
         switch self {
@@ -15,6 +18,14 @@ public enum BookmarkStoreError: LocalizedError {
             "这个网址已经在书签里了"
         case .invalidTitle:
             "标题不能为空"
+        case .invalidCollectionName:
+            "分组名称不能为空"
+        case .duplicateCollectionName:
+            "已存在同名分组"
+        case .missingCollection:
+            "找不到这个分组"
+        case .missingBookmark:
+            "找不到这个书签"
         }
     }
 }
@@ -54,7 +65,8 @@ public final class BookmarkStore {
         let base = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+        ).first ?? URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
         return base
             .appendingPathComponent("com.eli.Obelisk", isDirectory: true)
             .appendingPathComponent("Sync", isDirectory: true)
@@ -65,7 +77,12 @@ public final class BookmarkStore {
     }
 
     @discardableResult
-    public func add(title: String, url: String, isHidden: Bool = false) throws -> Bookmark {
+    public func add(
+        title: String,
+        url: String,
+        isHidden: Bool = false,
+        collectionID: UUID? = nil
+    ) throws -> Bookmark {
         let trimmedURL = try validatedWebURL(url)
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
@@ -84,7 +101,7 @@ public final class BookmarkStore {
             isHidden: isHidden,
             originalTitle: trimmedTitle
         )
-        try database.saveBookmark(bookmark, collectionID: nil)
+        try database.saveBookmark(bookmark, collectionID: collectionID)
         return bookmark
     }
 
@@ -138,6 +155,51 @@ public final class BookmarkStore {
             bookmark.isPinned = isPinned && !bookmark.isHidden && bookmark.archivedAt == nil
             try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
         }
+    }
+
+    @discardableResult
+    public func createCollection(name: String) throws -> BookmarkCollection {
+        let current = try snapshot()
+        let trimmedName = try validatedCollectionName(name, in: current.collections)
+        let nextOrder = (current.collections.map(\.sortOrder).max() ?? -1) + 1
+        let collection = BookmarkCollection(name: trimmedName, sortOrder: nextOrder)
+        try database.saveCollection(collection)
+        return collection
+    }
+
+    @discardableResult
+    public func renameCollection(id: UUID, name: String) throws -> BookmarkCollection {
+        let current = try snapshot()
+        guard var collection = current.collections.first(where: { $0.id == id }) else {
+            throw BookmarkStoreError.missingCollection
+        }
+        collection.name = try validatedCollectionName(
+            name,
+            in: current.collections.filter { $0.id != id }
+        )
+        try database.saveCollection(collection)
+        return collection
+    }
+
+    public func deleteCollection(id: UUID) throws {
+        let current = try snapshot()
+        guard current.collections.contains(where: { $0.id == id }) else {
+            throw BookmarkStoreError.missingCollection
+        }
+        try database.deleteCollection(id: id)
+    }
+
+    public func setCollection(_ collectionID: UUID?, for bookmarkIDs: Set<UUID>) throws {
+        let current = try snapshot()
+        if let collectionID,
+           !current.collections.contains(where: { $0.id == collectionID }) {
+            throw BookmarkStoreError.missingCollection
+        }
+        let existingBookmarkIDs = Set(current.bookmarks.map(\.id))
+        guard bookmarkIDs.isSubset(of: existingBookmarkIDs) else {
+            throw BookmarkStoreError.missingBookmark
+        }
+        try database.setCollection(collectionID, for: bookmarkIDs)
     }
 
     @discardableResult
@@ -209,6 +271,22 @@ public final class BookmarkStore {
             throw BookmarkStoreError.invalidURL(rawURL)
         }
         return trimmed
+    }
+
+    private func validatedCollectionName(
+        _ name: String,
+        in collections: [BookmarkCollection]
+    ) throws -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw BookmarkStoreError.invalidCollectionName
+        }
+        guard !collections.contains(where: {
+            $0.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame
+        }) else {
+            throw BookmarkStoreError.duplicateCollectionName
+        }
+        return trimmedName
     }
 
     public static func normalizedURL(_ rawURL: String) -> String {

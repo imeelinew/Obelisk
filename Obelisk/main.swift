@@ -129,14 +129,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
         guard !isUnitTesting else { return }
+        let configuration: ObeliskServerConfiguration
         do {
-            authClient = try ObeliskAuthClient(
-                configuration: .load()
-            )
+            configuration = try .load()
         } catch {
             presentStartupError(error)
             return
         }
+        authClient = ObeliskAuthClient(configuration: configuration)
         Task {
             await startApplication()
         }

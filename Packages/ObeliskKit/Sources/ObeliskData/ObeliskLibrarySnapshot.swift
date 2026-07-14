@@ -19,13 +19,3 @@ public struct ObeliskLibrarySnapshot: Equatable, Sendable {
         self.usageByBookmarkID = usageByBookmarkID
     }
 }
-
-public protocol ObeliskDataStore: Sendable {
-    func loadSnapshot() throws -> ObeliskLibrarySnapshot
-    func saveBookmark(_ bookmark: Bookmark, collectionID: UUID?) throws
-    func saveCollection(_ collection: BookmarkCollection) throws
-    func deleteBookmark(id: UUID, at date: Date) throws
-    func deleteCollection(id: UUID, at date: Date) throws
-    func setCollection(_ collectionID: UUID?, for bookmarkIDs: Set<UUID>) throws
-    func recordUsage(bookmarkID: UUID, at date: Date) throws
-}

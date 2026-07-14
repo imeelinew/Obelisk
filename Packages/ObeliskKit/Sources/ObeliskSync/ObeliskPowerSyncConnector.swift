@@ -6,11 +6,18 @@ struct ObeliskMutationBatch: Encodable {
 }
 
 struct ObeliskMutationUpload: Encodable {
-    var mutationId: UUID
+    var mutationID: UUID
     var table: String
-    var rowId: UUID
+    var rowID: UUID
     var operation: String
     var values: JsonParam
+
+    private enum CodingKeys: String, CodingKey {
+        case mutationID = "mutationId"
+        case table
+        case rowID = "rowId"
+        case operation, values
+    }
 }
 
 public final class ObeliskPowerSyncConnector: PowerSyncBackendConnectorProtocol, Sendable {
@@ -37,9 +44,9 @@ public final class ObeliskPowerSyncConnector: PowerSyncBackendConnectorProtocol,
                 throw ObeliskSyncError.invalidMutationMetadata
             }
             return ObeliskMutationUpload(
-                mutationId: mutationID,
+                mutationID: mutationID,
                 table: entry.table,
-                rowId: rowID,
+                rowID: rowID,
                 operation: entry.op.rawValue,
                 values: entry.opDataTyped ?? [:]
             )

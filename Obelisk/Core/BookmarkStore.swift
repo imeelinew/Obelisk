@@ -31,12 +31,10 @@ public final class BookmarkStore {
 
     public static func open(
         rootDirectory: URL = defaultRootDirectory(),
-        ownerID: UUID? = nil,
         deviceID: UUID
     ) async throws -> BookmarkStore {
         let database = try await ObeliskDatabase.open(
             rootDirectory: rootDirectory,
-            ownerID: ownerID,
             deviceID: deviceID
         )
         return BookmarkStore(database: database)

@@ -4,7 +4,7 @@ import ObeliskCore
 import PowerSync
 import PowerSyncGRDB
 
-public final class ObeliskDatabase: ObeliskDataStore, @unchecked Sendable {
+public final class ObeliskDatabase: @unchecked Sendable {
     public static let fileName = "obelisk-sync.sqlite"
 
     public let rootDirectory: URL
@@ -39,7 +39,6 @@ public final class ObeliskDatabase: ObeliskDataStore, @unchecked Sendable {
 
     public static func open(
         rootDirectory: URL,
-        ownerID: UUID? = nil,
         deviceID: UUID
     ) async throws -> ObeliskDatabase {
         let database = try ObeliskDatabase(
@@ -47,9 +46,6 @@ public final class ObeliskDatabase: ObeliskDataStore, @unchecked Sendable {
             deviceID: deviceID
         )
         _ = try await database.powerSync.getPowerSyncVersion()
-        if let ownerID {
-            try database.bind(to: ownerID)
-        }
         return database
     }
 
@@ -147,7 +143,7 @@ public final class ObeliskDatabase: ObeliskDataStore, @unchecked Sendable {
                 let timestamp = try nextTimestamp(database, observing: Array(versions.values), now: now)
                 let collection = collectionID?.uuidString.lowercased()
                 let archived = bookmark.archivedAt.map(Self.encodeDate)
-                var changed: [String] = []
+                var changed = false
                 Self.markChange("collection_id", current["collection_id"] as String?, collection, timestamp, &versions, &changed)
                 Self.markChange("title", current["title"] as String, bookmark.title, timestamp, &versions, &changed)
                 Self.markChange("url", current["url"] as String, bookmark.url, timestamp, &versions, &changed)
@@ -157,7 +153,7 @@ public final class ObeliskDatabase: ObeliskDataStore, @unchecked Sendable {
                 Self.markChange("is_pinned", current["is_pinned"] as Bool, bookmark.isPinned, timestamp, &versions, &changed)
                 Self.markChange("original_title", current["original_title"] as String?, bookmark.originalTitle, timestamp, &versions, &changed)
                 Self.markChange("deleted_at", current["deleted_at"] as String?, nil as String?, timestamp, &versions, &changed)
-                guard !changed.isEmpty else { return }
+                guard changed else { return }
                 try database.execute(
                     sql: """
                     UPDATE bookmarks SET
@@ -236,12 +232,12 @@ public final class ObeliskDatabase: ObeliskDataStore, @unchecked Sendable {
             if let current {
                 var versions = try Self.decodeVersions(current["field_versions"])
                 let timestamp = try nextTimestamp(database, observing: Array(versions.values), now: now)
-                var changed: [String] = []
+                var changed = false
                 Self.markChange("name", current["name"] as String, collection.name, timestamp, &versions, &changed)
                 Self.markChange("position_key", current["position_key"] as String, position, timestamp, &versions, &changed)
                 Self.markChange("show_in_menu", current["show_in_menu"] as Bool, collection.showInMenu, timestamp, &versions, &changed)
                 Self.markChange("deleted_at", current["deleted_at"] as String?, nil as String?, timestamp, &versions, &changed)
-                guard !changed.isEmpty else { return }
+                guard changed else { return }
                 try database.execute(
                     sql: """
                     UPDATE collections SET
@@ -506,11 +502,11 @@ public final class ObeliskDatabase: ObeliskDataStore, @unchecked Sendable {
         _ next: Value,
         _ timestamp: LogicalTimestamp,
         _ versions: inout [String: LogicalTimestamp],
-        _ changed: inout [String]
+        _ changed: inout Bool
     ) {
         guard current != next else { return }
         versions[field] = timestamp
-        changed.append(field)
+        changed = true
     }
 
     private static func decodeVersions(_ value: String) throws -> [String: LogicalTimestamp] {

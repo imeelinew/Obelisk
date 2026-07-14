@@ -1,6 +1,6 @@
 # Obelisk 1.9 存储与同步架构
 
-本文定义 Obelisk 1.9 的唯一持久化与同步契约。PostgreSQL 是云端事实源，PowerSync 管理每台设备上的离线 SQLite 副本，Obelisk API 负责身份认证与所有写入。生产代码不识别旧 Vault 格式，也不包含旧格式迁移器。
+本文定义 Obelisk 1.9 的唯一持久化与同步契约。SQLite 是应用始终使用的本地数据库；开启云同步后，PostgreSQL 同时成为云端事实源，PowerSync 负责两者收敛，Obelisk API 负责身份认证与所有云端写入。生产代码不识别旧 Vault 格式，也不包含旧格式迁移器。
 
 ## 设计原则
 
@@ -10,6 +10,7 @@
 - 确定性收敛：普通字段按字段合并；并发结果不依赖请求到达顺序。
 - 幂等上传：同一个本地操作无论重试多少次，服务端只应用一次。
 - 最小钥匙串职责：钥匙串只保存登录会话，不再保存数据库加密密钥。
+- 同步可选：关闭云同步时不读取登录会话、不连接服务器，所有功能继续使用同一个本地数据库。
 
 ## 组件与数据流
 
@@ -25,7 +26,7 @@ PowerSync SQLite ── queued mutations ──▶ Obelisk API ──▶ Postgre
       └──────── PowerSync sync streams ◀─────┘
 ```
 
-客户端永远先提交本地 SQLite 事务。PowerSync 记录 CRUD 队列；连接可用时，客户端将事务作为一个 mutation batch 发送给 Obelisk API。API 在一个 PostgreSQL 事务内完成鉴权、幂等检查、字段合并与约束校验。提交后的 PostgreSQL 变更再由 PowerSync 同步到该账户的所有设备。
+客户端永远先提交本地 SQLite 事务。关闭云同步时，修改保留在本机队列中；重新开启并完成认证后，PowerSync 自动上传积累的修改并拉取远端更新。连接可用时，客户端将事务作为一个 mutation batch 发送给 Obelisk API。API 在一个 PostgreSQL 事务内完成鉴权、幂等检查、字段合并与约束校验。提交后的 PostgreSQL 变更再由 PowerSync 同步到该账户的所有设备。
 
 本地同步表不保存 `owner_id`。PowerSync stream 已按 JWT 中的账户 ID 隔离数据，本地数据库在首次登录时再通过 local-only `sync_state` 绑定唯一账户；同一个数据库不能切换到另一个账户。
 
@@ -88,9 +89,9 @@ wall-clock milliseconds + logical counter + device UUID
 └── Favicons/
 ```
 
-SQLite 是可重建的离线副本，不做应用层 AES 加密。磁盘保护依赖 macOS/iOS 的系统数据保护、用户登录和设备加密。隐藏书签的设备所有者认证属于界面访问控制，并不表示对应云端行经过端到端加密。
+SQLite 是本地工作数据库，不做应用层 AES 加密。开启云同步后，它也可由云端数据重建；未开启云同步时，它就是该设备上唯一的数据副本。磁盘保护依赖 macOS/iOS 的系统数据保护、用户登录和设备加密。隐藏书签的设备所有者认证属于界面访问控制，并不表示对应云端行经过端到端加密。
 
-钥匙串只保存 `ObeliskAuthSession`：
+钥匙串只保存 `ObeliskAuthSession`，关闭云同步启动应用时不会读取该项目：
 
 - service：`com.eli.Obelisk.sync.session`
 - account：`primary`

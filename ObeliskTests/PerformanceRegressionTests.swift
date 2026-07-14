@@ -45,7 +45,6 @@ struct PerformanceRegressionTests {
         let start = clock.now
         let store = try await BookmarkStore.open(
             rootDirectory: root,
-            ownerID: UUID(),
             deviceID: UUID()
         )
         for bookmark in bookmarks {

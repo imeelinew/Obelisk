@@ -135,7 +135,6 @@ struct ObeliskTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try await BookmarkStore.open(
             rootDirectory: root,
-            ownerID: UUID(),
             deviceID: UUID()
         )
         try await body(store)

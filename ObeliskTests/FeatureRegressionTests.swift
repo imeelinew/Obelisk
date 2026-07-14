@@ -23,12 +23,13 @@ struct FeatureRegressionTests {
             rootDirectory: root,
             deviceID: UUID()
         )
-        let auth = try ObeliskAuthClient(
+        let sessionStore = RecordingCloudSessionStore()
+        let auth = ObeliskAuthClient(
             configuration: ObeliskServerConfiguration(
                 apiURL: URL(string: "https://api.example.test")!,
                 powerSyncURL: URL(string: "https://sync.example.test")!
             ),
-            store: EmptyCloudSessionStore()
+            store: sessionStore
         )
         let controller = CloudSyncController(
             database: database,
@@ -40,9 +41,11 @@ struct FeatureRegressionTests {
         #expect(!controller.isEnabled)
         #expect(!controller.isAuthenticated)
         #expect(controller.phase == .off)
+        #expect(sessionStore.loadCount == 0)
 
         await controller.setEnabled(true)
         #expect(controller.phase == .authenticationRequired)
+        #expect(sessionStore.loadCount == 1)
 
         await controller.setEnabled(false)
         #expect(controller.phase == .off)
@@ -705,7 +708,6 @@ struct FeatureRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try await BookmarkStore.open(
             rootDirectory: root,
-            ownerID: UUID(),
             deviceID: UUID()
         )
         try await body(store)
@@ -728,10 +730,29 @@ struct FeatureRegressionTests {
     }
 }
 
-private final class EmptyCloudSessionStore: ObeliskSessionStore, @unchecked Sendable {
-    func load() throws -> ObeliskAuthSession? { nil }
-    func save(_ session: ObeliskAuthSession) throws {}
-    func clear() throws {}
+private final class RecordingCloudSessionStore: ObeliskSessionStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var session: ObeliskAuthSession?
+    private var loads = 0
+
+    var loadCount: Int {
+        lock.withLock { loads }
+    }
+
+    func load() throws -> ObeliskAuthSession? {
+        lock.withLock {
+            loads += 1
+            return session
+        }
+    }
+
+    func save(_ session: ObeliskAuthSession) throws {
+        lock.withLock { self.session = session }
+    }
+
+    func clear() throws {
+        lock.withLock { session = nil }
+    }
 }
 
 private final class StubTitleOptimizer: TitleOptimizing {

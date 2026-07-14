@@ -23,7 +23,6 @@ final class CloudSyncController {
     }
 
     private(set) var isEnabled = false
-    private(set) var isAuthenticated = false
     private(set) var accountEmail: String?
     private(set) var pendingUploadCount = 0
     private(set) var connected = false
@@ -43,7 +42,6 @@ final class CloudSyncController {
     private let authClient: ObeliskAuthClient
     private let defaults: UserDefaults
     private var session: ObeliskAuthSession?
-    private var connector: ObeliskPowerSyncConnector?
     private var statusTask: Task<Void, Never>?
     private var pendingCountTask: Task<Void, Never>?
 
@@ -55,21 +53,26 @@ final class CloudSyncController {
         self.database = database
         self.authClient = authClient
         self.defaults = defaults
-        self.apiHost = authClient.configuration.apiURL.host ?? authClient.configuration.apiURL.absoluteString
+        self.apiHost = authClient.configuration.apiURL.host
+            ?? authClient.configuration.apiURL.absoluteString
         self.powerSyncHost = authClient.configuration.powerSyncURL.host
             ?? authClient.configuration.powerSyncURL.absoluteString
     }
 
     var phase: Phase {
         if !isEnabled { return .off }
-        if !isAuthenticated { return .authenticationRequired }
         if syncError != nil { return .failed }
+        if !isAuthenticated { return .authenticationRequired }
         if connecting { return .connecting }
         if uploading && downloading { return .syncing }
         if uploading { return .uploading }
         if downloading { return .downloading }
         if connected { return .synced }
         return .offline
+    }
+
+    var isAuthenticated: Bool {
+        session != nil
     }
 
     var statusTitle: String {
@@ -102,22 +105,13 @@ final class CloudSyncController {
     }
 
     func start() async {
-        session = await authClient.restoredSession()
-        isAuthenticated = session != nil
-        if isAuthenticated {
-            accountEmail = defaults.string(forKey: Self.accountEmailKey) ?? "owner@elinew.tech"
-        }
-
-        if defaults.object(forKey: Self.enabledKey) == nil {
-            isEnabled = isAuthenticated
-            defaults.set(isEnabled, forKey: Self.enabledKey)
-        } else {
-            isEnabled = defaults.bool(forKey: Self.enabledKey)
-        }
-
+        isEnabled = defaults.bool(forKey: Self.enabledKey)
         observeStatus()
         observePendingUploadCount()
-        if isEnabled, session != nil {
+
+        guard isEnabled else { return }
+        await loadSession()
+        if session != nil {
             await connect()
         }
     }
@@ -129,6 +123,9 @@ final class CloudSyncController {
         syncError = nil
 
         if enabled {
+            if session == nil {
+                await loadSession()
+            }
             if session != nil {
                 await connect()
             }
@@ -144,9 +141,13 @@ final class CloudSyncController {
 
         let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let authenticated = try await authClient.login(email: normalizedEmail, password: password)
-        try database.bindToCloudAccount(authenticated.accountID)
+        do {
+            try database.bindToCloudAccount(authenticated.accountID)
+        } catch {
+            try? await authClient.signOut()
+            throw error
+        }
         session = authenticated
-        isAuthenticated = true
         accountEmail = normalizedEmail
         defaults.set(normalizedEmail, forKey: Self.accountEmailKey)
         isEnabled = true
@@ -162,8 +163,6 @@ final class CloudSyncController {
         await disconnect()
         try await authClient.signOut()
         session = nil
-        connector = nil
-        isAuthenticated = false
         accountEmail = nil
         isEnabled = false
         syncError = nil
@@ -175,10 +174,10 @@ final class CloudSyncController {
     func syncNow() async {
         guard isEnabled, session != nil else { return }
         isPerformingAction = true
+        defer { isPerformingAction = false }
         syncError = nil
         await disconnect()
         await connect()
-        isPerformingAction = false
     }
 
     func testConnection() async {
@@ -202,8 +201,18 @@ final class CloudSyncController {
         do {
             try database.bindToCloudAccount(session.accountID)
             let connector = ObeliskPowerSyncConnector(auth: authClient)
-            self.connector = connector
             try await database.powerSync.connect(connector: connector)
+        } catch {
+            syncError = error.localizedDescription
+        }
+    }
+
+    private func loadSession() async {
+        do {
+            session = try await authClient.restoreSession()
+            if session != nil {
+                accountEmail = defaults.string(forKey: Self.accountEmailKey)
+            }
         } catch {
             syncError = error.localizedDescription
         }

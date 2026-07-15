@@ -137,11 +137,16 @@ struct RecentTabView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                sourcePicker
+            List {
+                Section {
+                    sourcePicker
+                }
+
                 content
             }
+            .listStyle(.insetGrouped)
             .navigationTitle("最近浏览")
+            .navigationBarTitleDisplayMode(.large)
         }
     }
 
@@ -155,11 +160,11 @@ struct RecentTabView: View {
                                 get: { enabledBrowsers.contains(browser) },
                                 set: { setBrowser(browser, enabled: $0) }
                             )) {
-                                Label(browser.optionTitle, systemImage: browser.fallbackSystemImage)
+                                browserLabel(browser)
                             }
                         } else {
                             Button {} label: {
-                                Label(browser.optionTitle, systemImage: browser.fallbackSystemImage)
+                                browserLabel(browser)
                             }
                             .disabled(true)
                         }
@@ -168,11 +173,10 @@ struct RecentTabView: View {
             } label: {
                 HStack(spacing: 5) {
                     ForEach(Array(selectedBrowsers.prefix(2))) { browser in
-                        Image(systemName: browser.fallbackSystemImage)
-                            .accessibilityHidden(true)
+                        BrowserHistoryBrowserIconView(browser: browser)
                     }
                     if selectedBrowsers.count > 2 {
-                        Text("+(selectedBrowsers.count - 2)")
+                        Text("+\(selectedBrowsers.count - 2)")
                             .font(.caption)
                     }
                     if selectedBrowsers.isEmpty {
@@ -187,39 +191,46 @@ struct RecentTabView: View {
 
             Spacer()
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
     }
 
     @ViewBuilder
     private var content: some View {
         if enabledBrowsers.isEmpty {
-            ContentUnavailableView {
-                Label("选择浏览器", systemImage: "network")
-            } description: {
-                Text("Obelisk 显示所选浏览器最近访问过的网页")
+            Section {
+                ContentUnavailableView {
+                    Label("选择浏览器", systemImage: "network")
+                } description: {
+                    Text("Obelisk 显示所选浏览器最近访问过的网页")
+                }
+                .emptyStateListRow()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if library.browserHistorySections.isEmpty {
-            ContentUnavailableView(
-                "没有最近浏览",
-                systemImage: "clock",
-                description: Text("macOS 读取浏览器历史后，最近访问的网页会同步到这里")
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Section {
+                ContentUnavailableView(
+                    "没有最近浏览",
+                    systemImage: "clock",
+                    description: Text("macOS 读取浏览器历史后，最近访问的网页会同步到这里")
+                )
+                .emptyStateListRow()
+            }
         } else {
-            List {
-                ForEach(library.browserHistorySections) { section in
-                    Section(section.title) {
-                        ForEach(section.records) { record in
-                            BrowserHistoryButton(record: record)
-                        }
+            ForEach(library.browserHistorySections) { section in
+                Section(section.title) {
+                    ForEach(section.records) { record in
+                        BrowserHistoryButton(record: record)
                     }
                 }
             }
-            .listStyle(.insetGrouped)
+        }
+    }
+
+    private func browserLabel(_ browser: BrowserHistoryBrowser) -> some View {
+        Label {
+            Text(browser.optionTitle)
+        } icon: {
+            BrowserHistoryBrowserIconView(browser: browser)
         }
     }
 
@@ -280,10 +291,8 @@ private struct BrowserHistoryButton: View {
                     Text(record.visitedAt.formatted(date: .omitted, time: .shortened))
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    Label(record.browser.title, systemImage: record.browser.fallbackSystemImage)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .labelStyle(.iconOnly)
+                    BrowserHistoryBrowserIconView(browser: record.browser, size: 12)
+                        .opacity(0.45)
                         .accessibilityLabel(record.browser.title)
                 }
             }
@@ -294,6 +303,14 @@ private struct BrowserHistoryButton: View {
 
     private var host: String {
         URL(string: record.url)?.host ?? record.url
+    }
+}
+
+private extension View {
+    func emptyStateListRow() -> some View {
+        frame(maxWidth: .infinity, minHeight: 320)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
     }
 }
 

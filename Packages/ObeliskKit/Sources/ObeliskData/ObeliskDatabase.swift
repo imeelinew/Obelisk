@@ -5,6 +5,14 @@ import ObeliskCore
 import PowerSync
 import PowerSyncGRDB
 
+private struct StoredBrowserHistoryRecord: Equatable {
+    let browser: String
+    let profileName: String
+    let title: String
+    let url: String
+    let visitedAt: String
+}
+
 public final class ObeliskDatabase: @unchecked Sendable {
     public static let fileName = "obelisk-sync.sqlite"
 
@@ -606,55 +614,131 @@ public final class ObeliskDatabase: @unchecked Sendable {
         }
     }
 
-    public func saveBrowserHistory(_ records: [BrowserHistoryRecord]) throws {
+    public func reconcileBrowserHistory(
+        _ records: [BrowserHistoryRecord],
+        for browsers: Set<BrowserHistoryBrowser>
+    ) throws {
+        guard !browsers.isEmpty else { return }
+
         let cutoff = Date().addingTimeInterval(
             -TimeInterval(BrowserHistoryGrouping.dayLimit) * 86_400
         )
         try pruneBrowserHistory(before: cutoff)
-        let existingIDs = try pool.read { database in
-            Set(try String.fetchAll(database, sql: "SELECT id FROM browser_history_events"))
-        }
-        var candidateIDs = Set<UUID>()
-        let candidates = records
-            .filter { $0.visitedAt >= cutoff }
+        var desiredIDs = Set<UUID>()
+        let desiredRecords = records
+            .filter { browsers.contains($0.browser) && $0.visitedAt >= cutoff }
             .prefix(BrowserHistoryGrouping.recordLimit)
             .compactMap { record -> (id: UUID, record: BrowserHistoryRecord)? in
                 let id = browserHistoryEventID(for: record)
-                guard
-                    !existingIDs.contains(id.uuidString.lowercased()),
-                    candidateIDs.insert(id).inserted
-                else {
-                    return nil
-                }
+                guard desiredIDs.insert(id).inserted else { return nil }
                 return (id: id, record: record)
             }
+        let desiredIDStrings = Set(desiredIDs.map { $0.uuidString.lowercased() })
 
-        for offset in stride(from: 0, to: candidates.count, by: 400) {
-            let end = min(offset + 400, candidates.count)
-            let batch = candidates[offset..<end]
-            try writeMutation { database in
-                for candidate in batch {
-                    let record = candidate.record
-                    try database.execute(
-                        sql: """
-                        INSERT OR IGNORE INTO browser_history_events (
-                            id, source_device_id, browser, profile_name, title,
-                            url, visited_at, created_at, _metadata
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        arguments: [
-                            candidate.id.uuidString.lowercased(),
-                            deviceID.uuidString.lowercased(),
-                            record.browser.rawValue,
-                            record.profileName,
-                            record.title,
-                            record.url,
-                            Self.encodeDate(record.visitedAt),
-                            Self.encodeDate(Date()),
-                            UUID().uuidString.lowercased(),
-                        ]
-                    )
-                }
+        let sourceDeviceID = deviceID.uuidString.lowercased()
+        let existingRecords = try pool.read { database in
+            let rows = try Row.fetchAll(
+                database,
+                sql: """
+                SELECT id, browser, profile_name, title, url, visited_at
+                FROM browser_history_events
+                WHERE source_device_id = ?
+                """,
+                arguments: [sourceDeviceID]
+            )
+            return Dictionary(uniqueKeysWithValues: rows.map { row in
+                let id: String = row["id"]
+                let record = StoredBrowserHistoryRecord(
+                    browser: row["browser"],
+                    profileName: row["profile_name"],
+                    title: row["title"],
+                    url: row["url"],
+                    visitedAt: row["visited_at"]
+                )
+                return (id, record)
+            })
+        }
+        let staleIDs = existingRecords.compactMap { id, record -> String? in
+            guard
+                let browser = BrowserHistoryBrowser(rawValue: record.browser),
+                browsers.contains(browser),
+                !desiredIDStrings.contains(id)
+            else {
+                return nil
+            }
+            return id
+        }
+        let insertedRecords = desiredRecords.filter {
+            existingRecords[$0.id.uuidString.lowercased()] == nil
+        }
+        let updatedRecords = desiredRecords.filter { desired in
+            guard let existing = existingRecords[desired.id.uuidString.lowercased()] else {
+                return false
+            }
+            return existing != StoredBrowserHistoryRecord(
+                browser: desired.record.browser.rawValue,
+                profileName: desired.record.profileName,
+                title: desired.record.title,
+                url: desired.record.url,
+                visitedAt: Self.encodeDate(desired.record.visitedAt)
+            )
+        }
+
+        try writeMutation { database in
+            for id in staleIDs {
+                try database.execute(
+                    sql: "UPDATE browser_history_events SET _metadata = ? WHERE id = ?",
+                    arguments: [UUID().uuidString.lowercased(), id]
+                )
+                try database.execute(
+                    sql: "DELETE FROM browser_history_events WHERE id = ?",
+                    arguments: [id]
+                )
+            }
+
+            for desired in insertedRecords {
+                let record = desired.record
+                try database.execute(
+                    sql: """
+                    INSERT INTO browser_history_events (
+                        id, source_device_id, browser, profile_name, title,
+                        url, visited_at, created_at, _metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: [
+                        desired.id.uuidString.lowercased(),
+                        sourceDeviceID,
+                        record.browser.rawValue,
+                        record.profileName,
+                        record.title,
+                        record.url,
+                        Self.encodeDate(record.visitedAt),
+                        Self.encodeDate(Date()),
+                        UUID().uuidString.lowercased(),
+                    ]
+                )
+            }
+
+            for desired in updatedRecords {
+                let record = desired.record
+                try database.execute(
+                    sql: """
+                    UPDATE browser_history_events
+                    SET browser = ?, profile_name = ?, title = ?, url = ?,
+                        visited_at = ?, _metadata = ?
+                    WHERE id = ? AND source_device_id = ?
+                    """,
+                    arguments: [
+                        record.browser.rawValue,
+                        record.profileName,
+                        record.title,
+                        record.url,
+                        Self.encodeDate(record.visitedAt),
+                        UUID().uuidString.lowercased(),
+                        desired.id.uuidString.lowercased(),
+                        sourceDeviceID,
+                    ]
+                )
             }
         }
     }

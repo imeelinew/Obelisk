@@ -176,8 +176,11 @@ struct ObeliskKitTests {
             browser: .safari,
             profileName: "默认"
         )
-        try database.saveBrowserHistory([history, olderHistory])
-        try database.saveBrowserHistory([history])
+        try database.reconcileBrowserHistory(
+            [history, olderHistory],
+            for: [.chrome, .safari]
+        )
+        try database.reconcileBrowserHistory([history], for: [.chrome])
         try database.saveBrowserHistorySettings(
             BrowserHistorySettings(enabledBrowsers: [.chrome, .safari])
         )
@@ -273,7 +276,7 @@ struct ObeliskKitTests {
             profileName: "默认"
         )
 
-        try database.saveBrowserHistory([record])
+        try database.reconcileBrowserHistory([record], for: [.safari])
         #expect(try database.loadSnapshot().browserHistory.count == 1)
 
         try database.pruneBrowserHistory(before: now.addingTimeInterval(1))
@@ -288,6 +291,69 @@ struct ObeliskKitTests {
         #expect(operations.contains {
             $0.table == "browser_history_events" && $0.operation == "DELETE"
         })
+    }
+
+    @Test func browserHistoryReconciliationMirrorsSourceUpdatesAndDeletions() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskKitHistoryMirrorTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try await ObeliskDatabase.open(
+            rootDirectory: root,
+            deviceID: UUID()
+        )
+        let now = Date()
+        let retained = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Original title",
+            url: "https://example.com/retained",
+            visitedAt: now,
+            browser: .chrome,
+            profileName: "默认"
+        )
+        let removed = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Removed",
+            url: "https://example.com/removed",
+            visitedAt: now.addingTimeInterval(-1),
+            browser: .chrome,
+            profileName: "默认"
+        )
+        let safari = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Safari",
+            url: "https://example.com/safari",
+            visitedAt: now.addingTimeInterval(-2),
+            browser: .safari,
+            profileName: "Safari"
+        )
+
+        try database.reconcileBrowserHistory([retained, removed], for: [.chrome])
+        try database.reconcileBrowserHistory([safari], for: [.safari])
+
+        let updated = BrowserHistoryRecord(
+            id: retained.id,
+            title: "Updated title",
+            url: retained.url,
+            visitedAt: retained.visitedAt,
+            browser: retained.browser,
+            profileName: retained.profileName
+        )
+        try database.reconcileBrowserHistory([updated], for: [.chrome])
+
+        let snapshot = try database.loadSnapshot()
+        #expect(snapshot.browserHistory.count == 2)
+        #expect(snapshot.browserHistory.contains { $0.title == "Updated title" })
+        #expect(snapshot.browserHistory.contains { $0.title == "Safari" })
+        #expect(!snapshot.browserHistory.contains { $0.url == removed.url })
+
+        var chromeOperations: [String] = []
+        for try await transaction in database.powerSync.getCrudTransactions() {
+            chromeOperations.append(contentsOf: transaction.crud.compactMap {
+                $0.table == "browser_history_events" ? $0.op.rawValue : nil
+            })
+        }
+        #expect(chromeOperations.contains("DELETE"))
+        #expect(chromeOperations.contains("PUT"))
     }
 
     @Test func bookmarkStoreSharesBookmarkAndCollectionRulesAcrossPlatforms() async throws {

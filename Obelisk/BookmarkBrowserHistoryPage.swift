@@ -19,7 +19,7 @@ struct BookmarkBrowserHistoryPage: View {
         }
         .navigationTitle("最近浏览")
         .task(id: enabledBrowsers) {
-            await refreshLoop()
+            await load(force: true)
         }
     }
 
@@ -137,18 +137,6 @@ struct BookmarkBrowserHistoryPage: View {
         selection = []
     }
 
-    private func refreshLoop() async {
-        await load(force: true)
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(for: .seconds(60))
-            } catch {
-                return
-            }
-            await load(force: true)
-        }
-    }
-
     @MainActor
     private func load(force: Bool) async {
         let requestedBrowsers = enabledBrowsers
@@ -174,7 +162,10 @@ struct BookmarkBrowserHistoryPage: View {
                 try BrowserHistoryStore(browsers: requestedBrowsers).loadRecentSections()
             }.value
             guard !Task.isCancelled, requestedBrowsers == enabledBrowsers else { return }
-            model.saveBrowserHistory(loaded.flatMap(\.records))
+            model.reconcileBrowserHistory(
+                loaded.flatMap(\.records),
+                for: requestedBrowsers
+            )
         } catch {
             guard !Task.isCancelled, requestedBrowsers == enabledBrowsers else { return }
             errorMessage = error.localizedDescription

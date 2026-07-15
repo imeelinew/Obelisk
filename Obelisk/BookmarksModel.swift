@@ -617,9 +617,12 @@ final class BookmarksModel {
         onChange?()
     }
 
-    func saveBrowserHistory(_ records: [BrowserHistoryRecord]) {
+    func reconcileBrowserHistory(
+        _ records: [BrowserHistoryRecord],
+        for browsers: Set<BrowserHistoryBrowser>
+    ) {
         do {
-            try store.database.saveBrowserHistory(records)
+            try store.database.reconcileBrowserHistory(records, for: browsers)
             reload()
         } catch {
             errorMessage = error.localizedDescription

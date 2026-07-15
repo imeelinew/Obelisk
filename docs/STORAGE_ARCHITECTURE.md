@@ -46,7 +46,7 @@ PowerSync SQLite ── queued mutations ──▶ Obelisk API ──▶ Postgre
 
 ### `browser_history_events`
 
-macOS 从用户选择的浏览器只读采集最近浏览记录，并以不可变事件写入本地数据库。事件保存来源设备、浏览器、浏览器配置、标题、URL 和访问时间，通过 PowerSync 同步到该账户的所有设备。各端只保留并展示最近 30 天的数据，按访问时间排序并按 URL 去重。它与书签 `usage_events` 相互独立。
+macOS 将用户选择的浏览器视为最近浏览的唯一事实来源，只读采集并按来源设备、浏览器配置完整对账。浏览器中新增、更新或删除记录后，本地镜像执行相同变更，再通过 PowerSync 同步到该账户的所有设备。记录保存来源设备、浏览器、浏览器配置、标题、URL 和访问时间。各端只保留并展示最近 30 天的数据，按访问时间排序并按 URL 去重。它与书签 `usage_events` 相互独立。
 
 ### `browser_history_settings`
 

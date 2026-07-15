@@ -71,6 +71,13 @@ struct BrowserHistoryStoreTests {
         #expect(records.map(\.title) == ["Newest title", "OpenAI"])
         #expect(records.allSatisfy { $0.browser == .chrome })
         #expect(try rowCount(in: database) == 4)
+
+        try execute("DELETE FROM urls WHERE id IN (1, 2);", in: database)
+        let refreshedRecords = try BrowserHistoryStore(
+            browsers: [.chrome],
+            applicationSupportDirectory: root
+        ).loadRecentSections(now: now).flatMap(\.records)
+        #expect(refreshedRecords.map(\.title) == ["OpenAI"])
     }
 
     @Test func loadsRecentSafariHistoryUsingSafariTimestamp() throws {

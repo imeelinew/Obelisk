@@ -485,7 +485,14 @@ func applyBrowserHistoryEvent(
 			title, url, visited_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (id) DO NOTHING
+		ON CONFLICT (id) DO UPDATE SET
+			browser = EXCLUDED.browser,
+			profile_name = EXCLUDED.profile_name,
+			title = EXCLUDED.title,
+			url = EXCLUDED.url,
+			visited_at = EXCLUDED.visited_at
+		WHERE browser_history_events.owner_id = EXCLUDED.owner_id
+		  AND browser_history_events.source_device_id = EXCLUDED.source_device_id
 	`, mutation.RowID, ownerID, deviceID, browser, profileName, title, rawURL, visitedAt)
 	if err != nil {
 		return fmt.Errorf("insert browser history event: %w", err)

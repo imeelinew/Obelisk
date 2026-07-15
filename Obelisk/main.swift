@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var menuBrowserHistoryRefreshKey: MenuBrowserHistoryCacheKey?
     private var menuBrowserHistoryRefreshTask: Task<Void, Never>?
     private var browserHistorySyncLoopTask: Task<Void, Never>?
+    private var browserHistorySourceVersion: BrowserHistorySourceVersion?
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: nil,
@@ -862,20 +863,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         return .message("正在读取最近浏览…")
     }
 
-    private func refreshMenuBrowserHistoryCache() {
+    @discardableResult
+    private func refreshMenuBrowserHistoryCache(force: Bool = false) -> Bool {
         guard let key = currentMenuBrowserHistoryCacheKey else {
             menuBrowserHistoryRefreshTask?.cancel()
             menuBrowserHistoryRefreshTask = nil
             menuBrowserHistoryRefreshKey = nil
             menuBrowserHistoryCache = nil
-            return
+            return false
         }
-        if let cache = menuBrowserHistoryCache,
+        if !force,
+           let cache = menuBrowserHistoryCache,
            cache.key == key,
            Date().timeIntervalSince(cache.refreshedAt) < menuBrowserHistoryCacheTTL {
-            return
+            return false
         }
-        guard menuBrowserHistoryRefreshKey != key else { return }
+        guard menuBrowserHistoryRefreshKey != key else { return false }
 
         menuBrowserHistoryRefreshTask?.cancel()
         menuBrowserHistoryRefreshKey = key
@@ -894,7 +897,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             guard !Task.isCancelled, self.currentMenuBrowserHistoryCacheKey == key else { return }
 
             if case .sections(let sections) = localContent {
-                self.bookmarksModel.saveBrowserHistory(sections.flatMap(\.records))
+                self.bookmarksModel.reconcileBrowserHistory(
+                    sections.flatMap(\.records),
+                    for: key.browsers
+                )
             }
             let syncedSections = self.bookmarksModel.browserHistorySections(
                 for: key.browsers,
@@ -922,18 +928,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                 self.rebuildMenu()
             }
         }
+        return true
     }
 
     private func startBrowserHistorySyncLoop() {
         browserHistorySyncLoopTask?.cancel()
         browserHistorySyncLoopTask = Task { [weak self] in
             while !Task.isCancelled {
+                guard let self else { return }
+                let browsers = self.bookmarksModel.enabledBrowserHistoryBrowsers
+                let sourceVersion = await Task.detached(priority: .utility) {
+                    BrowserHistoryStore(browsers: browsers).sourceVersion()
+                }.value
+                if sourceVersion != self.browserHistorySourceVersion,
+                   self.refreshMenuBrowserHistoryCache(force: true) {
+                    self.browserHistorySourceVersion = sourceVersion
+                }
                 do {
-                    try await Task.sleep(for: .seconds(60))
+                    try await Task.sleep(for: .seconds(1))
                 } catch {
                     return
                 }
-                self?.refreshMenuBrowserHistoryCache()
             }
         }
     }

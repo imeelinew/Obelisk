@@ -79,8 +79,12 @@ enum BrowserHistoryStoreError: LocalizedError {
     }
 }
 
+struct BrowserHistorySourceVersion: Equatable, Sendable {
+    fileprivate let files: [String]
+}
+
 /// Read-only, bounded view over browser-owned history databases.
-/// Obelisk never writes to these files and keeps only the newest unique URLs
+/// Obelisk never writes to these files and mirrors the newest unique URLs
 /// needed by the "最近浏览" page.
 final class BrowserHistoryStore {
     static let defaultDayLimit = BrowserHistoryGrouping.dayLimit
@@ -176,11 +180,7 @@ final class BrowserHistoryStore {
         guard discoveredDatabase else {
             throw BrowserHistoryStoreError.historyDatabaseNotFound
         }
-        if let storeError = firstReadError as? BrowserHistoryStoreError,
-           storeError.requiresFullDiskAccess {
-            throw storeError
-        }
-        if records.isEmpty, let firstReadError {
+        if let firstReadError {
             throw firstReadError
         }
 
@@ -203,6 +203,32 @@ final class BrowserHistoryStore {
             now: now,
             calendar: calendar
         )
+    }
+
+    func sourceVersion() -> BrowserHistorySourceVersion {
+        var historyURLs: [URL] = []
+        for browser in BrowserHistoryBrowser.allCases where browsers.contains(browser) {
+            if browser == .safari {
+                historyURLs.append(safariDirectory.appendingPathComponent("History.db"))
+            } else {
+                historyURLs.append(contentsOf: discoveredHistoryFileURLs(for: browser))
+            }
+        }
+
+        let states = historyURLs
+            .flatMap { historyURL in
+                ["", "-wal", "-journal"].compactMap { suffix -> String? in
+                    let url = URL(fileURLWithPath: historyURL.path + suffix)
+                    guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else {
+                        return nil
+                    }
+                    let size = attributes[.size] as? NSNumber ?? 0
+                    let modifiedAt = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+                    return "\(url.standardizedFileURL.path)|\(size)|\(modifiedAt)"
+                }
+            }
+            .sorted()
+        return BrowserHistorySourceVersion(files: states)
     }
 
     private func discoveredHistoryFileURLs(for browser: BrowserHistoryBrowser) -> [URL] {

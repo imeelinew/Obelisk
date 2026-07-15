@@ -24,6 +24,7 @@
 
 - Obelisk is a regular Dock application (`LSUIElement` is `false`). Keep the menu bar item as a secondary entry point; it must not replace or intercept normal Dock activation.
 - Let AppKit manage application activation, Dock reopen events, Spaces, hiding, minimizing, and window ordering. Do not override `applicationShouldHandleReopen`, defer Dock activation through queues or tasks, force windows onto the active Space, or use unconditional frontmost ordering.
+- Let `NSStatusItem` own and track its `NSMenu`. Do not synchronously open a menu or popover from a status-bar button's `mouseDown` action, alter its action mask to bypass native tracking, or consume the matching `mouseUp`; a stranded status-item tracking loop prevents normal application and Dock activation.
 - Use the standard untitled-window delegate path to create the primary window when none exists. Showing an explicitly requested window may use ordinary `makeKeyAndOrderFront` and application activation APIs.
 - Do not add speculative macOS window-lifecycle workarounds. Require a reproducible failure and verify the fix against native AppKit behavior before introducing custom lifecycle code.
 

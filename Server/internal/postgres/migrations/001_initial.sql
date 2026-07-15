@@ -90,7 +90,7 @@ CREATE TABLE browser_history_events (
     id uuid PRIMARY KEY,
     owner_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     source_device_id uuid NOT NULL,
-    browser text NOT NULL,
+    browser text NOT NULL CHECK (browser IN ('dia', 'chrome', 'safari')),
     profile_name text NOT NULL,
     title text NOT NULL,
     url text NOT NULL,
@@ -105,7 +105,12 @@ CREATE INDEX browser_history_events_owner_visited_idx
 CREATE TABLE browser_history_settings (
     id uuid NOT NULL,
     owner_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    enabled_sources text NOT NULL,
+    enabled_sources text NOT NULL CHECK (
+        enabled_sources IN (
+            '', 'dia', 'chrome', 'safari', 'dia,chrome', 'dia,safari',
+            'chrome,safari', 'dia,chrome,safari'
+        )
+    ),
     field_versions jsonb NOT NULL,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
@@ -126,7 +131,7 @@ CREATE TABLE schema_version (
     applied_at timestamptz NOT NULL DEFAULT now()
 );
 
-INSERT INTO schema_version(version) VALUES (3);
+INSERT INTO schema_version(version) VALUES (4);
 
 CREATE PUBLICATION powersync
     FOR TABLE collections, bookmarks, usage_events, browser_history_events, browser_history_settings;

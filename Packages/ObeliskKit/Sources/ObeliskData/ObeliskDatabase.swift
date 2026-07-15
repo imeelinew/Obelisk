@@ -47,6 +47,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
             deviceID: deviceID
         )
         _ = try await database.powerSync.getPowerSyncVersion()
+        try database.removeUnsupportedBrowserHistoryData()
         return database
     }
 
@@ -666,6 +667,45 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 arguments: [Self.encodeDate(cutoff)]
             )
         }
+        try deleteBrowserHistory(ids: ids)
+    }
+
+    private func removeUnsupportedBrowserHistoryData() throws {
+        let unsupportedIDs = try pool.read { database in
+            try String.fetchAll(
+                database,
+                sql: """
+                SELECT id
+                FROM browser_history_events
+                WHERE browser NOT IN (?, ?, ?)
+                """,
+                arguments: [
+                    BrowserHistoryBrowser.dia.rawValue,
+                    BrowserHistoryBrowser.chrome.rawValue,
+                    BrowserHistoryBrowser.safari.rawValue,
+                ]
+            )
+        }
+        try deleteBrowserHistory(ids: unsupportedIDs)
+
+        let storedSources: String? = try pool.read { database in
+            try String.fetchOne(
+                database,
+                sql: """
+                SELECT enabled_sources
+                FROM browser_history_settings
+                WHERE id = ?
+                """,
+                arguments: [BrowserHistorySettings.sharedID.uuidString.lowercased()]
+            )
+        }
+        guard let storedSources else { return }
+        let normalizedSettings = BrowserHistorySettings(encodedEnabledSources: storedSources)
+        guard normalizedSettings.encodedEnabledSources != storedSources else { return }
+        try saveBrowserHistorySettings(normalizedSettings)
+    }
+
+    private func deleteBrowserHistory(ids: [String]) throws {
         for offset in stride(from: 0, to: ids.count, by: 400) {
             let end = min(offset + 400, ids.count)
             let batch = ids[offset..<end]

@@ -121,17 +121,19 @@ struct ObeliskKitTests {
         #expect(clockB.observe(second, now: now) > second)
     }
 
-    @Test func browserHistorySettingsUseCanonicalImplementedSources() {
+    @Test func browserHistorySupportsOnlyApprovedBrowsers() {
+        #expect(BrowserHistoryBrowser.allCases == [.dia, .chrome, .safari])
+
         let settings = BrowserHistorySettings(
-            enabledBrowsers: [.safari, .firefox, .chrome]
+            enabledBrowsers: [.safari, .dia, .chrome]
         )
 
-        #expect(settings.enabledBrowsers == [.chrome, .safari])
-        #expect(settings.encodedEnabledSources == "chrome,safari")
+        #expect(settings.enabledBrowsers == [.dia, .chrome, .safari])
+        #expect(settings.encodedEnabledSources == "dia,chrome,safari")
         #expect(
             BrowserHistorySettings(
-                encodedEnabledSources: "safari,firefox,chrome"
-            ).enabledBrowsers == [.chrome, .safari]
+                encodedEnabledSources: "dia,chrome,safari"
+            ).enabledBrowsers == [.dia, .chrome, .safari]
         )
     }
 
@@ -212,10 +214,10 @@ struct ObeliskKitTests {
         #expect(browserHistoryMutationCount == 2)
 
         try database.saveBrowserHistorySettings(
-            BrowserHistorySettings(enabledBrowsers: [.arc])
+            BrowserHistorySettings(enabledBrowsers: [.dia])
         )
         snapshot = try database.loadSnapshot()
-        #expect(snapshot.browserHistorySettings?.enabledBrowsers == [.arc])
+        #expect(snapshot.browserHistorySettings?.enabledBrowsers == [.dia])
 
         try database.deleteCollection(id: collection.id)
         snapshot = try database.loadSnapshot()

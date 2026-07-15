@@ -495,15 +495,11 @@ func applyBrowserHistoryEvent(
 
 func isSupportedBrowserHistoryBrowser(browser string) bool {
 	switch browser {
-	case "dia", "chrome", "edge", "brave", "arc", "vivaldi", "opera", "chromium", "firefox", "safari":
+	case "dia", "chrome", "safari":
 		return true
 	default:
 		return false
 	}
-}
-
-func isImplementedBrowserHistoryBrowser(browser string) bool {
-	return browser != "firefox" && isSupportedBrowserHistoryBrowser(browser)
 }
 
 func requiredBrowserHistorySources(raw json.RawMessage) (any, error) {
@@ -516,10 +512,19 @@ func requiredBrowserHistorySources(raw json.RawMessage) (any, error) {
 	}
 	seen := map[string]bool{}
 	for _, browser := range strings.Split(*value, ",") {
-		if !isImplementedBrowserHistoryBrowser(browser) || seen[browser] {
+		if !isSupportedBrowserHistoryBrowser(browser) || seen[browser] {
 			return nil, errors.New("enabled_sources is invalid")
 		}
 		seen[browser] = true
+	}
+	canonical := make([]string, 0, len(seen))
+	for _, browser := range []string{"dia", "chrome", "safari"} {
+		if seen[browser] {
+			canonical = append(canonical, browser)
+		}
+	}
+	if strings.Join(canonical, ",") != *value {
+		return nil, errors.New("enabled_sources is invalid")
 	}
 	return *value, nil
 }

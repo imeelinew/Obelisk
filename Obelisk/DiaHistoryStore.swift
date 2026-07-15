@@ -9,25 +9,7 @@ extension BrowserHistoryBrowser {
         switch self {
         case .dia: return "company.thebrowser.dia"
         case .chrome: return "com.google.Chrome"
-        case .edge: return "com.microsoft.edgemac"
-        case .brave: return "com.brave.Browser"
-        case .arc: return "company.thebrowser.Browser"
-        case .vivaldi: return "com.vivaldi.Vivaldi"
-        case .opera: return "com.operasoftware.Opera"
-        case .chromium: return "org.chromium.Chromium"
-        case .firefox: return "org.mozilla.firefox"
         case .safari: return "com.apple.Safari"
-        }
-    }
-
-    var bundledIconResourceName: String? {
-        switch self {
-        case .edge: return "microsoftedge"
-        case .brave: return "brave"
-        case .arc: return "arc"
-        case .vivaldi: return "vivaldi"
-        case .opera: return "opera"
-        default: return nil
         }
     }
 
@@ -40,19 +22,7 @@ extension BrowserHistoryBrowser {
             ]
         case .chrome:
             return [["Google", "Chrome"]]
-        case .edge:
-            return [["Microsoft Edge"]]
-        case .brave:
-            return [["BraveSoftware", "Brave-Browser"]]
-        case .arc:
-            return [["Arc", "User Data"]]
-        case .vivaldi:
-            return [["Vivaldi"]]
-        case .opera:
-            return [["com.operasoftware.Opera"]]
-        case .chromium:
-            return [["Chromium"]]
-        case .firefox, .safari:
+        case .safari:
             return []
         }
     }
@@ -127,7 +97,7 @@ final class BrowserHistoryStore {
         applicationSupportDirectory: URL? = nil,
         safariDirectory: URL? = nil
     ) {
-        self.browsers = browsers.filter(\.isImplemented)
+        self.browsers = browsers
         self.fileManager = fileManager
         let libraryDirectory = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
@@ -494,7 +464,7 @@ final class BrowserHistoryStore {
     private static func profileName(for historyURL: URL) -> String {
         let name = historyURL.deletingLastPathComponent().lastPathComponent
         switch name {
-        case "Default", "User Data", "com.operasoftware.Opera":
+        case "Default", "User Data":
             return "默认"
         default:
             return name

@@ -210,17 +210,6 @@ struct BrowserHistoryStoreTests {
         #expect(records.map(\.browser) == [.chrome, .safari, .chrome])
     }
 
-    @Test func firefoxRemainsVisibleButIsNotQueried() throws {
-        #expect(BrowserHistoryBrowser.firefox.optionTitle == "Firefox（尚未完成）")
-        #expect(BrowserHistoryBrowser.safari.optionTitle == "Safari")
-        #expect(!BrowserHistoryBrowser.firefox.isImplemented)
-        #expect(BrowserHistoryBrowser.safari.isImplemented)
-
-        #expect(throws: BrowserHistoryStoreError.self) {
-            _ = try BrowserHistoryStore(browsers: [.firefox]).loadRecentSections()
-        }
-    }
-
     @Test func safariPermissionFailureRequestsFullDiskAccess() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObeliskSafariPermissionTests-\(UUID().uuidString)", isDirectory: true)
@@ -263,11 +252,14 @@ struct BrowserHistoryStoreTests {
         )
 
         defaults.set(
-            "dia,firefox,safari",
+            "dia,chrome,safari",
             forKey: BrowserHistoryPreferences.legacyEnabledSourcesStorageKey
         )
         defaults.set(4, forKey: BrowserHistoryPreferences.menuRecordLimitStorageKey)
-        #expect(BrowserHistoryPreferences.legacyEnabledBrowsers(defaults: defaults) == [.dia, .safari])
+        #expect(
+            BrowserHistoryPreferences.legacyEnabledBrowsers(defaults: defaults)
+                == [.dia, .chrome, .safari]
+        )
         #expect(BrowserHistoryPreferences.menuRecordLimit(defaults: defaults) == 4)
     }
 

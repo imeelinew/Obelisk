@@ -17,10 +17,6 @@ enum BrowserHistoryBrowserIcon {
         let image: NSImage
         if let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: browser.bundleIdentifier) {
             image = NSWorkspace.shared.icon(forFile: applicationURL.path)
-        } else if let resourceName = browser.bundledIconResourceName,
-                  let resourceURL = Bundle.main.url(forResource: resourceName, withExtension: "svg"),
-                  let bundledImage = NSImage(contentsOf: resourceURL) {
-            image = bundledImage
         } else {
             image = NSImage(
                 systemSymbolName: browser.fallbackSystemImage,

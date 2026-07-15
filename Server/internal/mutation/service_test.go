@@ -115,7 +115,7 @@ func TestBrowserHistoryAcceptsOnlyCanonicalBrowserIdentifiers(t *testing.T) {
 	t.Parallel()
 
 	for _, browser := range []string{
-		"dia", "chrome", "edge", "brave", "arc", "vivaldi", "opera", "chromium", "firefox", "safari",
+		"dia", "chrome", "safari",
 	} {
 		if !isSupportedBrowserHistoryBrowser(browser) {
 			t.Fatalf("canonical browser %q was rejected", browser)
@@ -131,12 +131,12 @@ func TestBrowserHistoryAcceptsOnlyCanonicalBrowserIdentifiers(t *testing.T) {
 func TestBrowserHistorySettingsAcceptCanonicalSourcesAndEmptySelection(t *testing.T) {
 	t.Parallel()
 
-	for _, raw := range []string{`""`, `"dia,chrome"`, `"arc,safari"`} {
+	for _, raw := range []string{`""`, `"dia,chrome"`, `"dia,chrome,safari"`} {
 		if _, err := requiredBrowserHistorySources(json.RawMessage(raw)); err != nil {
 			t.Fatalf("requiredBrowserHistorySources(%s): %v", raw, err)
 		}
 	}
-	for _, raw := range []string{`null`, `"Chrome"`, `"dia,dia"`, `"firefox"`, `"unknown"`} {
+	for _, raw := range []string{`null`, `"Chrome"`, `"dia,dia"`, `"chrome,dia"`, `"unknown"`} {
 		if _, err := requiredBrowserHistorySources(json.RawMessage(raw)); err == nil {
 			t.Fatalf("requiredBrowserHistorySources(%s) unexpectedly succeeded", raw)
 		}

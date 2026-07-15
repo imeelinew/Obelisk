@@ -19,6 +19,9 @@ var browserHistoryMigration string
 //go:embed migrations/003_browser_history_settings.sql
 var browserHistorySettingsMigration string
 
+//go:embed migrations/004_browser_history_sources.sql
+var browserHistorySourcesMigration string
+
 func ApplySchema(ctx context.Context, pool *pgxpool.Pool) error {
 	var version int
 	err := pool.QueryRow(ctx, "SELECT version FROM schema_version").Scan(&version)
@@ -33,11 +36,16 @@ func ApplySchema(ctx context.Context, pool *pgxpool.Pool) error {
 			}
 			fallthrough
 		case 2:
-			return applyMigration(ctx, pool, browserHistorySettingsMigration)
+			if err := applyMigration(ctx, pool, browserHistorySettingsMigration); err != nil {
+				return err
+			}
+			fallthrough
 		case 3:
+			return applyMigration(ctx, pool, browserHistorySourcesMigration)
+		case 4:
 			return nil
 		default:
-			return fmt.Errorf("database schema version is %d; expected 1, 2, or 3", version)
+			return fmt.Errorf("database schema version is %d; expected 1, 2, 3, or 4", version)
 		}
 	case !isUndefinedTable(err):
 		return fmt.Errorf("read schema version: %w", err)

@@ -3,13 +3,6 @@ import Foundation
 public enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case dia
     case chrome
-    case edge
-    case brave
-    case arc
-    case vivaldi
-    case opera
-    case chromium
-    case firefox
     case safari
 
     public var id: String { rawValue }
@@ -18,41 +11,15 @@ public enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Iden
         switch self {
         case .dia: return "Dia"
         case .chrome: return "Google Chrome"
-        case .edge: return "Microsoft Edge"
-        case .brave: return "Brave"
-        case .arc: return "Arc"
-        case .vivaldi: return "Vivaldi"
-        case .opera: return "Opera"
-        case .chromium: return "Chromium"
-        case .firefox: return "Firefox"
         case .safari: return "Safari"
         }
-    }
-
-    public var optionTitle: String {
-        isImplemented ? title : "\(title)（尚未完成）"
     }
 
     public var fallbackSystemImage: String {
         switch self {
         case .dia: return "sparkles"
-        case .chrome, .chromium: return "circle.hexagongrid"
-        case .edge: return "wave.3.right"
-        case .brave: return "shield"
-        case .arc: return "arc.forward"
-        case .vivaldi: return "v.circle"
-        case .opera: return "o.circle"
-        case .firefox: return "flame"
+        case .chrome: return "circle.hexagongrid"
         case .safari: return "safari"
-        }
-    }
-
-    public var isImplemented: Bool {
-        switch self {
-        case .dia, .chrome, .edge, .brave, .arc, .vivaldi, .opera, .chromium, .safari:
-            return true
-        case .firefox:
-            return false
         }
     }
 }
@@ -64,7 +31,7 @@ public struct BrowserHistorySettings: Equatable, Sendable {
     public var enabledBrowsers: Set<BrowserHistoryBrowser>
 
     public init(enabledBrowsers: Set<BrowserHistoryBrowser>) {
-        self.enabledBrowsers = Set(enabledBrowsers.filter(\.isImplemented))
+        self.enabledBrowsers = enabledBrowsers
     }
 
     public init(encodedEnabledSources: String) {

@@ -155,25 +155,18 @@ struct RecentTabView: View {
             Menu {
                 Section("浏览器") {
                     ForEach(BrowserHistoryBrowser.allCases) { browser in
-                        if browser.isImplemented {
-                            Toggle(isOn: Binding(
-                                get: { enabledBrowsers.contains(browser) },
-                                set: { setBrowser(browser, enabled: $0) }
-                            )) {
-                                browserLabel(browser)
-                            }
-                        } else {
-                            Button {} label: {
-                                browserLabel(browser)
-                            }
-                            .disabled(true)
+                        Toggle(isOn: Binding(
+                            get: { enabledBrowsers.contains(browser) },
+                            set: { setBrowser(browser, enabled: $0) }
+                        )) {
+                            browserLabel(browser)
                         }
                     }
                 }
             } label: {
                 HStack(spacing: 5) {
                     ForEach(Array(selectedBrowsers.prefix(2))) { browser in
-                        BrowserHistoryBrowserIconView(browser: browser)
+                        BrowserHistoryBrowserIconView(browser: browser, size: 20)
                     }
                     if selectedBrowsers.count > 2 {
                         Text("+\(selectedBrowsers.count - 2)")
@@ -188,6 +181,7 @@ struct RecentTabView: View {
             }
             .accessibilityIdentifier("recent-browser-picker")
             .buttonStyle(.bordered)
+            .tint(.primary)
 
             Spacer()
         }
@@ -228,7 +222,7 @@ struct RecentTabView: View {
 
     private func browserLabel(_ browser: BrowserHistoryBrowser) -> some View {
         Label {
-            Text(browser.optionTitle)
+            Text(browser.title)
         } icon: {
             BrowserHistoryBrowserIconView(browser: browser)
         }
@@ -249,7 +243,6 @@ struct RecentTabView: View {
     }
 
     private func setBrowser(_ browser: BrowserHistoryBrowser, enabled: Bool) {
-        guard browser.isImplemented else { return }
         var selected = enabledBrowsers
         if enabled {
             selected.insert(browser)
@@ -291,7 +284,7 @@ private struct BrowserHistoryButton: View {
                     Text(record.visitedAt.formatted(date: .omitted, time: .shortened))
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    BrowserHistoryBrowserIconView(browser: record.browser, size: 12)
+                    BrowserHistoryBrowserIconView(browser: record.browser, size: 14)
                         .opacity(0.45)
                         .accessibilityLabel(record.browser.title)
                 }

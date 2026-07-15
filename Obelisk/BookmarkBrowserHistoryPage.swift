@@ -28,26 +28,15 @@ struct BookmarkBrowserHistoryPage: View {
             Menu {
                 Section("浏览器") {
                     ForEach(BrowserHistoryBrowser.allCases) { browser in
-                        if browser.isImplemented {
-                            Toggle(isOn: Binding(
-                                get: { enabledBrowsers.contains(browser) },
-                                set: { setBrowser(browser, enabled: $0) }
-                            )) {
-                                Label {
-                                    Text(browser.optionTitle)
-                                } icon: {
-                                    BrowserHistoryBrowserIconView(browser: browser)
-                                }
+                        Toggle(isOn: Binding(
+                            get: { enabledBrowsers.contains(browser) },
+                            set: { setBrowser(browser, enabled: $0) }
+                        )) {
+                            Label {
+                                Text(browser.title)
+                            } icon: {
+                                BrowserHistoryBrowserIconView(browser: browser)
                             }
-                        } else {
-                            Button {} label: {
-                                Label {
-                                    Text(browser.optionTitle)
-                                } icon: {
-                                    BrowserHistoryBrowserIconView(browser: browser)
-                                }
-                            }
-                            .disabled(true)
                         }
                     }
                 }
@@ -135,7 +124,6 @@ struct BookmarkBrowserHistoryPage: View {
     }
 
     private func setBrowser(_ browser: BrowserHistoryBrowser, enabled: Bool) {
-        guard browser.isImplemented else { return }
         var selected = enabledBrowsers
         if enabled {
             selected.insert(browser)

@@ -147,18 +147,28 @@ private struct HiddenBookmarksView: View {
                 }
                 .listStyle(.insetGrouped)
             } else {
-                ContentUnavailableView {
-                    Label("隐藏书签已锁定", systemImage: "lock.fill")
-                } actions: {
-                    Button("使用 Face ID 解锁") {
+                VStack(spacing: 18) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 56, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text("使用 Face ID 或输入密码查看隐藏书签")
+                        .font(.title2.weight(.bold))
+                        .multilineTextAlignment(.center)
+
+                    Button("查看隐藏书签") {
                         Task { await authenticate() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
+                    .font(.subheadline)
+                    .foregroundStyle(.blue)
                 }
+                .padding(.horizontal, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .navigationTitle("隐藏书签")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .task {
             if isProtected {
                 await authenticate()

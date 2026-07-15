@@ -55,7 +55,7 @@
 		45B26F162FC4874D009BAE8A /* Obelisk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Obelisk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		45B26F232FC4874D009BAE8A /* ObeliskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ObeliskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ObeliskUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		45BDB2473005C8A7000021E6 /* Obelisk iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "Obelisk iOS.app"; path = Obelisk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		45BDB2473005C8A7000021E6 /* Obelisk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Obelisk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		45BDB2533005C8A9000021E6 /* Obelisk iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Obelisk iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		45BDB25D3005C8A9000021E6 /* Obelisk iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Obelisk iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1C0A0022FC4A00000000002 /* Obelisk.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = Obelisk.icon; sourceTree = "<group>"; };
@@ -201,7 +201,7 @@
 				45B26F162FC4874D009BAE8A /* Obelisk.app */,
 				45B26F232FC4874D009BAE8A /* ObeliskTests.xctest */,
 				45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */,
-				45BDB2473005C8A7000021E6 /* Obelisk iOS.app */,
+				45BDB2473005C8A7000021E6 /* Obelisk.app */,
 				45BDB2533005C8A9000021E6 /* Obelisk iOSTests.xctest */,
 				45BDB25D3005C8A9000021E6 /* Obelisk iOSUITests.xctest */,
 			);
@@ -306,7 +306,7 @@
 				E10B00073005D00000000007 /* ObeliskSync */,
 			);
 			productName = "Obelisk iOS";
-			productReference = 45BDB2473005C8A7000021E6 /* Obelisk iOS.app */;
+			productReference = 45BDB2473005C8A7000021E6 /* Obelisk.app */;
 			productType = "com.apple.product-type.application";
 		};
 		45BDB2523005C8A9000021E6 /* Obelisk iOSTests */ = {
@@ -663,7 +663,7 @@
 				CODE_SIGN_ENTITLEMENTS = Obelisk/Obelisk.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 5Q5QT76MJU;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -674,7 +674,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.0;
+				MARKETING_VERSION = 1.9.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eli.Obelisk;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -692,7 +692,7 @@
 				CODE_SIGN_ENTITLEMENTS = Obelisk/Obelisk.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 5Q5QT76MJU;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -703,7 +703,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.0;
+				MARKETING_VERSION = 1.9.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eli.Obelisk;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -800,7 +800,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = Obelisk;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 5Q5QT76MJU;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -810,7 +810,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.0;
+				MARKETING_VERSION = 1.9.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.eli.Obelisk-iOS";
 				PRODUCT_MODULE_NAME = Obelisk_iOS;
 				PRODUCT_NAME = Obelisk;
@@ -831,7 +831,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = Obelisk;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 5Q5QT76MJU;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -841,7 +841,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.0;
+				MARKETING_VERSION = 1.9.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.eli.Obelisk-iOS";
 				PRODUCT_MODULE_NAME = Obelisk_iOS;
 				PRODUCT_NAME = Obelisk;

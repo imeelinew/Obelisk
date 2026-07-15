@@ -86,6 +86,32 @@ CREATE TABLE usage_events (
 CREATE INDEX usage_events_owner_bookmark_idx
     ON usage_events(owner_id, bookmark_id, occurred_at DESC);
 
+CREATE TABLE browser_history_events (
+    id uuid PRIMARY KEY,
+    owner_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    source_device_id uuid NOT NULL,
+    browser text NOT NULL,
+    profile_name text NOT NULL,
+    title text NOT NULL,
+    url text NOT NULL,
+    visited_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (owner_id, source_device_id) REFERENCES devices(owner_id, id)
+);
+
+CREATE INDEX browser_history_events_owner_visited_idx
+    ON browser_history_events(owner_id, visited_at DESC);
+
+CREATE TABLE browser_history_settings (
+    id uuid NOT NULL,
+    owner_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    enabled_sources text NOT NULL,
+    field_versions jsonb NOT NULL,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    PRIMARY KEY (owner_id, id)
+);
+
 CREATE TABLE applied_mutations (
     owner_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     device_id uuid NOT NULL,
@@ -100,7 +126,7 @@ CREATE TABLE schema_version (
     applied_at timestamptz NOT NULL DEFAULT now()
 );
 
-INSERT INTO schema_version(version) VALUES (1);
+INSERT INTO schema_version(version) VALUES (3);
 
 CREATE PUBLICATION powersync
-    FOR TABLE collections, bookmarks, usage_events;
+    FOR TABLE collections, bookmarks, usage_events, browser_history_events, browser_history_settings;

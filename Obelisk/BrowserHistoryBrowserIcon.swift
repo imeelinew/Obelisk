@@ -1,4 +1,5 @@
 import AppKit
+import ObeliskCore
 import SwiftUI
 
 /// Shows the actual browser application icon whenever that browser is installed.

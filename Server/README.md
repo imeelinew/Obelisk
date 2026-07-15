@@ -27,7 +27,7 @@ Local endpoints:
 - PowerSync: `http://127.0.0.1:8080`
 - PostgreSQL: `127.0.0.1:5432`
 
-The API applies the one canonical schema on first start. The schema creates the required `powersync` logical publication for `collections`, `bookmarks`, and `usage_events` only.
+The API applies the one canonical schema on first start. The schema creates the required `powersync` logical publication for `collections`, `bookmarks`, `usage_events`, `browser_history_events`, and `browser_history_settings` only.
 
 ## Authentication
 

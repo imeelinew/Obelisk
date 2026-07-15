@@ -110,3 +110,35 @@ func TestRequiredBooleanRejectsNonBooleanNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserHistoryAcceptsOnlyCanonicalBrowserIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	for _, browser := range []string{
+		"dia", "chrome", "edge", "brave", "arc", "vivaldi", "opera", "chromium", "firefox", "safari",
+	} {
+		if !isSupportedBrowserHistoryBrowser(browser) {
+			t.Fatalf("canonical browser %q was rejected", browser)
+		}
+	}
+	for _, browser := range []string{"", "Chrome", "unknown"} {
+		if isSupportedBrowserHistoryBrowser(browser) {
+			t.Fatalf("invalid browser %q was accepted", browser)
+		}
+	}
+}
+
+func TestBrowserHistorySettingsAcceptCanonicalSourcesAndEmptySelection(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{`""`, `"dia,chrome"`, `"arc,safari"`} {
+		if _, err := requiredBrowserHistorySources(json.RawMessage(raw)); err != nil {
+			t.Fatalf("requiredBrowserHistorySources(%s): %v", raw, err)
+		}
+	}
+	for _, raw := range []string{`null`, `"Chrome"`, `"dia,dia"`, `"firefox"`, `"unknown"`} {
+		if _, err := requiredBrowserHistorySources(json.RawMessage(raw)); err == nil {
+			t.Fatalf("requiredBrowserHistorySources(%s) unexpectedly succeeded", raw)
+		}
+	}
+}

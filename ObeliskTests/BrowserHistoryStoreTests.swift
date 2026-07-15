@@ -1,4 +1,5 @@
 import Foundation
+import ObeliskCore
 import SQLite3
 import Testing
 @testable import Obelisk
@@ -255,15 +256,18 @@ struct BrowserHistoryStoreTests {
         guard let defaults = UserDefaults(suiteName: suiteName) else { return }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(BrowserHistoryPreferences.enabledBrowsers(defaults: defaults) == [.dia])
+        #expect(BrowserHistoryPreferences.legacyEnabledBrowsers(defaults: defaults) == nil)
         #expect(
             BrowserHistoryPreferences.menuRecordLimit(defaults: defaults)
                 == BrowserHistoryPreferences.defaultMenuRecordLimit
         )
 
-        defaults.set("dia,firefox,safari", forKey: BrowserHistoryPreferences.enabledSourcesStorageKey)
+        defaults.set(
+            "dia,firefox,safari",
+            forKey: BrowserHistoryPreferences.legacyEnabledSourcesStorageKey
+        )
         defaults.set(4, forKey: BrowserHistoryPreferences.menuRecordLimitStorageKey)
-        #expect(BrowserHistoryPreferences.enabledBrowsers(defaults: defaults) == [.dia, .safari])
+        #expect(BrowserHistoryPreferences.legacyEnabledBrowsers(defaults: defaults) == [.dia, .safari])
         #expect(BrowserHistoryPreferences.menuRecordLimit(defaults: defaults) == 4)
     }
 

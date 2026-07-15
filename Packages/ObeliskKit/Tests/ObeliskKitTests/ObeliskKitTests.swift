@@ -80,15 +80,29 @@ struct ObeliskKitTests {
         let collection = BookmarkCollection(name: "Reading")
         let bookmark = Bookmark(title: "Example", url: "https://example.com")
         let usage = UsageRecord(count: 2, lastClickedAt: Date(timeIntervalSince1970: 100))
+        let history = BrowserHistoryRecord(
+            id: UUID(),
+            title: "History",
+            url: "https://history.example",
+            visitedAt: Date(timeIntervalSince1970: 200),
+            browser: .safari,
+            profileName: "默认"
+        )
         let snapshot = ObeliskLibrarySnapshot(
             bookmarks: [bookmark],
             collections: [collection],
             collectionByBookmarkID: [bookmark.id: collection.id],
-            usageByBookmarkID: [bookmark.id: usage]
+            usageByBookmarkID: [bookmark.id: usage],
+            browserHistory: [history],
+            browserHistorySettings: BrowserHistorySettings(
+                enabledBrowsers: [.chrome, .safari]
+            )
         )
 
         #expect(snapshot.collectionByBookmarkID[bookmark.id] == collection.id)
         #expect(snapshot.usageByBookmarkID[bookmark.id] == usage)
+        #expect(snapshot.browserHistory == [history])
+        #expect(snapshot.browserHistorySettings?.enabledBrowsers == [.chrome, .safari])
     }
 
     @Test func logicalClockOrdersConcurrentEventsDeterministically() {
@@ -105,6 +119,20 @@ struct ObeliskKitTests {
         #expect(first < second)
         #expect(first < concurrent)
         #expect(clockB.observe(second, now: now) > second)
+    }
+
+    @Test func browserHistorySettingsUseCanonicalImplementedSources() {
+        let settings = BrowserHistorySettings(
+            enabledBrowsers: [.safari, .firefox, .chrome]
+        )
+
+        #expect(settings.enabledBrowsers == [.chrome, .safari])
+        #expect(settings.encodedEnabledSources == "chrome,safari")
+        #expect(
+            BrowserHistorySettings(
+                encodedEnabledSources: "safari,firefox,chrome"
+            ).enabledBrowsers == [.chrome, .safari]
+        )
     }
 
     @Test func powerSyncDatabaseRoundTripsNormalizedDataAndQueuesWrites() async throws {
@@ -130,6 +158,27 @@ struct ObeliskKitTests {
             bookmarkID: bookmark.id, at: Date(timeIntervalSince1970: 1_789_000_100))
         try database.recordUsage(
             bookmarkID: bookmark.id, at: Date(timeIntervalSince1970: 1_789_000_200))
+        let history = BrowserHistoryRecord(
+            id: UUID(),
+            title: "PowerSync history",
+            url: "https://www.powersync.com/history",
+            visitedAt: Date(),
+            browser: .chrome,
+            profileName: "默认"
+        )
+        let olderHistory = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Older PowerSync history",
+            url: "https://www.powersync.com/history/",
+            visitedAt: history.visitedAt.addingTimeInterval(-60),
+            browser: .safari,
+            profileName: "默认"
+        )
+        try database.saveBrowserHistory([history, olderHistory])
+        try database.saveBrowserHistory([history])
+        try database.saveBrowserHistorySettings(
+            BrowserHistorySettings(enabledBrowsers: [.chrome, .safari])
+        )
 
         var snapshot = try database.loadSnapshot()
         #expect(snapshot.bookmarks == [bookmark])
@@ -139,12 +188,34 @@ struct ObeliskKitTests {
         #expect(
             snapshot.usageByBookmarkID[bookmark.id]?.lastClickedAt
                 == Date(timeIntervalSince1970: 1_789_000_200))
+        #expect(snapshot.browserHistory.count == 1)
+        #expect(snapshot.browserHistory[0].title == history.title)
+        #expect(snapshot.browserHistory[0].url == history.url)
+        #expect(snapshot.browserHistory[0].browser == history.browser)
+        #expect(snapshot.browserHistorySettings?.enabledBrowsers == [.chrome, .safari])
 
         var queuedTables = Set<String>()
+        var browserHistoryMutationCount = 0
         for try await transaction in database.powerSync.getCrudTransactions() {
             queuedTables.formUnion(transaction.crud.map(\.table))
+            browserHistoryMutationCount += transaction.crud.count {
+                $0.table == "browser_history_events"
+            }
         }
-        #expect(queuedTables == ["collections", "bookmarks", "usage_events"])
+        #expect(queuedTables == [
+            "browser_history_events",
+            "collections",
+            "bookmarks",
+            "usage_events",
+            "browser_history_settings",
+        ])
+        #expect(browserHistoryMutationCount == 2)
+
+        try database.saveBrowserHistorySettings(
+            BrowserHistorySettings(enabledBrowsers: [.arc])
+        )
+        snapshot = try database.loadSnapshot()
+        #expect(snapshot.browserHistorySettings?.enabledBrowsers == [.arc])
 
         try database.deleteCollection(id: collection.id)
         snapshot = try database.loadSnapshot()
@@ -180,6 +251,41 @@ struct ObeliskKitTests {
         #expect(try await secondLibraryObserver.next() != nil)
         #expect(try await pendingObserver.next() == 1)
         #expect(try database.loadPendingUploadCount() == 1)
+    }
+
+    @Test func browserHistoryRetentionQueuesCloudDeletion() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskKitHistoryTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try await ObeliskDatabase.open(
+            rootDirectory: root,
+            deviceID: UUID()
+        )
+        let now = Date()
+        let record = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Private history",
+            url: "https://history.example/private",
+            visitedAt: now,
+            browser: .safari,
+            profileName: "默认"
+        )
+
+        try database.saveBrowserHistory([record])
+        #expect(try database.loadSnapshot().browserHistory.count == 1)
+
+        try database.pruneBrowserHistory(before: now.addingTimeInterval(1))
+        #expect(try database.loadSnapshot().browserHistory.isEmpty)
+
+        var operations: [(table: String, operation: String)] = []
+        for try await transaction in database.powerSync.getCrudTransactions() {
+            operations.append(contentsOf: transaction.crud.map {
+                (table: $0.table, operation: $0.op.rawValue)
+            })
+        }
+        #expect(operations.contains {
+            $0.table == "browser_history_events" && $0.operation == "DELETE"
+        })
     }
 
     @Test func bookmarkStoreSharesBookmarkAndCollectionRulesAcrossPlatforms() async throws {

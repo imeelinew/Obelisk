@@ -1,17 +1,16 @@
 import AppKit
+import ObeliskCore
 import SwiftUI
 
 struct BookmarkBrowserHistoryPage: View {
+    let model: BookmarksModel
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
 
     @State private var selection: Set<BrowserHistoryRecord.ID> = []
-    @State private var sections: [BrowserHistorySection] = []
     @State private var errorMessage: String?
     @State private var requiresFullDiskAccess = false
     @State private var isLoading = false
-    @AppStorage(BrowserHistoryPreferences.enabledSourcesStorageKey)
-    private var enabledSourcesRaw = BrowserHistoryBrowser.dia.rawValue
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +18,7 @@ struct BookmarkBrowserHistoryPage: View {
             content
         }
         .navigationTitle("最近浏览")
-        .task(id: enabledSourcesRaw) {
+        .task(id: enabledBrowsers) {
             await refreshLoop()
         }
     }
@@ -118,10 +117,11 @@ struct BookmarkBrowserHistoryPage: View {
     }
 
     private var enabledBrowsers: Set<BrowserHistoryBrowser> {
-        Set(enabledSourcesRaw
-            .split(separator: ",")
-            .compactMap { BrowserHistoryBrowser(rawValue: String($0)) }
-            .filter(\.isImplemented))
+        model.enabledBrowserHistoryBrowsers
+    }
+
+    private var sections: [BrowserHistorySection] {
+        model.browserHistorySections(for: enabledBrowsers)
     }
 
     private var sourceMenuTitle: String {
@@ -142,11 +142,7 @@ struct BookmarkBrowserHistoryPage: View {
         } else {
             selected.remove(browser)
         }
-        enabledSourcesRaw = BrowserHistoryBrowser.allCases
-            .filter { selected.contains($0) }
-            .map(\.rawValue)
-            .joined(separator: ",")
-        sections = []
+        model.setEnabledBrowserHistoryBrowsers(selected)
         errorMessage = nil
         requiresFullDiskAccess = false
         isLoading = false
@@ -169,7 +165,6 @@ struct BookmarkBrowserHistoryPage: View {
     private func load(force: Bool) async {
         let requestedBrowsers = enabledBrowsers
         guard !requestedBrowsers.isEmpty else {
-            sections = []
             errorMessage = nil
             requiresFullDiskAccess = false
             isLoading = false
@@ -191,7 +186,7 @@ struct BookmarkBrowserHistoryPage: View {
                 try BrowserHistoryStore(browsers: requestedBrowsers).loadRecentSections()
             }.value
             guard !Task.isCancelled, requestedBrowsers == enabledBrowsers else { return }
-            sections = loaded
+            model.saveBrowserHistory(loaded.flatMap(\.records))
         } catch {
             guard !Task.isCancelled, requestedBrowsers == enabledBrowsers else { return }
             errorMessage = error.localizedDescription

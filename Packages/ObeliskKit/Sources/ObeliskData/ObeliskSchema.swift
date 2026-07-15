@@ -77,5 +77,43 @@ public enum ObeliskSchema {
         trackMetadata: true
     )
 
-    public static let current = Schema(syncState, collections, bookmarks, usageEvents)
+    public static let browserHistoryEvents = Table(
+        name: "browser_history_events",
+        columns: [
+            .text("source_device_id"),
+            .text("browser"),
+            .text("profile_name"),
+            .text("title"),
+            .text("url"),
+            .text("visited_at"),
+            .text("created_at"),
+        ],
+        indexes: [
+            Index(
+                name: "browser_history_events_visited",
+                columns: [IndexedColumn.descending("visited_at")]
+            ),
+        ],
+        trackMetadata: true
+    )
+
+    public static let browserHistorySettings = Table(
+        name: "browser_history_settings",
+        columns: [
+            .text("enabled_sources"),
+            .text("field_versions"),
+            .text("created_at"),
+            .text("updated_at"),
+        ],
+        trackMetadata: true
+    )
+
+    public static let current = Schema(
+        syncState,
+        collections,
+        bookmarks,
+        usageEvents,
+        browserHistoryEvents,
+        browserHistorySettings
+    )
 }

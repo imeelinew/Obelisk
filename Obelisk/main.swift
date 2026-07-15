@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var menuBrowserHistoryCache: MenuBrowserHistoryCache?
     private var menuBrowserHistoryRefreshKey: MenuBrowserHistoryCacheKey?
     private var menuBrowserHistoryRefreshTask: Task<Void, Never>?
+    private var browserHistorySyncLoopTask: Task<Void, Never>?
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: nil,
@@ -151,11 +152,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         installDefaultsObserver()
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
+            self?.refreshMenuBrowserHistoryCache()
         }
         installKeyboardShortcutHandlers()
         setupNotificationPopover()
         rebuildMenu()
         refreshMenuBrowserHistoryCache()
+        startBrowserHistorySyncLoop()
         startDatabaseWatch()
 
         openManager()
@@ -182,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        browserHistorySyncLoopTask?.cancel()
         menuBrowserHistoryRefreshTask?.cancel()
         databaseWatchTask?.cancel()
     }
@@ -833,15 +837,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     private var currentMenuBrowserHistoryCacheKey: MenuBrowserHistoryCacheKey? {
         let recordLimit = BrowserHistoryPreferences.menuRecordLimit()
-        guard recordLimit > 0 else { return nil }
         return MenuBrowserHistoryCacheKey(
-            browsers: BrowserHistoryPreferences.enabledBrowsers(),
+            browsers: bookmarksModel.enabledBrowserHistoryBrowsers,
             recordLimit: recordLimit
         )
     }
 
     private func menuBrowserHistoryContentForDisplay() -> MenuBrowserHistoryContent? {
-        guard let key = currentMenuBrowserHistoryCacheKey else { return nil }
+        guard let key = currentMenuBrowserHistoryCacheKey, key.recordLimit > 0 else { return nil }
         if let cache = menuBrowserHistoryCache, cache.key == key {
             return cache.content
         }
@@ -866,7 +869,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         menuBrowserHistoryRefreshTask?.cancel()
         menuBrowserHistoryRefreshKey = key
         menuBrowserHistoryRefreshTask = Task { [weak self] in
-            let content = await Task.detached(priority: .utility) {
+            let localContent = await Task.detached(priority: .utility) {
                 Self.loadMenuBrowserHistoryContent(for: key)
             }.value
 
@@ -878,6 +881,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                 }
             }
             guard !Task.isCancelled, self.currentMenuBrowserHistoryCacheKey == key else { return }
+
+            if case .sections(let sections) = localContent {
+                self.bookmarksModel.saveBrowserHistory(sections.flatMap(\.records))
+            }
+            let syncedSections = self.bookmarksModel.browserHistorySections(
+                for: key.browsers,
+                limit: key.recordLimit
+            )
+            let content: MenuBrowserHistoryContent
+            if syncedSections.isEmpty {
+                content = localContent
+            } else {
+                content = .sections(syncedSections)
+            }
 
             self.menuBrowserHistoryCache = MenuBrowserHistoryCache(
                 key: key,
@@ -896,6 +913,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
     }
 
+    private func startBrowserHistorySyncLoop() {
+        browserHistorySyncLoopTask?.cancel()
+        browserHistorySyncLoopTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {
+                    return
+                }
+                self?.refreshMenuBrowserHistoryCache()
+            }
+        }
+    }
+
     private nonisolated static func loadMenuBrowserHistoryContent(
         for key: MenuBrowserHistoryCacheKey
     ) -> MenuBrowserHistoryContent {
@@ -905,7 +936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         do {
             let sections = try BrowserHistoryStore(browsers: key.browsers).loadRecentSections(
-                recordLimit: key.recordLimit
+                recordLimit: BrowserHistoryGrouping.recordLimit
             )
             return sections.isEmpty
                 ? .message("暂无最近浏览")

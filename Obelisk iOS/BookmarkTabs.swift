@@ -134,54 +134,166 @@ struct GroupsTabView: View {
 
 struct RecentTabView: View {
     let library: ObeliskLibraryModel
-    @Environment(\.calendar) private var calendar
 
     var body: some View {
         NavigationStack {
-            Group {
-                if recentSections.isEmpty {
-                    ContentUnavailableView(
-                        "没有浏览记录",
-                        systemImage: "clock",
-                        description: Text("从 Obelisk 打开书签后，浏览记录会显示在这里")
-                    )
-                } else {
-                    List {
-                        ForEach(recentSections) { section in
-                            Section(dayTitle(section.day)) {
-                                ForEach(section.bookmarks) { bookmark in
-                                    BookmarkButton(
-                                        bookmark: bookmark,
-                                        library: library,
-                                        trailingText: library.lastOpenedAt(for: bookmark)?.formatted(
-                                            date: .omitted,
-                                            time: .shortened
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    .listStyle(.insetGrouped)
-                }
+            VStack(spacing: 0) {
+                sourcePicker
+                content
             }
             .navigationTitle("最近浏览")
         }
     }
 
-    private var recentSections: [RecentDaySection] {
-        let grouped = Dictionary(grouping: library.recentlyOpenedBookmarks) { bookmark in
-            calendar.startOfDay(for: library.lastOpenedAt(for: bookmark) ?? .distantPast)
+    private var sourcePicker: some View {
+        HStack(spacing: 12) {
+            Menu {
+                Section("浏览器") {
+                    ForEach(BrowserHistoryBrowser.allCases) { browser in
+                        if browser.isImplemented {
+                            Toggle(isOn: Binding(
+                                get: { enabledBrowsers.contains(browser) },
+                                set: { setBrowser(browser, enabled: $0) }
+                            )) {
+                                Label(browser.optionTitle, systemImage: browser.fallbackSystemImage)
+                            }
+                        } else {
+                            Button {} label: {
+                                Label(browser.optionTitle, systemImage: browser.fallbackSystemImage)
+                            }
+                            .disabled(true)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    ForEach(Array(selectedBrowsers.prefix(2))) { browser in
+                        Image(systemName: browser.fallbackSystemImage)
+                            .accessibilityHidden(true)
+                    }
+                    if selectedBrowsers.count > 2 {
+                        Text("+(selectedBrowsers.count - 2)")
+                            .font(.caption)
+                    }
+                    if selectedBrowsers.isEmpty {
+                        Image(systemName: "network")
+                    }
+                    Text(sourceMenuTitle)
+                        .lineLimit(1)
+                }
+            }
+            .accessibilityIdentifier("recent-browser-picker")
+            .buttonStyle(.bordered)
+
+            Spacer()
         }
-        return grouped.keys.sorted(by: >).map { day in
-            RecentDaySection(day: day, bookmarks: grouped[day] ?? [])
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if enabledBrowsers.isEmpty {
+            ContentUnavailableView {
+                Label("选择浏览器", systemImage: "network")
+            } description: {
+                Text("Obelisk 显示所选浏览器最近访问过的网页")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if library.browserHistorySections.isEmpty {
+            ContentUnavailableView(
+                "没有最近浏览",
+                systemImage: "clock",
+                description: Text("macOS 读取浏览器历史后，最近访问的网页会同步到这里")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            List {
+                ForEach(library.browserHistorySections) { section in
+                    Section(section.title) {
+                        ForEach(section.records) { record in
+                            BrowserHistoryButton(record: record)
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
         }
     }
 
-    private func dayTitle(_ day: Date) -> String {
-        if calendar.isDateInToday(day) { return "今天" }
-        if calendar.isDateInYesterday(day) { return "昨天" }
-        return day.formatted(.dateTime.month().day().weekday(.wide))
+    private var enabledBrowsers: Set<BrowserHistoryBrowser> {
+        library.enabledBrowserHistoryBrowsers
+    }
+
+    private var selectedBrowsers: [BrowserHistoryBrowser] {
+        BrowserHistoryBrowser.allCases.filter { enabledBrowsers.contains($0) }
+    }
+
+    private var sourceMenuTitle: String {
+        selectedBrowsers.isEmpty
+            ? "选择浏览器"
+            : selectedBrowsers.map(\.title).joined(separator: "，")
+    }
+
+    private func setBrowser(_ browser: BrowserHistoryBrowser, enabled: Bool) {
+        guard browser.isImplemented else { return }
+        var selected = enabledBrowsers
+        if enabled {
+            selected.insert(browser)
+        } else {
+            selected.remove(browser)
+        }
+        library.setEnabledBrowserHistoryBrowsers(selected)
+    }
+}
+
+private struct BrowserHistoryButton: View {
+    let record: BrowserHistoryRecord
+
+    @Environment(\.openURL) private var openURL
+    @AppStorage("showsURLHostOnly") private var showsURLHostOnly = true
+
+    var body: some View {
+        Button {
+            guard let url = URL(string: record.url) else { return }
+            openURL(url)
+        } label: {
+            HStack(spacing: 12) {
+                BookmarkFavicon(urlString: record.url)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(record.title)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text(showsURLHostOnly ? host : record.url)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(record.visitedAt.formatted(date: .omitted, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Label(record.browser.title, systemImage: record.browser.fallbackSystemImage)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .labelStyle(.iconOnly)
+                        .accessibilityLabel(record.browser.title)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var host: String {
+        URL(string: record.url)?.host ?? record.url
     }
 }
 
@@ -377,11 +489,4 @@ private struct CollectionRow: View {
                 .foregroundStyle(.secondary)
         }
     }
-}
-
-private struct RecentDaySection: Identifiable {
-    let day: Date
-    let bookmarks: [Bookmark]
-
-    var id: Date { day }
 }

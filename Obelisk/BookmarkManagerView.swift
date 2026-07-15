@@ -1755,6 +1755,7 @@ struct BookmarkManagerView: View {
 
     private var browserHistoryPage: some View {
         BookmarkBrowserHistoryPage(
+            model: model,
             faviconLoader: faviconLoader,
             showsURLHostOnly: showsURLHostOnly
         )

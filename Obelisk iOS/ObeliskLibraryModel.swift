@@ -83,15 +83,17 @@ final class ObeliskLibraryModel {
         }
     }
 
-    var recentlyOpenedBookmarks: [Bookmark] {
-        bookmarks
-            .filter { snapshot.usageByBookmarkID[$0.id] != nil }
-            .sorted {
-                let lhs = snapshot.usageByBookmarkID[$0.id]?.lastClickedAt ?? .distantPast
-                let rhs = snapshot.usageByBookmarkID[$1.id]?.lastClickedAt ?? .distantPast
-                if lhs != rhs { return lhs > rhs }
-                return Self.bookmarkOrder($0, $1)
+    var browserHistorySections: [BrowserHistorySection] {
+        BrowserHistoryGrouping.sections(
+            for: snapshot.browserHistory.filter {
+                enabledBrowserHistoryBrowsers.contains($0.browser)
             }
+        )
+    }
+
+    var enabledBrowserHistoryBrowsers: Set<BrowserHistoryBrowser> {
+        snapshot.browserHistorySettings?.enabledBrowsers
+            ?? BrowserHistorySettings.defaultEnabledBrowsers
     }
 
     func start() async {
@@ -152,10 +154,6 @@ final class ObeliskLibraryModel {
 
     func collectionID(for bookmark: Bookmark) -> UUID? {
         snapshot.collectionByBookmarkID[bookmark.id]
-    }
-
-    func lastOpenedAt(for bookmark: Bookmark) -> Date? {
-        snapshot.usageByBookmarkID[bookmark.id]?.lastClickedAt
     }
 
     func search(_ query: String) -> [Bookmark] {
@@ -234,6 +232,18 @@ final class ObeliskLibraryModel {
         guard let store else { return }
         do {
             try store.database.recordUsage(bookmarkID: bookmark.id)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func setEnabledBrowserHistoryBrowsers(_ browsers: Set<BrowserHistoryBrowser>) {
+        guard let store else { return }
+        do {
+            try store.database.saveBrowserHistorySettings(
+                BrowserHistorySettings(enabledBrowsers: browsers)
+            )
             reload()
         } catch {
             errorMessage = error.localizedDescription

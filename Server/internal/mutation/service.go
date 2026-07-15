@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -68,6 +69,10 @@ var bookmarkFields = map[string]fieldDecoder{
 	"deleted_at":      optionalTime,
 }
 
+var browserHistorySettingsFields = map[string]fieldDecoder{
+	"enabled_sources": requiredBrowserHistorySources,
+}
+
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
 }
@@ -107,6 +112,18 @@ func (service *Service) Apply(
 			}
 		case "usage_events":
 			err = applyUsageEvent(ctx, tx, ownerID, deviceID, item)
+		case "browser_history_events":
+			err = applyBrowserHistoryEvent(ctx, tx, ownerID, deviceID, item)
+		case "browser_history_settings":
+			err = applyVersionedRow(
+				ctx,
+				tx,
+				ownerID,
+				deviceID,
+				item,
+				"browser_history_settings",
+				browserHistorySettingsFields,
+			)
 		default:
 			err = fmt.Errorf("unsupported mutation table %q", item.Table)
 		}
@@ -411,6 +428,100 @@ func applyUsageEvent(
 		return fmt.Errorf("insert usage event: %w", err)
 	}
 	return nil
+}
+
+func applyBrowserHistoryEvent(
+	ctx context.Context,
+	tx pgx.Tx,
+	ownerID uuid.UUID,
+	deviceID uuid.UUID,
+	mutation Mutation,
+) error {
+	if mutation.Operation == "DELETE" {
+		_, err := tx.Exec(ctx, `
+			DELETE FROM browser_history_events
+			WHERE id = $1 AND owner_id = $2
+		`, mutation.RowID, ownerID)
+		if err != nil {
+			return fmt.Errorf("delete browser history event: %w", err)
+		}
+		return nil
+	}
+	if mutation.Operation != "PUT" {
+		return errors.New("browser_history_events only accepts PUT and DELETE")
+	}
+	browserValue, err := requiredString(mutation.Values["browser"])
+	if err != nil {
+		return fmt.Errorf("decode browser: %w", err)
+	}
+	browser := browserValue.(string)
+	if !isSupportedBrowserHistoryBrowser(browser) {
+		return errors.New("browser is invalid")
+	}
+	profileName, err := requiredString(mutation.Values["profile_name"])
+	if err != nil {
+		return fmt.Errorf("decode profile_name: %w", err)
+	}
+	title, err := requiredString(mutation.Values["title"])
+	if err != nil {
+		return fmt.Errorf("decode title: %w", err)
+	}
+	urlValue, err := requiredString(mutation.Values["url"])
+	if err != nil {
+		return fmt.Errorf("decode url: %w", err)
+	}
+	rawURL := urlValue.(string)
+	parsedURL, err := url.ParseRequestURI(rawURL)
+	if err != nil || (strings.ToLower(parsedURL.Scheme) != "https" && strings.ToLower(parsedURL.Scheme) != "http") {
+		return errors.New("url must use http or https")
+	}
+	visitedAt, err := requiredTime(mutation.Values["visited_at"])
+	if err != nil {
+		return fmt.Errorf("decode visited_at: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO browser_history_events(
+			id, owner_id, source_device_id, browser, profile_name,
+			title, url, visited_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (id) DO NOTHING
+	`, mutation.RowID, ownerID, deviceID, browser, profileName, title, rawURL, visitedAt)
+	if err != nil {
+		return fmt.Errorf("insert browser history event: %w", err)
+	}
+	return nil
+}
+
+func isSupportedBrowserHistoryBrowser(browser string) bool {
+	switch browser {
+	case "dia", "chrome", "edge", "brave", "arc", "vivaldi", "opera", "chromium", "firefox", "safari":
+		return true
+	default:
+		return false
+	}
+}
+
+func isImplementedBrowserHistoryBrowser(browser string) bool {
+	return browser != "firefox" && isSupportedBrowserHistoryBrowser(browser)
+}
+
+func requiredBrowserHistorySources(raw json.RawMessage) (any, error) {
+	var value *string
+	if len(raw) == 0 || json.Unmarshal(raw, &value) != nil || value == nil {
+		return nil, errors.New("enabled_sources must be a string")
+	}
+	if *value == "" {
+		return *value, nil
+	}
+	seen := map[string]bool{}
+	for _, browser := range strings.Split(*value, ",") {
+		if !isImplementedBrowserHistoryBrowser(browser) || seen[browser] {
+			return nil, errors.New("enabled_sources is invalid")
+		}
+		seen[browser] = true
+	}
+	return *value, nil
 }
 
 func requiredString(raw json.RawMessage) (any, error) {

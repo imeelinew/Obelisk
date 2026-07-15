@@ -15,7 +15,7 @@ struct CloudSyncView: View {
                 Toggle(isOn: syncEnabled) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("开启云同步功能")
-                        Text("在你的设备之间同步书签、分组和使用记录，关闭云同步后，Obelisk 仍会将所有数据保存在本机")
+                        Text("在你的设备之间同步书签、分组和最近浏览，关闭云同步后，Obelisk 仍会将所有数据保存在本机")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

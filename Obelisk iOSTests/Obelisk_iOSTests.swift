@@ -55,27 +55,79 @@ struct Obelisk_iOSTests {
         #expect(library.search("开发").map(\.id) == [swift.id])
     }
 
-    @Test func recentBookmarksUseLastOpenTime() {
-        let older = Bookmark(title: "Older", url: "https://older.example")
-        let newer = Bookmark(title: "Newer", url: "https://newer.example")
+    @Test func recentTabUsesSyncedBrowserHistoryInsteadOfBookmarkUsage() {
+        let bookmark = Bookmark(title: "Bookmark", url: "https://bookmark.example")
+        let older = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Older history",
+            url: "https://older.example",
+            visitedAt: Date(timeIntervalSince1970: 100),
+            browser: .safari,
+            profileName: "默认"
+        )
+        let newer = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Newer history",
+            url: "https://newer.example",
+            visitedAt: Date(timeIntervalSince1970: 200),
+            browser: .chrome,
+            profileName: "默认"
+        )
         let library = ObeliskLibraryModel(
             snapshot: ObeliskLibrarySnapshot(
-                bookmarks: [older, newer],
+                bookmarks: [bookmark],
                 usageByBookmarkID: [
-                    older.id: UsageRecord(
-                        count: 4,
-                        lastClickedAt: Date(timeIntervalSince1970: 100)
-                    ),
-                    newer.id: UsageRecord(
-                        count: 1,
-                        lastClickedAt: Date(timeIntervalSince1970: 200)
-                    ),
-                ]
+                    bookmark.id: UsageRecord(count: 4, lastClickedAt: Date())
+                ],
+                browserHistory: [older, newer],
+                browserHistorySettings: BrowserHistorySettings(
+                    enabledBrowsers: [.chrome, .safari]
+                )
             ),
             phase: .ready
         )
 
-        #expect(library.recentlyOpenedBookmarks.map(\.id) == [newer.id, older.id])
+        #expect(library.browserHistorySections.flatMap(\.records).map(\.id) == [newer.id, older.id])
+
+        let usageOnly = ObeliskLibraryModel(
+            snapshot: ObeliskLibrarySnapshot(
+                bookmarks: [bookmark],
+                usageByBookmarkID: [
+                    bookmark.id: UsageRecord(count: 1, lastClickedAt: Date())
+                ]
+            ),
+            phase: .ready
+        )
+        #expect(usageOnly.browserHistorySections.isEmpty)
+    }
+
+    @Test func recentTabFiltersHistoryUsingSyncedBrowserSelection() {
+        let chrome = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Chrome",
+            url: "https://chrome.example",
+            visitedAt: Date(timeIntervalSince1970: 200),
+            browser: .chrome,
+            profileName: "默认"
+        )
+        let safari = BrowserHistoryRecord(
+            id: UUID(),
+            title: "Safari",
+            url: "https://safari.example",
+            visitedAt: Date(timeIntervalSince1970: 100),
+            browser: .safari,
+            profileName: "Safari"
+        )
+        let library = ObeliskLibraryModel(
+            snapshot: ObeliskLibrarySnapshot(
+                browserHistory: [chrome, safari],
+                browserHistorySettings: BrowserHistorySettings(enabledBrowsers: [.chrome])
+            ),
+            phase: .ready
+        )
+
+        #expect(library.enabledBrowserHistoryBrowsers == [.chrome])
+        #expect(library.browserHistorySections.flatMap(\.records).map(\.id) == [chrome.id])
     }
 
     @Test func bookmarkOverviewMatchesMacSections() {

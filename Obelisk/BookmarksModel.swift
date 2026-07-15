@@ -361,6 +361,8 @@ final class BookmarksModel {
     private(set) var pinned: [Bookmark] = []
     /// Bookmarks not shown in menu spotlight.
     private(set) var others: [Bookmark] = []
+    private(set) var browserHistory: [BrowserHistoryRecord] = []
+    private(set) var browserHistorySettings: BrowserHistorySettings?
     /// User-defined collections, sorted by `sortOrder` then name.
     private(set) var collections: [BookmarkCollection] = []
     private var membershipByBookmarkId: [UUID: UUID] = [:]
@@ -420,6 +422,12 @@ final class BookmarksModel {
         self.groupOptimizer = groupOptimizer ?? defaultOptimizer
         self.recentGroupLimit = recentGroupLimit
         reload()
+        migrateBrowserHistorySettingsIfNeeded()
+    }
+
+    var enabledBrowserHistoryBrowsers: Set<BrowserHistoryBrowser> {
+        browserHistorySettings?.enabledBrowsers
+            ?? BrowserHistorySettings.defaultEnabledBrowsers
     }
 
     func reload() {
@@ -429,6 +437,8 @@ final class BookmarksModel {
             let usage = snapshot.usageByBookmarkID
             usageByBookmarkId = usage
             bookmarks = all
+            browserHistory = snapshot.browserHistory
+            browserHistorySettings = snapshot.browserHistorySettings
             searchIndex = BookmarkSearchIndex(bookmarks: all)
             collections = snapshot.collections.sorted {
                 if $0.sortOrder != $1.sortOrder {
@@ -605,6 +615,53 @@ final class BookmarksModel {
         pinned = BookmarkListSortMode.storedForPinned.sorted(visible.filter(\.isPinned), usage: usageByBookmarkId)
         recomputeMenuSpotlight(from: visible, usage: usageByBookmarkId)
         onChange?()
+    }
+
+    func saveBrowserHistory(_ records: [BrowserHistoryRecord]) {
+        do {
+            try store.database.saveBrowserHistory(records)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func setEnabledBrowserHistoryBrowsers(_ browsers: Set<BrowserHistoryBrowser>) {
+        do {
+            try store.database.saveBrowserHistorySettings(
+                BrowserHistorySettings(enabledBrowsers: browsers)
+            )
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func browserHistorySections(
+        for browsers: Set<BrowserHistoryBrowser>,
+        limit: Int = BrowserHistoryGrouping.recordLimit
+    ) -> [BrowserHistorySection] {
+        let records = browserHistory
+            .filter { browsers.contains($0.browser) }
+            .prefix(max(0, limit))
+        return BrowserHistoryGrouping.sections(for: Array(records))
+    }
+
+    private func migrateBrowserHistorySettingsIfNeeded() {
+        guard browserHistorySettings == nil else { return }
+        let defaults = UserDefaults.standard
+        guard let browsers = BrowserHistoryPreferences.legacyEnabledBrowsers(defaults: defaults) else {
+            return
+        }
+        do {
+            try store.database.saveBrowserHistorySettings(
+                BrowserHistorySettings(enabledBrowsers: browsers)
+            )
+            defaults.removeObject(forKey: BrowserHistoryPreferences.legacyEnabledSourcesStorageKey)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func sortedBookmarks(_ bookmarks: [Bookmark], sortMode: BookmarkListSortMode) -> [Bookmark] {

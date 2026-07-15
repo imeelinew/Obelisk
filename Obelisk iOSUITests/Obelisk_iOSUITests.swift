@@ -24,6 +24,8 @@ final class Obelisk_iOSUITests: XCTestCase {
 
         tabBar.buttons["最近浏览"].tap()
         XCTAssertTrue(app.navigationBars["最近浏览"].exists)
+        XCTAssertTrue(app.buttons["recent-browser-picker"].exists)
+        XCTAssertTrue(app.staticTexts["没有最近浏览"].exists)
 
         tabBar.buttons["更多"].tap()
         XCTAssertTrue(app.navigationBars["更多"].exists)

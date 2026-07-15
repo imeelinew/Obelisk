@@ -1,55 +1,10 @@
 import CryptoKit
 import Foundation
+import ObeliskCore
 import ObeliskData
 import SQLite3
 
-enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
-    case dia
-    case chrome
-    case edge
-    case brave
-    case arc
-    case vivaldi
-    case opera
-    case chromium
-    case firefox
-    case safari
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .dia: return "Dia"
-        case .chrome: return "Google Chrome"
-        case .edge: return "Microsoft Edge"
-        case .brave: return "Brave"
-        case .arc: return "Arc"
-        case .vivaldi: return "Vivaldi"
-        case .opera: return "Opera"
-        case .chromium: return "Chromium"
-        case .firefox: return "Firefox"
-        case .safari: return "Safari"
-        }
-    }
-
-    var optionTitle: String {
-        isImplemented ? title : "\(title)（尚未完成）"
-    }
-
-    var fallbackSystemImage: String {
-        switch self {
-        case .dia: return "sparkles"
-        case .chrome, .chromium: return "circle.hexagongrid"
-        case .edge: return "wave.3.right"
-        case .brave: return "shield"
-        case .arc: return "arc.forward"
-        case .vivaldi: return "v.circle"
-        case .opera: return "o.circle"
-        case .firefox: return "flame"
-        case .safari: return "safari"
-        }
-    }
-
+extension BrowserHistoryBrowser {
     var bundleIdentifier: String {
         switch self {
         case .dia: return "company.thebrowser.dia"
@@ -73,18 +28,6 @@ enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Identifiabl
         case .vivaldi: return "vivaldi"
         case .opera: return "opera"
         default: return nil
-        }
-    }
-
-    /// Dia and the mainstream Chromium-family browsers share the same
-    /// read-only `urls` history schema. Safari uses its own history database.
-    /// Firefox remains visible in the source picker but is not queried yet.
-    var isImplemented: Bool {
-        switch self {
-        case .dia, .chrome, .edge, .brave, .arc, .vivaldi, .opera, .chromium, .safari:
-            return true
-        case .firefox:
-            return false
         }
     }
 
@@ -116,19 +59,17 @@ enum BrowserHistoryBrowser: String, CaseIterable, Codable, Hashable, Identifiabl
 }
 
 enum BrowserHistoryPreferences {
-    static let enabledSourcesStorageKey = "browserHistoryEnabledSources"
+    static let legacyEnabledSourcesStorageKey = "browserHistoryEnabledSources"
     static let menuRecordLimitStorageKey = "menuBrowserHistoryLimit"
     static let defaultMenuRecordLimit = 10
 
-    static func enabledBrowsers(defaults: UserDefaults = .standard) -> Set<BrowserHistoryBrowser> {
-        let rawValue = defaults.string(forKey: enabledSourcesStorageKey)
-            ?? BrowserHistoryBrowser.dia.rawValue
-        return Set(
-            rawValue
-                .split(separator: ",")
-                .compactMap { BrowserHistoryBrowser(rawValue: String($0)) }
-                .filter(\.isImplemented)
-        )
+    static func legacyEnabledBrowsers(
+        defaults: UserDefaults = .standard
+    ) -> Set<BrowserHistoryBrowser>? {
+        guard let rawValue = defaults.string(forKey: legacyEnabledSourcesStorageKey) else {
+            return nil
+        }
+        return BrowserHistorySettings(encodedEnabledSources: rawValue).enabledBrowsers
     }
 
     static func menuRecordLimit(defaults: UserDefaults = .standard) -> Int {
@@ -138,23 +79,6 @@ enum BrowserHistoryPreferences {
                 ?? defaultMenuRecordLimit
         )
     }
-}
-
-struct BrowserHistoryRecord: Identifiable, Sendable, Equatable {
-    let id: UUID
-    let title: String
-    let url: String
-    let visitedAt: Date
-    let browser: BrowserHistoryBrowser
-    let profileName: String
-}
-
-struct BrowserHistorySection: Identifiable, Sendable, Equatable {
-    let id: String
-    let title: String
-    let records: [BrowserHistoryRecord]
-
-    var count: Int { records.count }
 }
 
 enum BrowserHistoryStoreError: LocalizedError {
@@ -189,8 +113,8 @@ enum BrowserHistoryStoreError: LocalizedError {
 /// Obelisk never writes to these files and keeps only the newest unique URLs
 /// needed by the "最近浏览" page.
 final class BrowserHistoryStore {
-    static let defaultDayLimit = 30
-    static let defaultRecordLimit = 1_000
+    static let defaultDayLimit = BrowserHistoryGrouping.dayLimit
+    static let defaultRecordLimit = BrowserHistoryGrouping.recordLimit
 
     private let browsers: Set<BrowserHistoryBrowser>
     private let fileManager: FileManager
@@ -304,7 +228,11 @@ final class BrowserHistoryStore {
             return record
         }.prefix(safeRecordLimit)
 
-        return Self.sections(for: Array(recentRecords), now: now, calendar: calendar)
+        return BrowserHistoryGrouping.sections(
+            for: Array(recentRecords),
+            now: now,
+            calendar: calendar
+        )
     }
 
     private func discoveredHistoryFileURLs(for browser: BrowserHistoryBrowser) -> [URL] {
@@ -561,53 +489,6 @@ final class BrowserHistoryStore {
         }
 
         return try withOpenDatabase(at: snapshotURL, body: body)
-    }
-
-    private static func sections(
-        for records: [BrowserHistoryRecord],
-        now: Date,
-        calendar: Calendar
-    ) -> [BrowserHistorySection] {
-        var order: [String] = []
-        var titles: [String: String] = [:]
-        var grouped: [String: [BrowserHistoryRecord]] = [:]
-
-        for record in records {
-            let key = sectionKey(for: record.visitedAt, now: now, calendar: calendar)
-            if grouped[key.id] == nil {
-                order.append(key.id)
-                titles[key.id] = key.title
-            }
-            grouped[key.id, default: []].append(record)
-        }
-
-        return order.compactMap { id in
-            guard let records = grouped[id], let title = titles[id] else { return nil }
-            return BrowserHistorySection(id: id, title: title, records: records)
-        }
-    }
-
-    private static func sectionKey(
-        for date: Date,
-        now: Date,
-        calendar: Calendar
-    ) -> (id: String, title: String) {
-        let today = calendar.startOfDay(for: now)
-        let day = calendar.startOfDay(for: date)
-        if day == today { return ("today", "今天") }
-        if day == calendar.date(byAdding: .day, value: -1, to: today) { return ("yesterday", "昨天") }
-
-        let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? today
-        if day >= weekStart { return ("earlier-this-week", "本周早些时候") }
-        let lastWeekStart = calendar.date(byAdding: .weekOfYear, value: -1, to: weekStart) ?? weekStart
-        if day >= lastWeekStart { return ("last-week", "上周") }
-
-        let monthStart = calendar.dateInterval(of: .month, for: now)?.start ?? today
-        if day >= monthStart { return ("earlier-this-month", "本月早些时候") }
-
-        let components = calendar.dateComponents([.year, .month], from: date)
-        let id = "month-\(components.year ?? 0)-\(components.month ?? 0)"
-        return (id, "\(components.year ?? 0) 年 \(components.month ?? 0) 月")
     }
 
     private static func profileName(for historyURL: URL) -> String {

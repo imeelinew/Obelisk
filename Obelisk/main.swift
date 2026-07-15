@@ -156,7 +156,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         installKeyboardShortcutHandlers()
         setupNotificationPopover()
-        rebuildMenu()
         refreshMenuBrowserHistoryCache()
         startBrowserHistorySyncLoop()
         startDatabaseWatch()
@@ -316,12 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             return
         }
 
-        let visibleButtonFrame = statusItem.button.flatMap { Self.screenFrame(of: $0) }
-        statusItem.menu = nil
-        guard let button = statusItem.button else {
-            restoreStatusItemMenu()
-            return
-        }
+        guard let button = statusItem.button else { return }
 
         NSApp.activate(ignoringOtherApps: true)
 
@@ -345,23 +339,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         let popover = NSPopover()
         popover.behavior = .applicationDefined
-        popover.animates = false
+        popover.animates = true
         popover.delegate = self
         popover.contentViewController = hosting
         popover.contentSize = NSSize(width: 420, height: 520)
         searchPopover = popover
-        button.target = self
-        button.action = #selector(dismissMenuBarSearchFromStatusItem(_:))
+        statusItem.menu = nil
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        if let visibleButtonFrame {
-            Self.alignPopover(popover, horizontallyWith: visibleButtonFrame)
-        }
         searchInputSourceSwitcher.switchToUSEnglish()
         DispatchQueue.main.async { [weak popover, searchInputSourceSwitcher] in
-            if let popover, let visibleButtonFrame {
-                Self.alignPopover(popover, horizontallyWith: visibleButtonFrame)
-            }
             searchInputSourceSwitcher.switchToUSEnglish()
             Self.focusSearchField(in: popover?.contentViewController?.view)
         }
@@ -376,20 +363,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         uninstallMenuBarSearchKeyMonitor()
         searchCommandBridge = nil
-        restoreStatusItemMenu()
-    }
-
-    @objc private func dismissMenuBarSearchFromStatusItem(_ sender: NSStatusBarButton) {
-        dismissMenuBarSearchPopover()
-    }
-
-    private func restoreStatusItemMenu() {
-        guard let statusMenu else { return }
-        if let button = statusItem.button {
-            button.target = nil
-            button.action = nil
-        }
-        statusItem.menu = statusMenu
     }
 
     private func installMenuBarSearchKeyMonitor(commandBridge: MenuBarSearchCommandBridge) {
@@ -480,18 +453,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             }
         }
         return nil
-    }
-
-    private static func screenFrame(of view: NSView) -> NSRect? {
-        guard let window = view.window else { return nil }
-        return window.convertToScreen(view.convert(view.bounds, to: nil))
-    }
-
-    private static func alignPopover(_ popover: NSPopover, horizontallyWith anchorFrame: NSRect) {
-        guard let window = popover.contentViewController?.view.window else { return }
-        var origin = window.frame.origin
-        origin.x += anchorFrame.midX - window.frame.midX
-        window.setFrameOrigin(origin)
     }
 
     // MARK: - Menu bar popover notification
@@ -739,7 +700,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             button.image = AppIcon.menuBarImage()
             button.title = ""
             button.refusesFirstResponder = true
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseDown, .rightMouseDown])
         }
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        dismissNotificationPopover()
+
+        if searchPopover?.isShown == true {
+            if let event = NSApp.currentEvent,
+               event.type == .keyDown || event.type == .keyUp {
+                let popoverView = searchPopover?.contentViewController?.view
+                let popoverWindow = popoverView?.window
+                switch MenuBarSearchKeyCommand.command(
+                    for: event,
+                    hasMarkedText: Self.firstResponderHasMarkedText(in: popoverWindow)
+                ) {
+                case .close:
+                    searchCommandBridge?.reset()
+                case .open:
+                    searchCommandBridge?.open(query: Self.currentText(
+                        in: popoverWindow,
+                        fallbackView: popoverView
+                    ))
+                case .passThrough:
+                    Self.focusSearchField(in: popoverView)
+                }
+            } else {
+                dismissMenuBarSearchPopover()
+            }
+            return
+        }
+
+        dismissMenuBarSearchPopover()
+
+        guard let menu = statusMenu else {
+            rebuildMenu()
+            if let menu = statusMenu {
+                showStatusMenu(menu)
+            }
+            refreshMenuBrowserHistoryCache()
+            return
+        }
+
+        showStatusMenu(menu)
+        refreshMenuBrowserHistoryCache()
+    }
+
+    private func showStatusMenu(_ menu: NSMenu) {
+        guard let button = statusItem.button else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
     }
 
     private func startDatabaseWatch() {
@@ -759,6 +771,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     private func handleManagerWindowClosed() {
         faviconLoader.releaseTransientMemory()
+        statusItem.menu = nil
         DispatchQueue.main.async {
             _ = malloc_zone_pressure_relief(nil, 0)
         }
@@ -830,9 +843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         menu.addItem(quitItem)
 
         statusMenu = menu
-        if searchPopover?.isShown != true {
-            statusItem.menu = menu
-        }
+        statusItem.menu = nil
     }
 
     private var currentMenuBrowserHistoryCacheKey: MenuBrowserHistoryCacheKey? {
@@ -1063,7 +1074,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func menuWillOpen(_ menu: NSMenu) {
         dismissNotificationPopover()
-        refreshMenuBrowserHistoryCache()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        statusItem.menu = nil
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -1073,7 +1087,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         searchPopover = nil
         uninstallMenuBarSearchKeyMonitor()
         searchCommandBridge = nil
-        restoreStatusItemMenu()
     }
 
     private func applyDestructiveMenuItemStyle(to item: NSMenuItem, highlighted: Bool) {

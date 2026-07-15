@@ -6,6 +6,26 @@
     <description>Sparkle appcast for Obelisk</description>
     <language>en</language>
     <item>
+      <title>Obelisk 1.9.1</title>
+      <link>https://github.com/imeelinew/Obelisk/releases/tag/v1.9.1</link>
+      <sparkle:version>10</sparkle:version>
+      <sparkle:shortVersionString>1.9.1</sparkle:shortVersionString>
+      <pubDate>Wed, 15 Jul 2026 02:40:43 +0000</pubDate>
+      <description>&lt;h2&gt;新功能&lt;/h2&gt;
+&lt;h3&gt;云同步&lt;/h3&gt;
+&lt;ul&gt;&lt;li&gt;新增可选的云同步功能，在设备之间同步书签、分组和使用记录&lt;/li&gt;&lt;li&gt;所有修改优先写入本地 SQLite，离线时可以正常增删改查，网络恢复后自动同步&lt;/li&gt;&lt;li&gt;云同步设置新增账户、同步状态和服务连接信息&lt;/li&gt;&lt;/ul&gt;
+&lt;h3&gt;全新同步存储&lt;/h3&gt;
+&lt;ul&gt;&lt;li&gt;使用统一的 SQLite 数据库保存书签、分组和使用记录&lt;/li&gt;&lt;li&gt;支持按字段合并并发修改，删除操作使用 tombstone，重复上传不会重复应用&lt;/li&gt;&lt;li&gt;云同步关闭时所有数据仍保存在本机，重新开启后自动上传离线期间的修改&lt;/li&gt;&lt;/ul&gt;
+&lt;h2&gt;修复与改进&lt;/h2&gt;
+&lt;ul&gt;&lt;li&gt;本地增删改查现在会立即触发上传，不再需要手动执行同步&lt;/li&gt;&lt;li&gt;修复应用前后台切换时重复建立连接，导致上传请求被取消或同步状态卡住的问题&lt;/li&gt;&lt;li&gt;修复其他设备的修改不能及时刷新书签列表的问题&lt;/li&gt;&lt;li&gt;修复设备身份恢复、登录会话和待上传队列的状态处理&lt;/li&gt;&lt;li&gt;移除添加书签后的撤回快捷键，简化同步边界&lt;/li&gt;&lt;li&gt;移除开发者选项及不再使用的旧存储代码&lt;/li&gt;&lt;li&gt;统一 macOS 与共享数据层的 Favicon 下载逻辑&lt;/li&gt;&lt;/ul&gt;
+&lt;h2&gt;升级说明&lt;/h2&gt;
+&lt;p&gt;1.9.1 使用全新的同步数据库，不读取 1.8.3 及更早版本的加密 Vault 格式，也不包含旧格式迁移代码。升级前请确认旧数据已经完成迁移或另行备份。&lt;/p&gt;
+&lt;p&gt;云同步默认保持可选。未开启云同步时，Obelisk 仍然是完全可离线使用的本地书签管理器。&lt;/p&gt;
+&lt;h2&gt;安装&lt;/h2&gt;
+&lt;p&gt;下载 &lt;code&gt;Obelisk-1.9.1.zip&lt;/code&gt;，解压后将 &lt;code&gt;Obelisk.app&lt;/code&gt; 拖入「应用程序」文件夹。Universal Binary（Apple Silicon + Intel）。需要 macOS 26 或更高版本。&lt;/p&gt;</description>
+      <enclosure url="https://github.com/imeelinew/Obelisk/releases/download/v1.9.1/Obelisk-1.9.1.zip" sparkle:edSignature="t2kGuf5GyVykAyKC5fowNYUQUjR1pnrDup7Urdy9iqp4gSMURWMzM2i77yU2UhK8Xl+KR6d3IQZdIoyumFGcBw==" length="13218016" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Obelisk 1.8.3</title>
       <link>https://github.com/imeelinew/Obelisk/releases/tag/v1.8.3</link>
       <sparkle:version>7</sparkle:version>

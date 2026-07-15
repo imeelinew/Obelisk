@@ -87,7 +87,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var menuBrowserHistoryCache: MenuBrowserHistoryCache?
     private var menuBrowserHistoryRefreshKey: MenuBrowserHistoryCacheKey?
     private var menuBrowserHistoryRefreshTask: Task<Void, Never>?
-    private var dockReopenWorkItem: DispatchWorkItem?
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: nil,
@@ -182,7 +181,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
-        dockReopenWorkItem?.cancel()
         menuBrowserHistoryRefreshTask?.cancel()
         databaseWatchTask?.cancel()
     }
@@ -1139,28 +1137,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
         openManager()
         return true
-    }
-
-    func applicationShouldHandleReopen(
-        _ sender: NSApplication,
-        hasVisibleWindows flag: Bool
-    ) -> Bool {
-        // AppKit invokes this before it performs its own reopen handling. If we
-        // show the window synchronously and return true, the default handling
-        // can run another activation/window-ordering pass using the state from
-        // before this callback. That occasionally leaves our window ordered on
-        // another Space or behind the app that was active when Dock was clicked.
-        // Defer our single custom pass until the Dock activation transaction has
-        // completed, then return false to prevent the default pass.
-        dockReopenWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.dockReopenWorkItem = nil
-            self.openManager()
-        }
-        dockReopenWorkItem = workItem
-        DispatchQueue.main.async(execute: workItem)
-        return false
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

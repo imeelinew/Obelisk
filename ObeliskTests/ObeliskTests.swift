@@ -120,8 +120,8 @@ struct ObeliskTests {
     }
 
     @MainActor
-    @Test func appDelegateHandlesDockReopen() {
-        #expect(AppDelegate.instancesRespond(to: #selector(
+    @Test func appDelegateLeavesDockReopenToAppKit() {
+        #expect(!AppDelegate.instancesRespond(to: #selector(
             NSApplicationDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)
         )))
     }

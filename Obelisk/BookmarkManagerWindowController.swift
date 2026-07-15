@@ -28,7 +28,8 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
     func show() {
         if let window {
             model.reload()
-            bringToFront(window)
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -44,14 +45,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         let win = NSWindow(contentViewController: hosting)
         win.title = BookmarkManagerView.SettingsPage.bookmarks.title
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        // Obelisk has one manager window. When it is reopened from the Dock,
-        // present that window on the Space the user is currently looking at
-        // instead of activating the app while leaving its window elsewhere.
-        win.collectionBehavior = [
-            .moveToActiveSpace,
-            .fullScreenNone,
-            .fullScreenDisallowsTiling
-        ]
+        win.collectionBehavior = [.fullScreenNone, .fullScreenDisallowsTiling]
         // ARC owns the window through `self.window`. Letting AppKit release it as
         // well can over-release the SwiftUI hosting hierarchy when the close
         // button drains the current event's autorelease pool.
@@ -65,23 +59,8 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate {
         window = win
 
         model.reload()
-        bringToFront(win)
-    }
-
-    private func bringToFront(_ window: NSWindow) {
-        if NSApp.isHidden {
-            NSApp.unhide(nil)
-        }
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-
+        win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        // Dock reopen can arrive while AppKit still considers another app's
-        // window frontmost. Explicit ordering makes the user-requested show
-        // deterministic without changing normal application activation.
-        window.orderFrontRegardless()
     }
 
     func windowWillClose(_ notification: Notification) {

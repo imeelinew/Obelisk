@@ -20,6 +20,13 @@
 - Do not change existing macOS behavior while implementing iOS unless the shared behavior itself must change.
 - User-facing copy must not contain sentence-ending periods. Commas are allowed only as full-width Chinese commas (`，`), never ASCII commas.
 
+## macOS window lifecycle
+
+- Obelisk is a regular Dock application (`LSUIElement` is `false`). Keep the menu bar item as a secondary entry point; it must not replace or intercept normal Dock activation.
+- Let AppKit manage application activation, Dock reopen events, Spaces, hiding, minimizing, and window ordering. Do not override `applicationShouldHandleReopen`, defer Dock activation through queues or tasks, force windows onto the active Space, or use unconditional frontmost ordering.
+- Use the standard untitled-window delegate path to create the primary window when none exists. Showing an explicitly requested window may use ordinary `makeKeyAndOrderFront` and application activation APIs.
+- Do not add speculative macOS window-lifecycle workarounds. Require a reproducible failure and verify the fix against native AppKit behavior before introducing custom lifecycle code.
+
 ## Storage and sync contract
 
 - Follow `docs/STORAGE_ARCHITECTURE.md` as the canonical storage and synchronization specification.

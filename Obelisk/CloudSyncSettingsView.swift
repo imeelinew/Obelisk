@@ -26,7 +26,12 @@ struct CloudSyncSettingsView: View {
 
                     if cloudSync.isEnabled {
                         syncStatus
-                        pendingChanges
+                        if cloudSync.phase == .failed {
+                            Button(cloudSync.isPerformingAction ? "重试中…" : "重试同步") {
+                                Task { await cloudSync.retry() }
+                            }
+                            .disabled(!cloudSync.isAuthenticated || cloudSync.isPerformingAction)
+                        }
                     }
                 }
 
@@ -87,29 +92,6 @@ struct CloudSyncSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-        }
-    }
-
-    private var pendingChanges: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("待上传的修改")
-                Text("关闭同步或离线期间的修改会保留在本机")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 12)
-
-            Text("\(cloudSync.pendingUploadCount) 项")
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-
-            Button("立即同步") {
-                Task { await cloudSync.syncNow() }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!cloudSync.isAuthenticated || cloudSync.isPerformingAction)
         }
     }
 

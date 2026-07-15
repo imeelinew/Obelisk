@@ -110,7 +110,14 @@ public enum ObeliskSessionStoreError: LocalizedError {
 public enum ObeliskDeviceIdentity {
     private static let key = "obelisk.sync.device-id"
 
-    public static func current(defaults: UserDefaults = .standard) -> UUID {
+    public static func current(
+        defaults: UserDefaults = .standard,
+        sessionStore: any ObeliskSessionStore = KeychainObeliskSessionStore()
+    ) -> UUID {
+        if let session = try? sessionStore.load() {
+            defaults.set(session.deviceID.uuidString.lowercased(), forKey: key)
+            return session.deviceID
+        }
         if let value = defaults.string(forKey: key), let id = UUID(uuidString: value) {
             return id
         }

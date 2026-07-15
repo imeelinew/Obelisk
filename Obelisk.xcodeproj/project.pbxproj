@@ -15,9 +15,9 @@
 		E10B00153005D00000000015 /* ObeliskCore in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00053005D00000000005 /* ObeliskCore */; };
 		E10B00163005D00000000016 /* ObeliskData in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00063005D00000000006 /* ObeliskData */; };
 		E10B00173005D00000000017 /* ObeliskSync in Frameworks */ = {isa = PBXBuildFile; productRef = E10B00073005D00000000007 /* ObeliskSync */; };
+		E1AI00023006000000000002 /* Obelisk/TitleOptimizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1AI00013006000000000001 /* Obelisk/TitleOptimizer.swift */; };
 		E1KS00032FC4A00100000003 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = E1KS00022FC4A00100000002 /* KeyboardShortcuts */; };
 		E1SP00032FC4A00100000003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E1SP00022FC4A00100000002 /* Sparkle */; };
-		E1AI00023006000000000002 /* TitleOptimizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1AI00013006000000000001 /* TitleOptimizer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,7 +59,7 @@
 		45BDB2533005C8A9000021E6 /* Obelisk iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Obelisk iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		45BDB25D3005C8A9000021E6 /* Obelisk iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Obelisk iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1C0A0022FC4A00000000002 /* Obelisk.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = Obelisk.icon; sourceTree = "<group>"; };
-		E1AI00013006000000000001 /* TitleOptimizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Obelisk/TitleOptimizer.swift; sourceTree = SOURCE_ROOT; };
+		E1AI00013006000000000001 /* Obelisk/TitleOptimizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Obelisk/TitleOptimizer.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -172,6 +172,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		4511A70D30065D650057934F /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				E1AI00013006000000000001 /* Obelisk/TitleOptimizer.swift */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		45B26F0D2FC4874D009BAE8A = {
 			isa = PBXGroup;
 			children = (
@@ -183,6 +191,7 @@
 				45BDB2563005C8A9000021E6 /* Obelisk iOSTests */,
 				45BDB2603005C8A9000021E6 /* Obelisk iOSUITests */,
 				45B26F172FC4874D009BAE8A /* Products */,
+				4511A70D30065D650057934F /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -483,7 +492,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E1AI00023006000000000002 /* TitleOptimizer.swift in Sources */,
+				E1AI00023006000000000002 /* Obelisk/TitleOptimizer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

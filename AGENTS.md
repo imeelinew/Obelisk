@@ -28,6 +28,7 @@
 - Maintain one domain model and one canonical schema across macOS, iOS, the API, and PostgreSQL. Do not add a parallel persistence path.
 - Preserve the existing HLC field-version conflict rules, tombstone deletion model, immutable usage events, and idempotent mutation handling.
 - Cloud sync remains optional. Re-enabling it must upload queued local changes and converge with remote state.
+- When cloud sync is enabled, every local create, update, delete, and usage write must begin uploading immediately, and every active device must converge automatically without a manual sync action. Foreground activation and network recovery must resume or rebuild synchronization automatically.
 - Keychain is for authentication sessions and explicit secrets only. Do not add application-level database encryption or database keys to Keychain.
 
 ## Change policy

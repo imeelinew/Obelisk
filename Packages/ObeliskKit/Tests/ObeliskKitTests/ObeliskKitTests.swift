@@ -8,6 +8,51 @@ import Testing
 @Suite(.serialized)
 struct ObeliskKitTests {
 
+    @Test func deviceIdentityRestoresTheAuthenticatedDeviceAfterPreferencesAreLost() throws {
+        let suiteName = "ObeliskDeviceIdentityTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let deviceID = UUID()
+        let session = ObeliskAuthSession(
+            accountID: UUID(),
+            deviceID: deviceID,
+            accessToken: "access",
+            refreshToken: "refresh",
+            expiresAt: .distantFuture
+        )
+
+        let restored = ObeliskDeviceIdentity.current(
+            defaults: defaults,
+            sessionStore: MemorySessionStore(session: session)
+        )
+
+        #expect(restored == deviceID)
+        #expect(defaults.string(forKey: "obelisk.sync.device-id") == deviceID.uuidString.lowercased())
+    }
+
+    @Test func authenticatedDeviceIdentityReplacesStalePreferences() throws {
+        let suiteName = "ObeliskDeviceIdentityTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(UUID().uuidString, forKey: "obelisk.sync.device-id")
+        let deviceID = UUID()
+        let session = ObeliskAuthSession(
+            accountID: UUID(),
+            deviceID: deviceID,
+            accessToken: "access",
+            refreshToken: "refresh",
+            expiresAt: .distantFuture
+        )
+
+        let restored = ObeliskDeviceIdentity.current(
+            defaults: defaults,
+            sessionStore: MemorySessionStore(session: session)
+        )
+
+        #expect(restored == deviceID)
+        #expect(defaults.string(forKey: "obelisk.sync.device-id") == deviceID.uuidString.lowercased())
+    }
+
     @Test func faviconCandidatesPreferLargeDeclaredIconsAndShareHostCache() throws {
         let pageURL = try #require(URL(string: "https://example.com/articles/one"))
         let html = """
@@ -111,6 +156,32 @@ struct ObeliskKitTests {
         #expect(snapshot.bookmarks.isEmpty)
     }
 
+    @Test func databaseObserversBroadcastChangesWithoutConsumingSyncNotifications() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskObservers-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let database = try await ObeliskDatabase.open(rootDirectory: root, deviceID: UUID())
+        var firstLibraryObserver = database.libraryChanges().makeAsyncIterator()
+        var secondLibraryObserver = database.libraryChanges().makeAsyncIterator()
+        var pendingObserver = database.pendingUploadCounts().makeAsyncIterator()
+
+        #expect(try await firstLibraryObserver.next() != nil)
+        #expect(try await secondLibraryObserver.next() != nil)
+        #expect(try await pendingObserver.next() == 0)
+        #expect(try database.loadPendingUploadCount() == 0)
+
+        try database.saveBookmark(
+            Bookmark(title: "Observed", url: "https://example.com/observed"),
+            collectionID: nil
+        )
+
+        #expect(try await firstLibraryObserver.next() != nil)
+        #expect(try await secondLibraryObserver.next() != nil)
+        #expect(try await pendingObserver.next() == 1)
+        #expect(try database.loadPendingUploadCount() == 1)
+    }
+
     @Test func bookmarkStoreSharesBookmarkAndCollectionRulesAcrossPlatforms() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObeliskStore-\(UUID().uuidString)", isDirectory: true)
@@ -135,6 +206,17 @@ struct ObeliskKitTests {
         #expect(throws: BookmarkStoreError.duplicateURL("https://example.com")) {
             try store.add(title: "Duplicate", url: "https://example.com")
         }
+
+        var edited = bookmark
+        edited.title = "Edited"
+        edited.url = "https://edited.example.com"
+        let updated = try store.update(edited, collectionID: nil)
+        #expect(updated.title == "Edited")
+        #expect(updated.url == "https://edited.example.com")
+        #expect(try store.snapshot().collectionByBookmarkID[bookmark.id] == nil)
+
+        try store.delete(ids: [bookmark.id])
+        #expect(try store.snapshot().bookmarks.isEmpty)
     }
 
     @Test func localWritesAdvancePastObservedRemoteVersions() async throws {
@@ -183,6 +265,114 @@ struct ObeliskKitTests {
         #expect(localTitle.deviceID == localDevice)
         #expect(localTitle.milliseconds == remote.milliseconds)
         #expect(localTitle.counter == remote.counter + 1)
+    }
+
+    @Test func bookmarkMutationsUploadImmediately() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskImmediateSync-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let deviceID = UUID()
+        let accountID = UUID()
+        let database = try await ObeliskDatabase.open(rootDirectory: root, deviceID: deviceID)
+        let store = BookmarkStore(database: database)
+        let bookmark = try store.add(title: "Immediate", url: "https://immediate.example.com")
+
+        let lock = NSLock()
+        var uploadedBatches: [[CapturedMutation]] = []
+        MockURLProtocol.handler = { request in
+            #expect(request.url?.path == "/v1/sync/mutations")
+            let body = try requestBody(request)
+            let batch = try JSONDecoder().decode(CapturedMutationBatch.self, from: body)
+            lock.withLock { uploadedBatches.append(batch.mutations) }
+            return (
+                HTTPURLResponse(
+                    url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let auth = ObeliskAuthClient(
+            configuration: ObeliskServerConfiguration(
+                apiURL: URL(string: "https://api.example.test")!,
+                powerSyncURL: URL(string: "https://sync.example.test")!
+            ),
+            deviceID: deviceID,
+            store: MemorySessionStore(
+                session: ObeliskAuthSession(
+                    accountID: accountID,
+                    deviceID: deviceID,
+                    accessToken: "access",
+                    refreshToken: "refresh",
+                    expiresAt: Date().addingTimeInterval(3_600)
+                )
+            ),
+            session: URLSession(configuration: sessionConfiguration)
+        )
+        _ = try await auth.restoreSession()
+
+        let connector = ObeliskPowerSyncConnector(auth: auth)
+        try await connector.uploadData(database: database.powerSync)
+        try store.delete(ids: [bookmark.id])
+        try await connector.uploadData(database: database.powerSync)
+
+        let batches = lock.withLock { uploadedBatches }
+        #expect(batches.count == 2)
+        #expect(batches[0].map(\.operation) == ["PUT"])
+        #expect(batches[1].map(\.operation) == ["PATCH"])
+        let pending = try await database.powerSync.get(
+            sql: "SELECT COUNT(*) AS count FROM ps_crud",
+            parameters: [],
+            mapper: { Int(try $0.getInt64(name: "count")) }
+        )
+        #expect(pending == 0)
+        #expect(try store.snapshot().bookmarks.isEmpty)
+    }
+
+    @Test func cancelledMutationUploadRemainsQueuedWithoutBecomingASyncFailure() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskCancelledUpload-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let deviceID = UUID()
+        let accountID = UUID()
+        let database = try await ObeliskDatabase.open(rootDirectory: root, deviceID: deviceID)
+        let store = BookmarkStore(database: database)
+        _ = try store.add(title: "Cancelled", url: "https://cancelled.example.com")
+
+        MockURLProtocol.handler = { _ in throw URLError(.cancelled) }
+        defer { MockURLProtocol.handler = nil }
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let auth = ObeliskAuthClient(
+            configuration: ObeliskServerConfiguration(
+                apiURL: URL(string: "https://api.example.test")!,
+                powerSyncURL: URL(string: "https://sync.example.test")!
+            ),
+            deviceID: deviceID,
+            store: MemorySessionStore(
+                session: ObeliskAuthSession(
+                    accountID: accountID,
+                    deviceID: deviceID,
+                    accessToken: "access",
+                    refreshToken: "refresh",
+                    expiresAt: Date().addingTimeInterval(3_600)
+                )
+            ),
+            session: URLSession(configuration: sessionConfiguration)
+        )
+        _ = try await auth.restoreSession()
+
+        let connector = ObeliskPowerSyncConnector(auth: auth)
+        await #expect(throws: CancellationError.self) {
+            try await connector.uploadData(database: database.powerSync)
+        }
+        #expect(try database.loadPendingUploadCount() == 1)
     }
 
     @Test func authClientDecodesServerDatesAndPersistsTheSession() async throws {
@@ -363,6 +553,32 @@ struct ObeliskKitTests {
         }
     }
 
+}
+
+private struct CapturedMutationBatch: Decodable {
+    let mutations: [CapturedMutation]
+}
+
+private struct CapturedMutation: Decodable {
+    let operation: String
+}
+
+private func requestBody(_ request: URLRequest) throws -> Data {
+    if let body = request.httpBody {
+        return body
+    }
+    let stream = try #require(request.httpBodyStream)
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 4_096)
+    while true {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count == 0 { return data }
+        if count < 0 { throw stream.streamError ?? URLError(.cannotDecodeRawData) }
+        data.append(buffer, count: count)
+    }
 }
 
 private final class MemorySessionStore: ObeliskSessionStore, @unchecked Sendable {

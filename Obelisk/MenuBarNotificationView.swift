@@ -8,7 +8,6 @@ import SwiftUI
 /// through the left-hand icon and its restrained gradient colour:
 /// - **Success** (normal bookmark): green gradient checkmark
 /// - **Hidden** (hidden bookmark): muted gray eye-slash
-/// - **Undo** (reverted add): blue-purple undo arrow
 /// - **Intelligence** (bookmark optimization): Siri icon with dark-to-color gradient
 /// - **Error** (duplicate / no URL / etc.): red gradient x-mark
 @MainActor
@@ -20,7 +19,6 @@ struct BookmarkAddedNotificationView: View {
     enum Kind {
         case success
         case hidden
-        case undo
         case intelligence
         case error
     }
@@ -29,7 +27,6 @@ struct BookmarkAddedNotificationView: View {
         switch kind {
         case .success: "checkmark.circle.fill"
         case .hidden:  "eye.slash.circle.fill"
-        case .undo:    "arrow.uturn.backward.circle.fill"
         case .intelligence: IntelligenceSymbolIcon.symbolName
         case .error:   "xmark.circle.fill"
         }
@@ -53,15 +50,6 @@ struct BookmarkAddedNotificationView: View {
                 colors: [
                     Color.primary.opacity(0.42),
                     Color.primary.opacity(0.28)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .undo:
-            LinearGradient(
-                colors: [
-                    Color(red: 0.38, green: 0.48, blue: 0.96),
-                    Color(red: 0.46, green: 0.30, blue: 0.78)
                 ],
                 startPoint: .top,
                 endPoint: .bottom

@@ -221,7 +221,11 @@ private struct ArchiveView: View {
 
             Section("归档书签") {
                 ForEach(library.archivedBookmarks) { bookmark in
-                    BookmarkButton(bookmark: bookmark, library: library)
+                    BookmarkButton(
+                        bookmark: bookmark,
+                        library: library,
+                        showsManagementActions: false
+                    )
                         .swipeActions {
                             if bookmark.archivedAt != nil {
                                 Button("恢复到书签") {

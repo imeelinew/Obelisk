@@ -35,4 +35,5 @@ final class Obelisk_iOSUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["搜索"].exists)
         XCTAssertTrue(app.searchFields["搜索书签"].waitForExistence(timeout: 2))
     }
+
 }

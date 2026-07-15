@@ -34,7 +34,7 @@ private func configureTestingEnvironmentIfNeeded() {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopoverDelegate {
     private let maxMenuTitlePixelWidth: CGFloat = 300
-    private let undoWindowSeconds: TimeInterval = 5
+    private let notificationDurationSeconds: TimeInterval = 5
     private let menuBrowserHistoryCacheTTL: TimeInterval = 30
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
     private static let browserHistoryMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskBrowserHistoryMenuItem")
@@ -87,19 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var menuBrowserHistoryCache: MenuBrowserHistoryCache?
     private var menuBrowserHistoryRefreshKey: MenuBrowserHistoryCacheKey?
     private var menuBrowserHistoryRefreshTask: Task<Void, Never>?
-    private var pendingUndo: PendingBookmarkUndo?
-    private var pendingUndoExpirationWorkItem: DispatchWorkItem?
     private var dockReopenWorkItem: DispatchWorkItem?
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: nil,
         userDriverDelegate: nil
     )
-
-    private struct PendingBookmarkUndo {
-        let bookmark: Bookmark
-        let expiresAt: Date
-    }
 
     private struct MenuBrowserHistoryCacheKey: Equatable, Sendable {
         let browsers: Set<BrowserHistoryBrowser>
@@ -168,6 +161,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         openManager()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard let cloudSync else { return }
+        Task { await cloudSync.resume() }
+    }
+
     func applicationDidResignActive(_ notification: Notification) {
         dismissMenuBarSearchPopover()
     }
@@ -214,9 +212,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         KeyboardShortcuts.onKeyUp(for: .addHiddenBookmark) { [weak self] in
             self?.handleGlobalHotkey(isHidden: true)
-        }
-        KeyboardShortcuts.onKeyUp(for: .undoAdd) { [weak self] in
-            self?.undoLastAdd()
         }
         KeyboardShortcuts.onKeyUp(for: .menuBarSearch) { [weak self] in
             self?.showMenuBarSearchPopover()
@@ -265,7 +260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
 
         let bookmarkType = bookmark.isHidden ? "隐藏书签" : "书签"
-        armUndo(for: bookmark)
         notifyUser(
             title: "已添加\(bookmarkType)",
             body: resolvedTitle,
@@ -288,49 +282,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                 title: "Intelligence 书签优化",
                 body: outcome.summary,
                 kind: outcome.didChange ? .intelligence : .error
-            )
-        }
-    }
-
-    private func armUndo(for bookmark: Bookmark) {
-        pendingUndoExpirationWorkItem?.cancel()
-        pendingUndo = PendingBookmarkUndo(
-            bookmark: bookmark,
-            expiresAt: Date().addingTimeInterval(undoWindowSeconds)
-        )
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.pendingUndo = nil
-            self?.pendingUndoExpirationWorkItem = nil
-        }
-        pendingUndoExpirationWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + undoWindowSeconds, execute: work)
-    }
-
-    private func undoLastAdd() {
-        guard let pendingUndo, Date() <= pendingUndo.expiresAt else {
-            self.pendingUndo = nil
-            pendingUndoExpirationWorkItem?.cancel()
-            pendingUndoExpirationWorkItem = nil
-            return
-        }
-
-        self.pendingUndo = nil
-        pendingUndoExpirationWorkItem?.cancel()
-        pendingUndoExpirationWorkItem = nil
-        pendingOptimizationTask?.cancel()
-
-        if let error = bookmarksModel.delete(id: pendingUndo.bookmark.id) {
-            notifyUser(
-                title: "撤回失败",
-                body: error,
-                kind: .error
-            )
-        } else {
-            notifyUser(
-                title: "已撤回添加",
-                body: pendingUndo.bookmark.title,
-                kind: .undo
             )
         }
     }
@@ -541,12 +492,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
 
-        // Keep success messages visible for the whole undo window.
+        // Keep notifications visible long enough to read.
         let work = DispatchWorkItem { [weak self] in
             self?.dismissNotificationPopover()
         }
         notificationDismissWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + undoWindowSeconds, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + notificationDurationSeconds, execute: work)
     }
 
     /// LSUIElement apps get no main menu by default, which means ⌘C/⌘V/⌘X/⌘A
@@ -803,22 +754,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     private func startDatabaseWatch() {
         databaseWatchTask?.cancel()
-        let database = store.database.powerSync
+        let database = store.database
         databaseWatchTask = Task { [weak self] in
             do {
-                let changes = try database.watch(
-                    sql: """
-                    SELECT 'bookmark:' || id || ':' || updated_at AS version FROM bookmarks
-                    UNION ALL
-                    SELECT 'collection:' || id || ':' || updated_at AS version FROM collections
-                    UNION ALL
-                    SELECT 'usage:' || id || ':' || occurred_at AS version FROM usage_events
-                    """,
-                    parameters: []
-                ) { cursor in
-                    try cursor.getString(index: 0)
-                }
-                for try await _ in changes {
+                for try await _ in database.libraryChanges() {
                     guard !Task.isCancelled else { return }
                     self?.bookmarksModel.reload()
                 }

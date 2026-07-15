@@ -78,6 +78,52 @@ struct Obelisk_iOSTests {
         #expect(library.recentlyOpenedBookmarks.map(\.id) == [newer.id, older.id])
     }
 
+    @Test func bookmarkOverviewMatchesMacSections() {
+        let now = Date()
+        let pinned = Bookmark(
+            title: "Pinned",
+            url: "https://pinned.example",
+            createdAt: now,
+            isPinned: true
+        )
+        let grouped = Bookmark(
+            title: "Grouped",
+            url: "https://grouped.example",
+            createdAt: now.addingTimeInterval(-1)
+        )
+        let ungrouped = (0..<6).map { index in
+            Bookmark(
+                title: "Bookmark \(index)",
+                url: "https://example.com/\(index)",
+                createdAt: now.addingTimeInterval(TimeInterval(-index - 2))
+            )
+        }
+        let collection = BookmarkCollection(name: "分组")
+        let library = ObeliskLibraryModel(
+            snapshot: ObeliskLibrarySnapshot(
+                bookmarks: [pinned, grouped] + ungrouped,
+                collections: [collection],
+                collectionByBookmarkID: [grouped.id: collection.id]
+            ),
+            phase: .ready
+        )
+
+        #expect(library.pinnedBookmarks.map(\.id) == [pinned.id])
+        #expect(
+            library.recentlyAddedBookmarks.map(\.id)
+                == [grouped.id] + ungrouped.prefix(4).map(\.id)
+        )
+        #expect(Set(library.ungroupedBookmarks.map(\.id)) == Set(ungrouped.map(\.id)))
+    }
+
+    @Test func bookmarkRowsHaveSectionScopedIdentity() {
+        let bookmark = Bookmark(title: "Shared", url: "https://shared.example")
+        let recent = BookmarkSectionItem(bookmark: bookmark, section: .recent)
+        let ungrouped = BookmarkSectionItem(bookmark: bookmark, section: .ungrouped)
+
+        #expect(recent.id != ungrouped.id)
+    }
+
     @Test func automaticArchiveMatchesTheConfiguredIdleWindow() {
         let defaults = UserDefaults.standard
         let enabled = defaults.object(forKey: ObeliskLibraryModel.autoArchiveEnabledKey)

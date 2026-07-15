@@ -107,13 +107,38 @@ public final class BookmarkStore {
 
     @discardableResult
     public func update(_ bookmark: Bookmark) throws -> Bookmark {
+        let current = try snapshot()
+        return try update(
+            bookmark,
+            collectionID: current.collectionByBookmarkID[bookmark.id],
+            current: current
+        )
+    }
+
+    @discardableResult
+    public func update(_ bookmark: Bookmark, collectionID: UUID?) throws -> Bookmark {
+        let current = try snapshot()
+        return try update(bookmark, collectionID: collectionID, current: current)
+    }
+
+    private func update(
+        _ bookmark: Bookmark,
+        collectionID: UUID?,
+        current: ObeliskLibrarySnapshot
+    ) throws -> Bookmark {
         let trimmedURL = try validatedWebURL(bookmark.url)
         let trimmedTitle = bookmark.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
             throw BookmarkStoreError.invalidTitle
         }
 
-        let current = try snapshot()
+        guard current.bookmarks.contains(where: { $0.id == bookmark.id }) else {
+            throw BookmarkStoreError.missingBookmark
+        }
+        if let collectionID,
+           !current.collections.contains(where: { $0.id == collectionID }) {
+            throw BookmarkStoreError.missingCollection
+        }
         let target = Self.normalizedURL(trimmedURL)
         if current.bookmarks.contains(where: { $0.id != bookmark.id && Self.normalizedURL($0.url) == target }) {
             throw BookmarkStoreError.duplicateURL(trimmedURL)
@@ -128,7 +153,7 @@ public final class BookmarkStore {
         if updated.isHidden || updated.archivedAt != nil {
             updated.isPinned = false
         }
-        try database.saveBookmark(updated, collectionID: current.collectionByBookmarkID[bookmark.id])
+        try database.saveBookmark(updated, collectionID: collectionID)
         return updated
     }
 

@@ -18,16 +18,24 @@ struct BookmarksTabView: View {
                     List {
                         if !library.pinnedBookmarks.isEmpty {
                             Section("置顶") {
-                                ForEach(library.pinnedBookmarks) { bookmark in
-                                    BookmarkButton(bookmark: bookmark, library: library)
+                                ForEach(BookmarkSectionItem.items(library.pinnedBookmarks, section: .pinned)) { item in
+                                    BookmarkButton(bookmark: item.bookmark, library: library)
                                 }
                             }
                         }
 
-                        if !library.unpinnedBookmarks.isEmpty {
-                            Section("全部书签") {
-                                ForEach(library.unpinnedBookmarks) { bookmark in
-                                    BookmarkButton(bookmark: bookmark, library: library)
+                        if !library.recentlyAddedBookmarks.isEmpty {
+                            Section("最近添加") {
+                                ForEach(BookmarkSectionItem.items(library.recentlyAddedBookmarks, section: .recent)) { item in
+                                    BookmarkButton(bookmark: item.bookmark, library: library)
+                                }
+                            }
+                        }
+
+                        if !library.ungroupedBookmarks.isEmpty {
+                            Section("未分组") {
+                                ForEach(BookmarkSectionItem.items(library.ungroupedBookmarks, section: .ungrouped)) { item in
+                                    BookmarkButton(bookmark: item.bookmark, library: library)
                                 }
                             }
                         }
@@ -47,6 +55,30 @@ struct BookmarksTabView: View {
                 AddBookmarkView(library: library)
             }
         }
+    }
+}
+
+struct BookmarkSectionItem: Identifiable {
+    enum Section: Hashable {
+        case pinned
+        case recent
+        case ungrouped
+    }
+
+    struct ID: Hashable {
+        let section: Section
+        let bookmarkID: UUID
+    }
+
+    let bookmark: Bookmark
+    let section: Section
+
+    var id: ID {
+        ID(section: section, bookmarkID: bookmark.id)
+    }
+
+    static func items(_ bookmarks: [Bookmark], section: Section) -> [Self] {
+        bookmarks.map { Self(bookmark: $0, section: section) }
     }
 }
 
@@ -217,20 +249,46 @@ struct BookmarkButton: View {
     let bookmark: Bookmark
     let library: ObeliskLibraryModel
     var trailingText: String?
+    var showsManagementActions: Bool
 
     @Environment(\.openURL) private var openURL
+    @State private var editTarget: Bookmark?
 
     init(
         bookmark: Bookmark,
         library: ObeliskLibraryModel,
-        trailingText: String? = nil
+        trailingText: String? = nil,
+        showsManagementActions: Bool = true
     ) {
         self.bookmark = bookmark
         self.library = library
         self.trailingText = trailingText
+        self.showsManagementActions = showsManagementActions
     }
 
     var body: some View {
+        Group {
+            if showsManagementActions {
+                bookmarkButton
+                    .swipeActions(edge: .trailing) {
+                        Button("删除", role: .destructive) {
+                            library.deleteBookmark(bookmark)
+                        }
+                        Button("编辑") {
+                            editTarget = bookmark
+                        }
+                        .tint(.blue)
+                    }
+            } else {
+                bookmarkButton
+            }
+        }
+        .sheet(item: $editTarget) { bookmark in
+            EditBookmarkView(bookmark: bookmark, library: library)
+        }
+    }
+
+    private var bookmarkButton: some View {
         Button {
             guard let url = URL(string: bookmark.url) else { return }
             library.recordUsage(for: bookmark)

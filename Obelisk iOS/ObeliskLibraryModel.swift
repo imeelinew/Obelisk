@@ -66,6 +66,14 @@ final class ObeliskLibraryModel {
         bookmarks.filter { !$0.isPinned }
     }
 
+    var recentlyAddedBookmarks: [Bookmark] {
+        BookmarkUsageRanking.recent(among: unpinnedBookmarks, limit: 5)
+    }
+
+    var ungroupedBookmarks: [Bookmark] {
+        unpinnedBookmarks.filter { snapshot.collectionByBookmarkID[$0.id] == nil }
+    }
+
     var collections: [BookmarkCollection] {
         snapshot.collections.sorted {
             if $0.sortOrder != $1.sortOrder {
@@ -106,7 +114,7 @@ final class ObeliskLibraryModel {
                     authClient: authClient
                 )
                 self.cloudSync = cloudSync
-                Task { await cloudSync.start() }
+                await cloudSync.start()
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -123,15 +131,27 @@ final class ObeliskLibraryModel {
         await start()
     }
 
+    func resumeCloudSync() async {
+        await cloudSync?.resume()
+    }
+
+    func finishPendingCloudUploads() async {
+        await cloudSync?.finishPendingUploads()
+    }
+
     func bookmarks(in collectionID: UUID) -> [Bookmark] {
         bookmarks.filter { snapshot.collectionByBookmarkID[$0.id] == collectionID }
     }
 
     func collectionName(for bookmark: Bookmark) -> String? {
-        guard let collectionID = snapshot.collectionByBookmarkID[bookmark.id] else {
+        guard let collectionID = collectionID(for: bookmark) else {
             return nil
         }
         return collections.first(where: { $0.id == collectionID })?.name
+    }
+
+    func collectionID(for bookmark: Bookmark) -> UUID? {
+        snapshot.collectionByBookmarkID[bookmark.id]
     }
 
     func lastOpenedAt(for bookmark: Bookmark) -> Date? {
@@ -181,6 +201,35 @@ final class ObeliskLibraryModel {
         }
     }
 
+    func updateBookmark(
+        _ bookmark: Bookmark,
+        title: String,
+        url: String,
+        collectionID: UUID?
+    ) -> String? {
+        guard let store else { return "书签数据库尚未就绪" }
+        do {
+            var updated = bookmark
+            updated.title = title
+            updated.url = url
+            try store.update(updated, collectionID: collectionID)
+            reload()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func deleteBookmark(_ bookmark: Bookmark) {
+        guard let store else { return }
+        do {
+            try store.delete(ids: [bookmark.id])
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func recordUsage(for bookmark: Bookmark) {
         guard let store else { return }
         do {
@@ -225,22 +274,9 @@ final class ObeliskLibraryModel {
 
     private func startDatabaseWatch(_ database: ObeliskDatabase) {
         databaseWatchTask?.cancel()
-        let powerSync = database.powerSync
         databaseWatchTask = Task { [weak self] in
             do {
-                let changes = try powerSync.watch(
-                    sql: """
-                    SELECT 'bookmark:' || id || ':' || updated_at AS version FROM bookmarks
-                    UNION ALL
-                    SELECT 'collection:' || id || ':' || updated_at AS version FROM collections
-                    UNION ALL
-                    SELECT 'usage:' || id || ':' || occurred_at AS version FROM usage_events
-                    """,
-                    parameters: []
-                ) { cursor in
-                    try cursor.getString(index: 0)
-                }
-                for try await _ in changes {
+                for try await _ in database.libraryChanges() {
                     guard !Task.isCancelled else { return }
                     self?.reload()
                 }

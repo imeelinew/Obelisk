@@ -122,9 +122,76 @@ public final class ObeliskDatabase: @unchecked Sendable {
         }
     }
 
+    public func libraryChanges() -> AsyncThrowingStream<Void, any Error> {
+        let pool = pool
+        let observation = ValueObservation
+            .tracking { database in
+                try String.fetchAll(
+                    database,
+                    sql: """
+                    SELECT 'bookmark:' || id || ':' || updated_at FROM bookmarks
+                    UNION ALL
+                    SELECT 'collection:' || id || ':' || updated_at FROM collections
+                    UNION ALL
+                    SELECT 'usage:' || id || ':' || occurred_at FROM usage_events
+                    """
+                )
+            }
+            .removeDuplicates()
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await _ in observation.values(in: pool) {
+                        guard !Task.isCancelled else { break }
+                        continuation.yield(())
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    public func pendingUploadCounts() -> AsyncThrowingStream<Int, any Error> {
+        let pool = pool
+        let observation = ValueObservation
+            .tracking { database in
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM ps_crud") ?? 0
+            }
+            .removeDuplicates()
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await count in observation.values(in: pool) {
+                        guard !Task.isCancelled else { break }
+                        continuation.yield(count)
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    public func loadPendingUploadCount() throws -> Int {
+        try pool.read { database in
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM ps_crud") ?? 0
+        }
+    }
+
     public func saveBookmark(_ bookmark: Bookmark, collectionID: UUID?) throws {
         let now = Date()
-        try pool.write { database in
+        try writeMutation { database in
             let id = bookmark.id.uuidString.lowercased()
             let current = try Row.fetchOne(
                 database,
@@ -216,7 +283,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
 
     public func saveCollection(_ collection: BookmarkCollection) throws {
         let now = Date()
-        try pool.write { database in
+        try writeMutation { database in
             let id = collection.id.uuidString.lowercased()
             let current = try Row.fetchOne(
                 database,
@@ -282,7 +349,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
     }
 
     public func deleteBookmark(id: UUID, at date: Date = Date()) throws {
-        try pool.write { database in
+        try writeMutation { database in
             guard let rawVersions = try String.fetchOne(
                 database,
                 sql: "SELECT field_versions FROM bookmarks WHERE id = ? AND deleted_at IS NULL",
@@ -311,7 +378,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
     }
 
     public func deleteCollection(id: UUID, at date: Date = Date()) throws {
-        try pool.write { database in
+        try writeMutation { database in
             guard let rawVersions = try String.fetchOne(
                 database,
                 sql: "SELECT field_versions FROM collections WHERE id = ? AND deleted_at IS NULL",
@@ -370,7 +437,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
     public func setCollection(_ collectionID: UUID?, for bookmarkIDs: Set<UUID>) throws {
         guard !bookmarkIDs.isEmpty else { return }
         let now = Date()
-        try pool.write { database in
+        try writeMutation { database in
             for bookmarkID in bookmarkIDs {
                 guard let row = try Row.fetchOne(
                     database,
@@ -405,7 +472,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
     }
 
     public func recordUsage(bookmarkID: UUID, at date: Date = Date()) throws {
-        try pool.write { database in
+        try writeMutation { database in
             let eventID = UUID().uuidString.lowercased()
             try database.execute(
                 sql: """
@@ -422,6 +489,23 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     eventID,
                 ]
             )
+        }
+    }
+
+    private func writeMutation(_ updates: (Database) throws -> Void) throws {
+        try pool.write { database in
+            let previousQueueID = try Int64.fetchOne(
+                database,
+                sql: "SELECT IFNULL(MAX(id), 0) FROM ps_crud"
+            ) ?? 0
+            try updates(database)
+            let currentQueueID = try Int64.fetchOne(
+                database,
+                sql: "SELECT IFNULL(MAX(id), 0) FROM ps_crud"
+            ) ?? 0
+            if currentQueueID != previousQueueID {
+                try database.notifyChanges(in: Table("ps_crud"))
+            }
         }
     }
 

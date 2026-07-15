@@ -65,7 +65,7 @@ The menu bar supports fully custom ordering, and each group supports multiple so
 </p>
 <p align="center">  <img alt="Obelisk bookmark optimization notification" src=".github/assets/optimize.png" width="600"></p>
 
-On the current tab, press `Option + B`. Obelisk reads the frontmost browser's URL and title, then shows a lightweight popover to confirm the bookmark was saved. Shortcuts are customizable. If you trigger one by mistake, press `Option + Z` within 5 seconds to undo. If Intelligence is enabled and configured, Obelisk can optimize page titles (even translate them) and place the bookmark into a suitable group automatically.
+On the current tab, press `Option + B`. Obelisk reads the frontmost browser's URL and title, then shows a lightweight popover to confirm the bookmark was saved. Shortcuts are customizable. If Intelligence is enabled and configured, Obelisk can optimize page titles (even translate them) and place the bookmark into a suitable group automatically.
 
 ## More Features
 

@@ -51,7 +51,11 @@ public final class ObeliskPowerSyncConnector: PowerSyncBackendConnectorProtocol,
                 values: entry.opDataTyped ?? [:]
             )
         }
-        try await auth.upload(mutations)
+        do {
+            try await auth.upload(mutations)
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        }
         try await transaction.complete()
     }
 }

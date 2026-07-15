@@ -43,6 +43,7 @@ public final class CloudSyncController {
     private var session: ObeliskAuthSession?
     private var statusTask: Task<Void, Never>?
     private var pendingCountTask: Task<Void, Never>?
+    private var connectionStarted = false
 
     public init(
         database: ObeliskDatabase,
@@ -66,6 +67,7 @@ public final class CloudSyncController {
         if uploading && downloading { return .syncing }
         if uploading { return .uploading }
         if downloading { return .downloading }
+        if connected && pendingUploadCount > 0 { return .uploading }
         if connected { return .synced }
         return .offline
     }
@@ -111,7 +113,7 @@ public final class CloudSyncController {
         guard isEnabled else { return }
         await loadSession()
         if session != nil {
-            await connect()
+            await connectIfNeeded()
         }
     }
 
@@ -126,7 +128,7 @@ public final class CloudSyncController {
                 await loadSession()
             }
             if session != nil {
-                await connect()
+                await connectIfNeeded()
             }
         } else {
             await disconnect()
@@ -152,7 +154,7 @@ public final class CloudSyncController {
         isEnabled = true
         defaults.set(true, forKey: Self.enabledKey)
         apiAvailable = true
-        await connect()
+        await connectIfNeeded()
     }
 
     public func signOut() async throws {
@@ -170,13 +172,49 @@ public final class CloudSyncController {
         defaults.removeObject(forKey: Self.accountEmailKey)
     }
 
-    public func syncNow() async {
-        guard isEnabled, session != nil else { return }
+    public func resume() async {
+        guard isEnabled else { return }
+        if session == nil {
+            await loadSession()
+        }
+        guard session != nil else { return }
+        syncError = nil
+        await connectIfNeeded()
+    }
+
+    public func retry() async {
+        guard isEnabled else { return }
         isPerformingAction = true
         defer { isPerformingAction = false }
-        syncError = nil
-        await disconnect()
-        await connect()
+        await resume()
+    }
+
+    @discardableResult
+    public func finishPendingUploads(timeout: Duration = .seconds(20)) async -> Bool {
+        guard isEnabled else { return true }
+        if session == nil {
+            await loadSession()
+        }
+        guard session != nil else { return false }
+        await resume()
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        do {
+            while clock.now < deadline {
+                let count = try database.loadPendingUploadCount()
+                pendingUploadCount = count
+                if count == 0 { return true }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            pendingUploadCount = try database.loadPendingUploadCount()
+            return pendingUploadCount == 0
+        } catch is CancellationError {
+            return false
+        } catch {
+            syncError = error.localizedDescription
+            return false
+        }
     }
 
     public func testConnection() async {
@@ -186,8 +224,8 @@ public final class CloudSyncController {
             try await authClient.testAPIConnection()
             apiAvailable = true
             syncError = nil
-            if isEnabled, session != nil, !connected {
-                await connect()
+            if isEnabled, session != nil {
+                await connectIfNeeded()
             }
         } catch {
             apiAvailable = false
@@ -195,13 +233,15 @@ public final class CloudSyncController {
         }
     }
 
-    private func connect() async {
-        guard let session else { return }
+    private func connectIfNeeded() async {
+        guard let session, !connectionStarted else { return }
+        connectionStarted = true
         do {
             try database.bindToCloudAccount(session.accountID)
             let connector = ObeliskPowerSyncConnector(auth: authClient)
             try await database.powerSync.connect(connector: connector)
         } catch {
+            connectionStarted = false
             syncError = error.localizedDescription
         }
     }
@@ -220,6 +260,7 @@ public final class CloudSyncController {
     private func disconnect() async {
         do {
             try await database.powerSync.disconnect()
+            connectionStarted = false
         } catch {
             syncError = error.localizedDescription
         }
@@ -236,7 +277,7 @@ public final class CloudSyncController {
                 self?.uploading = update.uploading
                 self?.downloading = update.downloading
                 self?.lastSyncedAt = update.lastSyncedAt
-                if let error = update.anyError {
+                if let error = update.anyError, !Self.isExpectedCancellation(error) {
                     self?.syncError = String(describing: error)
                 } else if update.connected {
                     self?.apiAvailable = true
@@ -248,22 +289,24 @@ public final class CloudSyncController {
 
     private func observePendingUploadCount() {
         pendingCountTask?.cancel()
-        let powerSync = database.powerSync
+        let database = database
         pendingCountTask = Task { [weak self] in
             do {
-                let changes = try powerSync.watch(
-                    sql: "SELECT COUNT(*) FROM ps_crud",
-                    parameters: []
-                ) { cursor in
-                    Int(try cursor.getInt64(index: 0))
-                }
-                for try await values in changes {
+                for try await count in database.pendingUploadCounts() {
                     guard !Task.isCancelled else { return }
-                    self?.pendingUploadCount = values.first ?? 0
+                    self?.pendingUploadCount = count
                 }
             } catch {
                 self?.syncError = error.localizedDescription
             }
         }
+    }
+
+    private static func isExpectedCancellation(_ error: Any) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        guard let error = error as? NSError else { return false }
+        return error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled
     }
 }

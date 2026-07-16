@@ -447,8 +447,11 @@ func applyBrowserHistoryEvent(
 		}
 		return nil
 	}
+	if mutation.Operation == "PATCH" {
+		return patchBrowserHistoryEvent(ctx, tx, ownerID, deviceID, mutation)
+	}
 	if mutation.Operation != "PUT" {
-		return errors.New("browser_history_events only accepts PUT and DELETE")
+		return errors.New("browser_history_events only accepts PUT, PATCH and DELETE")
 	}
 	browserValue, err := requiredString(mutation.Values["browser"])
 	if err != nil {
@@ -498,6 +501,90 @@ func applyBrowserHistoryEvent(
 		return fmt.Errorf("insert browser history event: %w", err)
 	}
 	return nil
+}
+
+func patchBrowserHistoryEvent(
+	ctx context.Context,
+	tx pgx.Tx,
+	ownerID uuid.UUID,
+	deviceID uuid.UUID,
+	mutation Mutation,
+) error {
+	columns, arguments, err := decodeBrowserHistoryPatch(mutation.Values)
+	if err != nil {
+		return err
+	}
+	sets := make([]string, len(columns))
+	for index, column := range columns {
+		sets[index] = fmt.Sprintf("%s = $%d", column, index+1)
+	}
+	arguments = append(arguments, mutation.RowID, ownerID, deviceID)
+	result, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE browser_history_events
+		SET %s
+		WHERE id = $%d AND owner_id = $%d AND source_device_id = $%d
+	`, strings.Join(sets, ", "), len(arguments)-2, len(arguments)-1, len(arguments)), arguments...)
+	if err != nil {
+		return fmt.Errorf("patch browser history event: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("cannot patch missing browser_history_events row %s", mutation.RowID)
+	}
+	return nil
+}
+
+func decodeBrowserHistoryPatch(values map[string]json.RawMessage) ([]string, []any, error) {
+	allowed := map[string]bool{
+		"browser":      true,
+		"profile_name": true,
+		"title":        true,
+		"url":          true,
+		"visited_at":   true,
+	}
+	for field := range values {
+		if !allowed[field] {
+			return nil, nil, fmt.Errorf("unsupported browser_history_events patch field %q", field)
+		}
+	}
+
+	columns := make([]string, 0, len(values))
+	arguments := make([]any, 0, len(values))
+	for _, field := range []string{"browser", "profile_name", "title", "url", "visited_at"} {
+		raw, present := values[field]
+		if !present {
+			continue
+		}
+		var value any
+		var err error
+		switch field {
+		case "browser":
+			value, err = requiredString(raw)
+			if err == nil && !isSupportedBrowserHistoryBrowser(value.(string)) {
+				err = errors.New("browser is invalid")
+			}
+		case "profile_name", "title":
+			value, err = requiredString(raw)
+		case "url":
+			value, err = requiredString(raw)
+			if err == nil {
+				parsed, parseErr := url.ParseRequestURI(value.(string))
+				if parseErr != nil || (strings.ToLower(parsed.Scheme) != "https" && strings.ToLower(parsed.Scheme) != "http") {
+					err = errors.New("url must use http or https")
+				}
+			}
+		case "visited_at":
+			value, err = requiredTime(raw)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("decode %s: %w", field, err)
+		}
+		columns = append(columns, field)
+		arguments = append(arguments, value)
+	}
+	if len(columns) == 0 {
+		return nil, nil, errors.New("browser_history_events PATCH must update at least one field")
+	}
+	return columns, arguments, nil
 }
 
 func isSupportedBrowserHistoryBrowser(browser string) bool {

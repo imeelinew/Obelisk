@@ -507,6 +507,100 @@ struct ObeliskKitTests {
         #expect(try store.snapshot().bookmarks.isEmpty)
     }
 
+    @Test func browserHistoryUploadsUpdatesAndLargeDeletionsWithoutInvalidMetadata() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObeliskHistoryUpload-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let deviceID = UUID()
+        let accountID = UUID()
+        let database = try await ObeliskDatabase.open(rootDirectory: root, deviceID: deviceID)
+        let now = Date()
+        var records = (0..<501).map { index in
+            BrowserHistoryRecord(
+                id: UUID(),
+                title: "History \(index)",
+                url: "https://history.example/\(index)",
+                visitedAt: now.addingTimeInterval(-Double(index)),
+                browser: .safari,
+                profileName: "默认"
+            )
+        }
+
+        let lock = NSLock()
+        var uploadedBatches: [[CapturedMutation]] = []
+        MockURLProtocol.handler = { request in
+            let batch = try JSONDecoder().decode(
+                CapturedMutationBatch.self,
+                from: requestBody(request)
+            )
+            lock.withLock { uploadedBatches.append(batch.mutations) }
+            return (
+                HTTPURLResponse(
+                    url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let auth = ObeliskAuthClient(
+            configuration: ObeliskServerConfiguration(
+                apiURL: URL(string: "https://api.example.test")!,
+                powerSyncURL: URL(string: "https://sync.example.test")!
+            ),
+            deviceID: deviceID,
+            store: MemorySessionStore(
+                session: ObeliskAuthSession(
+                    accountID: accountID,
+                    deviceID: deviceID,
+                    accessToken: "access",
+                    refreshToken: "refresh",
+                    expiresAt: Date().addingTimeInterval(3_600)
+                )
+            ),
+            session: URLSession(configuration: configuration)
+        )
+        _ = try await auth.restoreSession()
+        let connector = ObeliskPowerSyncConnector(auth: auth)
+
+        try database.reconcileBrowserHistory(records, for: [.safari])
+        try await connector.uploadData(database: database.powerSync)
+
+        records[0] = BrowserHistoryRecord(
+            id: records[0].id,
+            title: "Updated history",
+            url: records[0].url,
+            visitedAt: records[0].visitedAt,
+            browser: records[0].browser,
+            profileName: records[0].profileName
+        )
+        try database.reconcileBrowserHistory(records, for: [.safari])
+        try await connector.uploadData(database: database.powerSync)
+
+        try database.reconcileBrowserHistory([], for: [.safari])
+        let queuedDeletion = try #require(
+            try await database.powerSync.getNextCrudTransaction()
+        )
+        #expect(queuedDeletion.crud.count == 1_002)
+        let deletionMutationIDs = Set(stride(from: 0, to: 1_002, by: 2).map { index in
+            UUID(uuidString: queuedDeletion.crud[index].metadata!)!
+        })
+        try await connector.uploadData(database: database.powerSync)
+
+        let batches = lock.withLock { uploadedBatches }
+        #expect(batches.map(\.count) == [500, 1, 1, 500, 1])
+        #expect(batches[0].allSatisfy { $0.operation == "PUT" })
+        #expect(batches[1].allSatisfy { $0.operation == "PUT" })
+        #expect(batches[2].map(\.operation) == ["PATCH"])
+        let uploadedDeletions = batches[3] + batches[4]
+        #expect(uploadedDeletions.allSatisfy { $0.operation == "DELETE" })
+        #expect(Set(uploadedDeletions.map(\.mutationId)) == deletionMutationIDs)
+        #expect(try database.loadPendingUploadCount() == 0)
+    }
+
     @Test func cancelledMutationUploadRemainsQueuedWithoutBecomingASyncFailure() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObeliskCancelledUpload-\(UUID().uuidString)", isDirectory: true)
@@ -734,6 +828,7 @@ private struct CapturedMutationBatch: Decodable {
 }
 
 private struct CapturedMutation: Decodable {
+    let mutationId: UUID
     let operation: String
 }
 

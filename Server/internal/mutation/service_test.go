@@ -3,6 +3,7 @@ package mutation
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -140,5 +141,40 @@ func TestBrowserHistorySettingsAcceptCanonicalSourcesAndEmptySelection(t *testin
 		if _, err := requiredBrowserHistorySources(json.RawMessage(raw)); err == nil {
 			t.Fatalf("requiredBrowserHistorySources(%s) unexpectedly succeeded", raw)
 		}
+	}
+}
+
+func TestDecodeBrowserHistoryPatchAcceptsAndOrdersMutableFields(t *testing.T) {
+	columns, arguments, err := decodeBrowserHistoryPatch(map[string]json.RawMessage{
+		"visited_at": json.RawMessage(`"2026-07-16T12:00:00.123Z"`),
+		"title":      json.RawMessage(`"Updated title"`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(columns) != 2 || columns[0] != "title" || columns[1] != "visited_at" {
+		t.Fatalf("unexpected columns: %v", columns)
+	}
+	if arguments[0] != "Updated title" {
+		t.Fatalf("unexpected title: %v", arguments[0])
+	}
+	visitedAt, ok := arguments[1].(time.Time)
+	if !ok || visitedAt.Format(time.RFC3339Nano) != "2026-07-16T12:00:00.123Z" {
+		t.Fatalf("unexpected visited_at: %v", arguments[1])
+	}
+}
+
+func TestDecodeBrowserHistoryPatchRejectsEmptyAndUnsupportedChanges(t *testing.T) {
+	for name, values := range map[string]map[string]json.RawMessage{
+		"empty":       {},
+		"created_at":  {"created_at": json.RawMessage(`"2026-07-16T12:00:00Z"`)},
+		"bad_browser": {"browser": json.RawMessage(`"unknown"`)},
+		"bad_url":     {"url": json.RawMessage(`"file:///private/history"`)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := decodeBrowserHistoryPatch(values); err == nil {
+				t.Fatal("invalid browser history patch was accepted")
+			}
+		})
 	}
 }

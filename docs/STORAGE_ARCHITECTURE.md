@@ -26,7 +26,7 @@ PowerSync SQLite ── queued mutations ──▶ Obelisk API ──▶ Postgre
       └──────── PowerSync sync streams ◀─────┘
 ```
 
-客户端永远先提交本地 SQLite 事务。关闭云同步时，修改保留在本机队列中；重新开启并完成认证后，PowerSync 自动上传积累的修改并拉取远端更新。连接可用时，客户端将事务作为一个 mutation batch 发送给 Obelisk API。API 在一个 PostgreSQL 事务内完成鉴权、幂等检查、字段合并与约束校验。提交后的 PostgreSQL 变更再由 PowerSync 同步到该账户的所有设备。
+客户端永远先提交本地 SQLite 事务。关闭云同步时，修改保留在本机队列中；重新开启并完成认证后，PowerSync 自动上传积累的修改并拉取远端更新。连接可用时，客户端将事务按最多 500 条拆成一个或多个 mutation batch 发送给 Obelisk API，全部成功后才清除本地事务。API 在一个 PostgreSQL 事务内完成每个 batch 的鉴权、幂等检查、字段合并与约束校验。若中途失败，客户端重试完整本地事务，服务端通过 mutation UUID 跳过已成功的操作。提交后的 PostgreSQL 变更再由 PowerSync 同步到该账户的所有设备。
 
 本地同步表不保存 `owner_id`。PowerSync stream 已按 JWT 中的账户 ID 隔离数据，本地数据库在首次登录时再通过 local-only `sync_state` 绑定唯一账户；同一个数据库不能切换到另一个账户。
 

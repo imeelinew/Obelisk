@@ -38,14 +38,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private let menuBrowserHistoryCacheTTL: TimeInterval = 30
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
     private static let browserHistoryMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskBrowserHistoryMenuItem")
-    // macOS 27 can attach a status item created after asynchronous startup begins
-    // to a placeholder host window at the screen edge. Register ours synchronously
-    // before applicationDidFinishLaunching returns, and give the host a stable identity.
+    // Give the status item a stable identity so the system preserves its placement.
     private lazy var statusItem: NSStatusItem = {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        // macOS 27 presents the default status-bar button through a scene-backed
+        // replicant. The rendered item can remain in its saved menu-bar slot while
+        // the button's local host window is parked at the screen's trailing edge.
+        // NSPopover then anchors to that parked window. Reusing AppKit's own
+        // NSStatusBarButton as the documented custom view keeps its public window
+        // geometry attached to the rendered slot without changing its appearance.
+        // This must happen before assigning autosaveName: the scene remembers
+        // which host mode first registered a persisted status-item identity.
+        if #available(macOS 27.0, *), let button = item.button {
+            button.frame.size.width = AppIcon.menuBarImage().size.width
+            item.view = button
+        }
+
         item.autosaveName = "com.eli.Obelisk.statusItem.main"
         return item
     }()
+    private var statusBarButton: NSStatusBarButton? {
+        (statusItem.view as? NSStatusBarButton) ?? statusItem.button
+    }
     private var store: BookmarkStore!
     private var authClient: ObeliskAuthClient!
     private var cloudSync: CloudSyncController!
@@ -316,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             return
         }
 
-        guard let button = statusItem.button else { return }
+        guard let button = statusBarButton else { return }
 
         NSApp.activate(ignoringOtherApps: true)
 
@@ -470,7 +485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         subtitle: String,
         kind: BookmarkAddedNotificationView.Kind
     ) {
-        guard let button = statusItem.button else { return }
+        guard let button = statusBarButton else { return }
 
         let contentView = BookmarkAddedNotificationView(
             title: title,
@@ -697,16 +712,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     private func configureStatusItemAppearance() {
-        if let button = statusItem.button {
-            button.image = AppIcon.menuBarImage()
-            button.title = ""
-            button.refusesFirstResponder = true
-            button.setAccessibilityLabel("Obelisk")
-        }
+        guard let button = statusBarButton else { return }
+
+        let image = AppIcon.menuBarImage()
+        button.image = image
+        button.title = ""
+        button.refusesFirstResponder = true
+        button.setAccessibilityLabel("Obelisk")
     }
 
     private func enableStatusItemInteraction() {
-        if let button = statusItem.button {
+        if let button = statusBarButton {
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseDown, .rightMouseDown])
@@ -757,7 +773,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     private func showStatusMenu(_ menu: NSMenu) {
-        guard let button = statusItem.button else { return }
+        guard let button = statusBarButton else { return }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
     }
 

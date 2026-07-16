@@ -1019,6 +1019,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let count = content.recordCount
         let title = count > 0 ? "最近浏览 (\(count))" : "最近浏览"
         item.title = title
+        item.image = NSImage(systemSymbolName: "clock", accessibilityDescription: "最近浏览")
         let submenu = NSMenu(title: title)
         submenu.autoenablesItems = false
 

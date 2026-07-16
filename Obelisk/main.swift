@@ -1019,6 +1019,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let count = content.recordCount
         let title = count > 0 ? "最近浏览 (\(count))" : "最近浏览"
         item.title = title
+        item.attributedTitle = browserHistoryMenuTitle(title)
         let submenu = NSMenu(title: title)
         submenu.autoenablesItems = false
 
@@ -1042,6 +1043,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
 
         item.submenu = submenu
+    }
+
+    private func browserHistoryMenuTitle(_ title: String) -> NSAttributedString {
+        let symbol = NSImage(systemSymbolName: "clock", accessibilityDescription: "最近浏览")!
+        symbol.isTemplate = true
+
+        let attachment = NSTextAttachment()
+        attachment.image = symbol
+        attachment.bounds = NSRect(x: 0, y: -2, width: 14, height: 14)
+
+        let attributedTitle = NSMutableAttributedString(attachment: attachment)
+        attributedTitle.append(NSAttributedString(string: "  \(title)"))
+        return attributedTitle
     }
 
     private func browserHistoryMenuItem(for record: BrowserHistoryRecord) -> NSMenuItem {

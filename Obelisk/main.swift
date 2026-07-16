@@ -38,10 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private let menuBrowserHistoryCacheTTL: TimeInterval = 30
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
     private static let browserHistoryMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskBrowserHistoryMenuItem")
-    // macOS 27 can leave status items created before application launch attached
-    // to a placeholder host window at the screen edge. Create ours only after
-    // applicationDidFinishLaunching first accesses it, and give that host a
-    // stable identity so NSPopover always receives the rendered item's frame.
+    // macOS 27 can attach a status item created after asynchronous startup begins
+    // to a placeholder host window at the screen edge. Register ours synchronously
+    // before applicationDidFinishLaunching returns, and give the host a stable identity.
     private lazy var statusItem: NSStatusItem = {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.autosaveName = "com.eli.Obelisk.statusItem.main"
@@ -131,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             return
         }
         authClient = ObeliskAuthClient(configuration: configuration)
+        configureStatusItemAppearance()
         Task {
             await startApplication()
         }
@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         cloudSync = CloudSyncController(database: store.database, authClient: authClient)
         await cloudSync.start()
 
-        configureStatusItem()
+        enableStatusItemInteraction()
         installDefaultsObserver()
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
@@ -201,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     @objc nonisolated private func defaultsDidChange(_ notification: Notification) {
         Task { @MainActor [weak self] in
-            self?.configureStatusItem()
+            self?.configureStatusItemAppearance()
             self?.refreshMenuBrowserHistoryCache()
             self?.scheduleRebuild()
         }
@@ -696,11 +696,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         NSApp.mainMenu = mainMenu
     }
 
-    private func configureStatusItem() {
+    private func configureStatusItemAppearance() {
         if let button = statusItem.button {
             button.image = AppIcon.menuBarImage()
             button.title = ""
             button.refusesFirstResponder = true
+            button.setAccessibilityLabel("Obelisk")
+        }
+    }
+
+    private func enableStatusItemInteraction() {
+        if let button = statusItem.button {
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseDown, .rightMouseDown])

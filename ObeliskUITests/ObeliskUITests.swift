@@ -57,7 +57,9 @@ final class ObeliskUITests: XCTestCase {
 
         let statusMenuBar = app.menuBars.element(boundBy: 1)
         XCTAssertTrue(statusMenuBar.waitForExistence(timeout: 8))
-        let statusItem = statusMenuBar.descendants(matching: .any).firstMatch
+        let statusItem = statusMenuBar.descendants(matching: .statusItem)
+            .matching(NSPredicate(format: "label == %@", "Obelisk"))
+            .firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: 3))
 
         app.typeKey("s", modifierFlags: .option)

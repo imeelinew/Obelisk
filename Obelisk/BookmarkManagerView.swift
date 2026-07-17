@@ -2165,7 +2165,6 @@ struct BookmarkManagerView: View {
             Section("快捷键") {
                 ShortcutRecorderRow(title: "添加书签", name: .addBookmark)
                 ShortcutRecorderRow(title: "添加隐藏书签", name: .addHiddenBookmark)
-                ShortcutRecorderRow(title: "菜单栏搜索", name: .menuBarSearch)
             }
         }
         .formStyle(.grouped)

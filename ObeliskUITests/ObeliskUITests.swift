@@ -50,10 +50,13 @@ final class ObeliskUITests: XCTestCase {
     }
 
     @MainActor
-    func testMenuBarSearchPopoverCentersOnStatusItemAfterColdLaunch() throws {
+    func testStatusMenuTrackingDoesNotBlockDockActivation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uiTesting"]
         app.launch()
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 8))
 
         let statusMenuBar = app.menuBars.element(boundBy: 1)
         XCTAssertTrue(statusMenuBar.waitForExistence(timeout: 8))
@@ -61,12 +64,21 @@ final class ObeliskUITests: XCTestCase {
             .matching(NSPredicate(format: "label == %@", "Obelisk"))
             .firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: 3))
+        statusItem.click()
+        XCTAssertTrue(app.menuItems["退出"].waitForExistence(timeout: 3))
+        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
 
-        app.typeKey("s", modifierFlags: .option)
-        let searchField = app.searchFields.firstMatch
-        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
-        XCTAssertEqual(searchField.frame.midX, statusItem.frame.midX, accuracy: 4)
-        XCTAssertGreaterThan(searchField.frame.minY, statusItem.frame.maxY)
+        XCUIApplication(bundleIdentifier: "com.apple.finder").activate()
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 3))
+
+        let dock = XCUIApplication(bundleIdentifier: "com.apple.dock")
+        let dockIcons = dock.descendants(matching: .any).matching(identifier: "Obelisk")
+        let dockIcon = dockIcons.element(boundBy: max(0, dockIcons.count - 1))
+        XCTAssertTrue(dockIcon.waitForExistence(timeout: 3))
+        dockIcon.click()
+
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 3))
+        XCTAssertTrue(window.isHittable)
     }
 
     @MainActor

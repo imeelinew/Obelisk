@@ -173,30 +173,6 @@ struct FeatureRegressionTests {
     }
 
     @MainActor
-    @Test func menuBarSearchHandlesEscapeReturnAndComposition() {
-        #expect(MenuBarSearchKeyCommand.command(
-            for: keyEvent(keyCode: UInt16(kVK_Escape), characters: "\u{1b}"),
-            hasMarkedText: false
-        ) == .close)
-        #expect(MenuBarSearchKeyCommand.command(
-            for: keyEvent(keyCode: UInt16(kVK_Return), characters: "\r"),
-            hasMarkedText: false
-        ) == .open)
-        #expect(MenuBarSearchKeyCommand.command(
-            for: keyEvent(keyCode: UInt16(kVK_ANSI_KeypadEnter), characters: "\r", modifierFlags: .numericPad),
-            hasMarkedText: false
-        ) == .open)
-        #expect(MenuBarSearchKeyCommand.command(
-            for: keyEvent(keyCode: UInt16(kVK_Space), characters: " "),
-            hasMarkedText: false
-        ) == .passThrough)
-        #expect(MenuBarSearchKeyCommand.command(
-            for: keyEvent(keyCode: UInt16(kVK_Return), characters: "\r"),
-            hasMarkedText: true
-        ) == .passThrough)
-    }
-
-    @MainActor
     @Test func nativeSearchFieldCommandsUseCurrentEditorText() {
         var text = ""
         var entered: String?
@@ -230,13 +206,7 @@ struct FeatureRegressionTests {
     }
 
     @MainActor
-    @Test func menuSearchBridgeAndTableReturnOpenExactlyOnce() {
-        let bridge = MenuBarSearchCommandBridge()
-        var openedQuery: String?
-        bridge.openHandler = { openedQuery = $0 }
-        bridge.open(query: "foo bar")
-        #expect(openedQuery == "foo bar")
-
+    @Test func tableReturnOpensExactlyOnce() {
         let delegate = BookmarkMenuTableViewDelegateSpy()
         let table = BookmarkMenuTableView()
         table.menuDelegate = delegate

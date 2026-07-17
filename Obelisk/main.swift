@@ -9,6 +9,7 @@ import Observation
 import PowerSync
 import Sparkle
 import SwiftUI
+import UserNotifications
 
 private let isUITesting = CommandLine.arguments.contains("-uiTesting")
 private let isUnitTesting = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -32,24 +33,18 @@ private func configureTestingEnvironmentIfNeeded() {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     private let maxMenuTitlePixelWidth: CGFloat = 300
-    private let notificationDurationSeconds: TimeInterval = 5
     private let menuBrowserHistoryCacheTTL: TimeInterval = 30
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
     private static let browserHistoryMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskBrowserHistoryMenuItem")
-    // Give the status item a stable identity so the system preserves its placement.
     private lazy var statusItem: NSStatusItem = {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         // macOS 27 presents the default status-bar button through a scene-backed
-        // replicant. The rendered item can remain in its saved menu-bar slot while
-        // the button's local host window is parked at the screen's trailing edge.
-        // NSPopover then anchors to that parked window. Reusing AppKit's own
-        // NSStatusBarButton as the documented custom view keeps its public window
-        // geometry attached to the rendered slot without changing its appearance.
-        // This must happen before assigning autosaveName: the scene remembers
-        // which host mode first registered a persisted status-item identity.
+        // replicant whose local host window can remain parked at the screen's
+        // trailing edge. Reusing AppKit's own button as the status item's view
+        // keeps native NSMenu geometry attached to the rendered menu-bar slot.
         if #available(macOS 27.0, *), let button = item.button {
             button.frame.size.width = AppIcon.menuBarImage().size.width
             item.view = button
@@ -91,12 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var aiFeaturesEnabled: Bool {
         UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
     }
-    private var notificationPopover: NSPopover?
-    private var notificationDismissWorkItem: DispatchWorkItem?
-    private var searchPopover: NSPopover?
-    private let searchInputSourceSwitcher = InputSourceSwitcher()
-    private var searchCommandBridge: MenuBarSearchCommandBridge?
-    private var searchKeyMonitor: Any?
+    private let userNotificationCenter = UNUserNotificationCenter.current()
     private var statusMenu: NSMenu?
     private var menuBrowserHistoryCache: MenuBrowserHistoryCache?
     private var menuBrowserHistoryRefreshKey: MenuBrowserHistoryCacheKey?
@@ -164,14 +154,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         cloudSync = CloudSyncController(database: store.database, authClient: authClient)
         await cloudSync.start()
 
-        enableStatusItemInteraction()
         installDefaultsObserver()
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
             self?.refreshMenuBrowserHistoryCache()
         }
+        userNotificationCenter.delegate = self
         installKeyboardShortcutHandlers()
-        setupNotificationPopover()
+        rebuildMenu()
         refreshMenuBrowserHistoryCache()
         startBrowserHistorySyncLoop()
         startDatabaseWatch()
@@ -182,10 +172,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     func applicationDidBecomeActive(_ notification: Notification) {
         guard let cloudSync else { return }
         Task { await cloudSync.resume() }
-    }
-
-    func applicationDidResignActive(_ notification: Notification) {
-        dismissMenuBarSearchPopover()
     }
 
     private func presentStartupError(_ error: Error) {
@@ -231,9 +217,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         KeyboardShortcuts.onKeyUp(for: .addHiddenBookmark) { [weak self] in
             self?.handleGlobalHotkey(isHidden: true)
         }
-        KeyboardShortcuts.onKeyUp(for: .menuBarSearch) { [weak self] in
-            self?.showMenuBarSearchPopover()
-        }
     }
 
     private func handleGlobalHotkey(isHidden: Bool) {
@@ -249,8 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             if case let .failed(message, settingsDestination) = resolved {
                 notifyUser(
                     title: "无法添加书签",
-                    body: message,
-                    kind: .error
+                    body: message
                 )
                 if let settingsDestination {
                     PermissionSettingsGuide.open(settingsDestination)
@@ -271,8 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         case .failure(let error):
             notifyUser(
                 title: "添加失败",
-                body: error.localizedDescription,
-                kind: .error
+                body: error.localizedDescription
             )
             return
         }
@@ -280,8 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         let bookmarkType = bookmark.isHidden ? "隐藏书签" : "书签"
         notifyUser(
             title: "已添加\(bookmarkType)",
-            body: resolvedTitle,
-            kind: bookmark.isHidden ? .hidden : .success
+            body: bookmark.isHidden ? "已安全保存" : resolvedTitle
         )
 
         guard aiFeaturesEnabled else { return }
@@ -298,224 +278,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             )
             notifyUser(
                 title: "Intelligence 书签优化",
-                body: outcome.summary,
-                kind: outcome.didChange ? .intelligence : .error
+                body: outcome.summary
             )
         }
     }
 
-    // MARK: - Menu bar notification dispatch
+    // MARK: - System notifications
 
-    private func notifyUser(
-        title: String,
-        body: String,
-        kind: BookmarkAddedNotificationView.Kind
-    ) {
-        dismissNotificationPopover()
-        showMenuBarPopover(title: title, subtitle: body, kind: kind)
-    }
+    private func notifyUser(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
 
-    private func dismissNotificationPopover() {
-        notificationDismissWorkItem?.cancel()
-        notificationDismissWorkItem = nil
-        notificationPopover?.performClose(nil)
-        notificationPopover?.close()
-        notificationPopover = nil
-    }
-
-    private func showMenuBarSearchPopover() {
-        dismissNotificationPopover()
-
-        if searchPopover?.isShown == true {
-            dismissMenuBarSearchPopover()
-            return
-        }
-
-        guard let button = statusBarButton else { return }
-
-        NSApp.activate(ignoringOtherApps: true)
-
-        let commandBridge = MenuBarSearchCommandBridge()
-        searchCommandBridge = commandBridge
-        installMenuBarSearchKeyMonitor(commandBridge: commandBridge)
-
-        let contentView = MenuBarBookmarkSearchView(
-            model: bookmarksModel,
-            faviconLoader: faviconLoader,
-            showsURLHostOnly: UserDefaults.standard.bool(forKey: "showsURLHostOnly"),
-            commandBridge: commandBridge,
-            onOpen: { [weak self] bookmark in
-                self?.bookmarksModel.openBookmark(bookmark)
-            },
-            onClose: { [weak self] in
-                self?.dismissMenuBarSearchPopover()
-            }
-        )
-        let hosting = NSHostingController(rootView: contentView)
-
-        let popover = NSPopover()
-        popover.behavior = .applicationDefined
-        popover.animates = true
-        popover.delegate = self
-        popover.contentViewController = hosting
-        popover.contentSize = NSSize(width: 420, height: 520)
-        searchPopover = popover
-        statusItem.menu = nil
-
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        searchInputSourceSwitcher.switchToUSEnglish()
-        DispatchQueue.main.async { [weak popover, searchInputSourceSwitcher] in
-            searchInputSourceSwitcher.switchToUSEnglish()
-            Self.focusSearchField(in: popover?.contentViewController?.view)
-        }
-    }
-
-    private func dismissMenuBarSearchPopover() {
-        let popover = searchPopover
-        popover?.performClose(nil)
-        popover?.close()
-        if let popover, searchPopover === popover {
-            searchPopover = nil
-        }
-        uninstallMenuBarSearchKeyMonitor()
-        searchCommandBridge = nil
-    }
-
-    private func installMenuBarSearchKeyMonitor(commandBridge: MenuBarSearchCommandBridge) {
-        uninstallMenuBarSearchKeyMonitor()
-        searchKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak commandBridge] event in
-            guard let self,
-                  let commandBridge,
-                  self.searchPopover?.isShown == true
-            else {
-                return event
-            }
-
-            let popoverWindow = self.searchPopover?.contentViewController?.view.window
-            let eventWindow = event.window ?? popoverWindow
-            switch MenuBarSearchKeyCommand.command(
-                for: event,
-                hasMarkedText: Self.firstResponderHasMarkedText(in: eventWindow)
-            ) {
-            case .close:
-                commandBridge.reset()
-                return nil
-            case .open:
-                commandBridge.open(query: Self.currentText(
-                    in: eventWindow,
-                    fallbackView: self.searchPopover?.contentViewController?.view
-                ))
-                return nil
-            case .passThrough:
-                return event
-            }
-        }
-    }
-
-    private func uninstallMenuBarSearchKeyMonitor() {
-        guard let searchKeyMonitor else { return }
-        NSEvent.removeMonitor(searchKeyMonitor)
-        self.searchKeyMonitor = nil
-    }
-
-    private static func firstResponderHasMarkedText(in window: NSWindow?) -> Bool {
-        guard let firstResponder = window?.firstResponder as? NSTextView else { return false }
-        return firstResponder.hasMarkedText()
-    }
-
-    private static func currentText(in window: NSWindow?, fallbackView: NSView?) -> String? {
-        if let firstResponder = window?.firstResponder {
-            if let textView = firstResponder as? NSTextView {
-                return textView.string
-            }
-            if let searchField = firstResponder as? NSSearchField {
-                return searchField.stringValue
-            }
-            if let view = firstResponder as? NSView,
-               let searchField = sequence(first: view, next: \.superview)
-                .compactMap({ $0 as? NSSearchField })
-                .first {
-                return searchField.stringValue
-            }
-        }
-
-        return searchField(in: fallbackView)?.stringValue
-    }
-
-    private static func focusSearchField(in view: NSView?, remainingAttempts: Int = 6) {
-        guard let view else { return }
-        if let searchField = searchField(in: view), let window = searchField.window {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKey()
-            if window.makeFirstResponder(searchField) {
-                return
-            }
-        }
-
-        guard remainingAttempts > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            focusSearchField(in: view, remainingAttempts: remainingAttempts - 1)
-        }
-    }
-
-    private static func searchField(in view: NSView?) -> NSSearchField? {
-        guard let view else { return nil }
-        if let searchField = view as? NSSearchField {
-            return searchField
-        }
-        for subview in view.subviews {
-            if let searchField = searchField(in: subview) {
-                return searchField
-            }
-        }
-        return nil
-    }
-
-    // MARK: - Menu bar popover notification
-
-    private func setupNotificationPopover() {
-        let popover = NSPopover()
-        popover.behavior = .applicationDefined
-        popover.animates = true
-        notificationPopover = popover
-    }
-
-    private func showMenuBarPopover(
-        title: String,
-        subtitle: String,
-        kind: BookmarkAddedNotificationView.Kind
-    ) {
-        guard let button = statusBarButton else { return }
-
-        let contentView = BookmarkAddedNotificationView(
-            title: title,
-            subtitle: subtitle,
-            kind: kind
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
         )
 
-        let hosting = NSHostingController(rootView: contentView)
-        // Force layout so the popover knows its exact content size before we
-        // call show().  Without this the popover's arrow points at the button
-        // but the body is positioned far below it.
-        hosting.view.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
-        hosting.view.layoutSubtreeIfNeeded()
-        let fitted = hosting.view.fittingSize
+        Task {
+            do {
+                let settings = await userNotificationCenter.notificationSettings()
+                let isAuthorized: Bool
+                switch settings.authorizationStatus {
+                case .notDetermined:
+                    isAuthorized = try await userNotificationCenter.requestAuthorization(options: [.alert, .sound])
+                case .authorized, .provisional, .ephemeral:
+                    isAuthorized = true
+                case .denied:
+                    isAuthorized = false
+                @unknown default:
+                    isAuthorized = false
+                }
 
-        let popover = NSPopover()
-        popover.behavior = .applicationDefined
-        popover.animates = true
-        popover.contentViewController = hosting
-        popover.contentSize = NSSize(width: 280, height: fitted.height)
-        notificationPopover = popover
-
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-
-        // Keep notifications visible long enough to read.
-        let work = DispatchWorkItem { [weak self] in
-            self?.dismissNotificationPopover()
+                guard isAuthorized else { return }
+                try await userNotificationCenter.add(request)
+            } catch {
+                NSLog("Unable to deliver Obelisk notification: %@", error.localizedDescription)
+            }
         }
-        notificationDismissWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + notificationDurationSeconds, execute: work)
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 
     /// LSUIElement apps get no main menu by default, which means ⌘C/⌘V/⌘X/⌘A
@@ -721,62 +531,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         button.setAccessibilityLabel("Obelisk")
     }
 
-    private func enableStatusItemInteraction() {
-        if let button = statusBarButton {
-            button.target = self
-            button.action = #selector(statusItemClicked(_:))
-            button.sendAction(on: [.leftMouseDown, .rightMouseDown])
-        }
-    }
-
-    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        dismissNotificationPopover()
-
-        if searchPopover?.isShown == true {
-            if let event = NSApp.currentEvent,
-               event.type == .keyDown || event.type == .keyUp {
-                let popoverView = searchPopover?.contentViewController?.view
-                let popoverWindow = popoverView?.window
-                switch MenuBarSearchKeyCommand.command(
-                    for: event,
-                    hasMarkedText: Self.firstResponderHasMarkedText(in: popoverWindow)
-                ) {
-                case .close:
-                    searchCommandBridge?.reset()
-                case .open:
-                    searchCommandBridge?.open(query: Self.currentText(
-                        in: popoverWindow,
-                        fallbackView: popoverView
-                    ))
-                case .passThrough:
-                    Self.focusSearchField(in: popoverView)
-                }
-            } else {
-                dismissMenuBarSearchPopover()
-            }
-            return
-        }
-
-        dismissMenuBarSearchPopover()
-
-        guard let menu = statusMenu else {
-            rebuildMenu()
-            if let menu = statusMenu {
-                showStatusMenu(menu)
-            }
-            refreshMenuBrowserHistoryCache()
-            return
-        }
-
-        showStatusMenu(menu)
-        refreshMenuBrowserHistoryCache()
-    }
-
-    private func showStatusMenu(_ menu: NSMenu) {
-        guard let button = statusBarButton else { return }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
-    }
-
     private func startDatabaseWatch() {
         databaseWatchTask?.cancel()
         let database = store.database
@@ -794,7 +548,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     private func handleManagerWindowClosed() {
         faviconLoader.releaseTransientMemory()
-        statusItem.menu = nil
         DispatchQueue.main.async {
             _ = malloc_zone_pressure_relief(nil, 0)
         }
@@ -866,7 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         menu.addItem(quitItem)
 
         statusMenu = menu
-        statusItem.menu = nil
+        statusItem.menu = menu
     }
 
     private var currentMenuBrowserHistoryCacheKey: MenuBrowserHistoryCacheKey? {
@@ -1123,23 +876,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
-        dismissNotificationPopover()
-    }
-
-    func menuDidClose(_ menu: NSMenu) {
-        statusItem.menu = nil
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover, popover === searchPopover else {
-            return
-        }
-        searchPopover = nil
-        uninstallMenuBarSearchKeyMonitor()
-        searchCommandBridge = nil
-    }
-
     private func applyDestructiveMenuItemStyle(to item: NSMenuItem, highlighted: Bool) {
         item.attributedTitle = NSAttributedString(
             string: item.title,
@@ -1195,7 +931,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     @objc private func openManager() {
-        dismissNotificationPopover()
         guard store != nil else { return }
         managerWindow.show()
     }

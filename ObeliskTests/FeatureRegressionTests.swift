@@ -177,6 +177,18 @@ struct FeatureRegressionTests {
         #expect(QuickSearchPanelToggleAction.resolve(isVisible: true) == .hide)
     }
 
+    @Test func enteringSearchPageCreatesANewFocusRequest() {
+        let initialRequest = 4
+        #expect(BookmarkManagerView.SearchFocusRequestResolver.resolve(
+            current: initialRequest,
+            selectedPage: .search
+        ) == 5)
+        #expect(BookmarkManagerView.SearchFocusRequestResolver.resolve(
+            current: initialRequest,
+            selectedPage: .bookmarks
+        ) == initialRequest)
+    }
+
     @Test func quickSearchPanelAlignmentSnapsEachAxisIndependently() {
         let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
         let centeredOrigin = NSPoint(x: 600, y: 250)

@@ -68,6 +68,7 @@ struct BookmarkManagerView: View {
     @State private var selectedCollectionId: UUID?
     @State private var searchText = ""
     @State private var searchFilter: SearchFilter = .all
+    @State private var searchFocusRequest = 0
     @State private var llmProfiles = LLMProfilesSettings()
     @State private var llmConfigMessage: String?
     @State private var isTestingLLMConfig = false
@@ -286,6 +287,12 @@ struct BookmarkManagerView: View {
             }
         }
 
+    }
+
+    enum SearchFocusRequestResolver {
+        static func resolve(current: Int, selectedPage: SettingsPage) -> Int {
+            selectedPage == .search ? current &+ 1 : current
+        }
     }
 
     struct DeleteConfirmation: Identifiable {
@@ -1261,8 +1268,12 @@ struct BookmarkManagerView: View {
         .onChange(of: addRequest.seq) { _, _ in
             consumePendingAddRequestIfNeeded()
         }
-        .onChange(of: settingsPage) { _, _ in
+        .onChange(of: settingsPage) { _, selectedPage in
             selectedCollectionId = nil
+            searchFocusRequest = SearchFocusRequestResolver.resolve(
+                current: searchFocusRequest,
+                selectedPage: selectedPage
+            )
         }
         .modifier(HiddenBookmarksLockingModifier(
             settingsPage: $settingsPage,
@@ -1637,7 +1648,11 @@ struct BookmarkManagerView: View {
 
     private var searchPage: some View {
         VStack(alignment: .leading, spacing: 0) {
-            NativeSearchField(text: $searchText, placeholder: "搜索")
+            NativeSearchField(
+                text: $searchText,
+                placeholder: "搜索",
+                focusRequest: searchFocusRequest
+            )
                 .frame(height: 38)
                 .padding(.horizontal, 16)
                 .padding(.top, 12)

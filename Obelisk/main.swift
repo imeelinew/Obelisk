@@ -9,7 +9,6 @@ import Observation
 import PowerSync
 import Sparkle
 import SwiftUI
-import UserNotifications
 
 private let isUITesting = CommandLine.arguments.contains("-uiTesting")
 private let isUnitTesting = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -33,7 +32,7 @@ private func configureTestingEnvironmentIfNeeded() {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let maxMenuTitlePixelWidth: CGFloat = 300
     private let menuBrowserHistoryCacheTTL: TimeInterval = 30
     private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
@@ -79,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         model: bookmarksModel,
         faviconLoader: faviconLoader
     )
+    private lazy var bookmarkFeedbackPanel = BookmarkFeedbackPanelController()
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
         loader.onIconLoaded = { [weak self] in
@@ -91,7 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var aiFeaturesEnabled: Bool {
         UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
     }
-    private let userNotificationCenter = UNUserNotificationCenter.current()
     private var statusMenu: NSMenu?
     private var menuBrowserHistoryCache: MenuBrowserHistoryCache?
     private var menuBrowserHistoryRefreshKey: MenuBrowserHistoryCacheKey?
@@ -165,9 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             self?.refreshMenuBrowserHistoryCache()
             self?.quickSearchPanel.refreshResults()
         }
-        userNotificationCenter.delegate = self
         installKeyboardShortcutHandlers()
         quickSearchPanel.prepare()
+        bookmarkFeedbackPanel.prepare()
         rebuildMenu()
         refreshMenuBrowserHistoryCache()
         startBrowserHistorySyncLoop()
@@ -240,9 +239,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let resolved = HotkeyBookmarkResolver.resolve(currentTab: currentTab)
         guard case let .resolved(url, title) = resolved else {
             if case let .failed(message, settingsDestination) = resolved {
-                notifyUser(
+                showBookmarkFeedback(
                     title: "无法添加书签",
-                    body: message
+                    subtitle: message,
+                    kind: .error
                 )
                 if let settingsDestination {
                     PermissionSettingsGuide.open(settingsDestination)
@@ -261,17 +261,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         case .success(let addedBookmark):
             bookmark = addedBookmark
         case .failure(let error):
-            notifyUser(
+            showBookmarkFeedback(
                 title: "添加失败",
-                body: error.localizedDescription
+                subtitle: error.localizedDescription,
+                kind: .error
             )
             return
         }
 
         let bookmarkType = bookmark.isHidden ? "隐藏书签" : "书签"
-        notifyUser(
+        showBookmarkFeedback(
             title: "已添加\(bookmarkType)",
-            body: bookmark.isHidden ? "已安全保存" : resolvedTitle
+            subtitle: resolvedTitle,
+            kind: bookmark.isHidden ? .hidden : .success
         )
 
         guard aiFeaturesEnabled else { return }
@@ -286,56 +288,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 bookmarkIds: [bookmark.id],
                 options: options
             )
-            notifyUser(
+            guard !Task.isCancelled else { return }
+            showBookmarkFeedback(
                 title: "Intelligence 书签优化",
-                body: outcome.summary
+                subtitle: outcome.summary,
+                kind: outcome.didChange ? .intelligence : .error
             )
         }
     }
 
-    // MARK: - System notifications
-
-    private func notifyUser(title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-
-        Task {
-            do {
-                let settings = await userNotificationCenter.notificationSettings()
-                let isAuthorized: Bool
-                switch settings.authorizationStatus {
-                case .notDetermined:
-                    isAuthorized = try await userNotificationCenter.requestAuthorization(options: [.alert, .sound])
-                case .authorized, .provisional, .ephemeral:
-                    isAuthorized = true
-                case .denied:
-                    isAuthorized = false
-                @unknown default:
-                    isAuthorized = false
-                }
-
-                guard isAuthorized else { return }
-                try await userNotificationCenter.add(request)
-            } catch {
-                NSLog("Unable to deliver Obelisk notification: %@", error.localizedDescription)
-            }
-        }
-    }
-
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    private func showBookmarkFeedback(
+        title: String,
+        subtitle: String,
+        kind: BookmarkFeedbackKind
     ) {
-        completionHandler([.banner, .sound])
+        bookmarkFeedbackPanel.show(BookmarkFeedbackPresentation(
+            title: title,
+            subtitle: subtitle,
+            kind: kind
+        ))
     }
 
     /// LSUIElement apps get no main menu by default, which means ⌘C/⌘V/⌘X/⌘A

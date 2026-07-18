@@ -177,6 +177,20 @@ struct FeatureRegressionTests {
         #expect(QuickSearchPanelToggleAction.resolve(isVisible: true) == .hide)
     }
 
+    @Test func bookmarkFeedbackUsesDistinctTransientStates() {
+        let kinds: [BookmarkFeedbackKind] = [.success, .hidden, .intelligence, .error]
+        #expect(kinds.allSatisfy { $0.dismissalDelay == 5 })
+    }
+
+    @Test func bookmarkFeedbackHUDUsesTheCurrentScreensUpperCenter() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
+        let frame = BookmarkFeedbackPanelLayout.anchorFrame(in: visibleFrame)
+
+        #expect(frame.midX == visibleFrame.midX)
+        #expect(frame.maxY == visibleFrame.maxY - BookmarkFeedbackPanelLayout.topInset)
+        #expect(frame.size == BookmarkFeedbackPanelLayout.anchorSize)
+    }
+
     @Test func enteringSearchPageCreatesANewFocusRequest() {
         let initialRequest = 4
         #expect(BookmarkManagerView.SearchFocusRequestResolver.resolve(

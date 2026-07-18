@@ -1041,7 +1041,7 @@ struct BookmarkManagerView: View {
 
     private func showToast(_ message: String, kind: Toast.Kind = .success) {
         withAnimation(.spring(duration: 0.24, bounce: 0.18)) {
-            toast = Toast(message: message, kind: kind)
+            toast = Toast(message: message.obeliskLocalized, kind: kind)
         }
     }
 

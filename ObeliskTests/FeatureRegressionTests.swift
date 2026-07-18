@@ -290,6 +290,55 @@ struct FeatureRegressionTests {
     }
 
     @MainActor
+    @Test func nativeSearchFieldUsesInteractiveLiquidGlassChrome() {
+        let searchField = NSSearchField()
+        let glassView = NativeGlassSearchFieldView(searchField: searchField)
+
+        #expect(glassView.style == .regular)
+        #expect(glassView.cornerRadius == 13)
+        #expect(glassView.contentView?.subviews.contains(searchField) == true)
+        #expect(!searchField.isBezeled)
+        #expect(!searchField.drawsBackground)
+        if #available(macOS 27.0, *) {
+            #expect(glassView.effectIsInteractive)
+        }
+    }
+
+    @MainActor
+    @Test func glassSearchFieldEditorAvoidsTheSearchIcon() {
+        let searchField = NSSearchField(frame: NSRect(x: 0, y: 0, width: 500, height: 30))
+        let cell = NativeGlassSearchFieldCell(textCell: "")
+        searchField.cell = cell
+        searchField.controlSize = .large
+        searchField.isBezeled = false
+        searchField.drawsBackground = false
+        let expectedFrame = cell.searchTextRect(forBounds: searchField.bounds)
+        #expect(cell.isEditable)
+        #expect(cell.isSelectable)
+
+        let editingTextView = NSTextView()
+        cell.edit(
+            withFrame: searchField.bounds,
+            in: searchField,
+            editor: editingTextView,
+            delegate: nil,
+            event: nil
+        )
+        #expect(editingTextView.frame == expectedFrame)
+
+        let selectingTextView = NSTextView()
+        cell.select(
+            withFrame: searchField.bounds,
+            in: searchField,
+            editor: selectingTextView,
+            delegate: nil,
+            start: 0,
+            length: 0
+        )
+        #expect(selectingTextView.frame == expectedFrame)
+    }
+
+    @MainActor
     @Test func tableReturnOpensExactlyOnce() {
         let delegate = BookmarkMenuTableViewDelegateSpy()
         let table = BookmarkMenuTableView()

@@ -22,8 +22,9 @@ struct NativeSearchField: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> NSSearchField {
+    func makeNSView(context: Context) -> NativeGlassSearchFieldView {
         let searchField = FocusableSearchField()
+        searchField.cell = NativeGlassSearchFieldCell(textCell: "")
         searchField.focusesOnAppear = focusesOnAppear
         searchField.focusRequest = focusRequest
         searchField.onEscape = onEscape
@@ -35,13 +36,13 @@ struct NativeSearchField: NSViewRepresentable {
         searchField.sendsSearchStringImmediately = true
         searchField.controlSize = .large
         searchField.font = .systemFont(ofSize: NSFont.systemFontSize)
-        searchField.bezelStyle = .roundedBezel
         searchField.target = context.coordinator
         searchField.action = #selector(Coordinator.searchFieldAction(_:))
-        return searchField
+        return NativeGlassSearchFieldView(searchField: searchField)
     }
 
-    func updateNSView(_ searchField: NSSearchField, context: Context) {
+    func updateNSView(_ glassView: NativeGlassSearchFieldView, context: Context) {
+        let searchField = glassView.searchField
         if let searchField = searchField as? FocusableSearchField {
             searchField.focusesOnAppear = focusesOnAppear
             searchField.focusRequest = focusRequest
@@ -199,4 +200,84 @@ struct NativeSearchField: NSViewRepresentable {
     }
 }
 
+@MainActor
+final class NativeGlassSearchFieldCell: NSSearchFieldCell {
+    override init(textCell string: String) {
+        super.init(textCell: string)
+        isEditable = true
+        isSelectable = true
+    }
 
+    required init(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    override func edit(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObject: NSText,
+        delegate: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(
+            withFrame: searchTextRect(forBounds: rect),
+            in: controlView,
+            editor: textObject,
+            delegate: delegate,
+            event: event
+        )
+    }
+
+    override func select(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObject: NSText,
+        delegate: Any?,
+        start selectionStart: Int,
+        length selectionLength: Int
+    ) {
+        super.select(
+            withFrame: searchTextRect(forBounds: rect),
+            in: controlView,
+            editor: textObject,
+            delegate: delegate,
+            start: selectionStart,
+            length: selectionLength
+        )
+    }
+}
+
+@MainActor
+final class NativeGlassSearchFieldView: NSGlassEffectView {
+    let searchField: NSSearchField
+
+    init(searchField: NSSearchField) {
+        self.searchField = searchField
+        super.init(frame: .zero)
+
+        style = .regular
+        cornerRadius = 13
+        if #available(macOS 27.0, *) {
+            effectIsInteractive = true
+        }
+
+        searchField.isBezeled = false
+        searchField.drawsBackground = false
+        searchField.focusRingType = .none
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+
+        let contentView = NSView()
+        contentView.addSubview(searchField)
+        NSLayoutConstraint.activate([
+            searchField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 9),
+            searchField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -9),
+            searchField.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        ])
+        self.contentView = contentView
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}

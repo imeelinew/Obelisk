@@ -1638,7 +1638,7 @@ struct BookmarkManagerView: View {
     private var searchPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             NativeSearchField(text: $searchText, placeholder: "搜索")
-                .frame(height: 34)
+                .frame(height: 38)
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
                 .padding(.bottom, 8)

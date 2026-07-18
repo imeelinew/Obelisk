@@ -27,7 +27,7 @@ struct BookmarkGridSection: Identifiable, Equatable {
             return BookmarkGridSection(
                 id: "day-\(day.timeIntervalSinceReferenceDate)",
                 title: title(for: day, calendar: calendar),
-                subtitle: "\(bookmarks.count) 个书签",
+                subtitle: bookmarkCountSubtitle(bookmarks.count),
                 bookmarks: bookmarks
             )
         }
@@ -37,8 +37,8 @@ struct BookmarkGridSection: Identifiable, Equatable {
         return datedSections + [
             BookmarkGridSection(
                 id: "unknown",
-                title: "未知日期",
-                subtitle: "\(unknownBookmarks.count) 个书签",
+                title: "未知日期".obeliskLocalized,
+                subtitle: bookmarkCountSubtitle(unknownBookmarks.count),
                 bookmarks: unknownBookmarks
             )
         ]
@@ -47,10 +47,10 @@ struct BookmarkGridSection: Identifiable, Equatable {
     private static func title(for day: Date, calendar: Calendar) -> String {
         let now = Date()
         if calendar.isDateInToday(day) {
-            return "今天"
+            return "今天".obeliskLocalized
         }
         if calendar.isDateInYesterday(day) {
-            return "昨天"
+            return "昨天".obeliskLocalized
         }
 
         let formatter = DateFormatter()

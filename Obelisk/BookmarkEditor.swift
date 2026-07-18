@@ -8,8 +8,8 @@ struct BookmarkEditor: View {
 
         var title: String {
             switch self {
-            case .add: return "添加书签"
-            case .edit: return "编辑书签"
+            case .add: return "添加书签".obeliskLocalized
+            case .edit: return "编辑书签".obeliskLocalized
             }
         }
     }

@@ -8,8 +8,8 @@ enum MenuBarIconStyle: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .outline: return "空心"
-        case .filled: return "实心"
+        case .outline: return "空心".obeliskLocalized
+        case .filled: return "实心".obeliskLocalized
         }
     }
 }

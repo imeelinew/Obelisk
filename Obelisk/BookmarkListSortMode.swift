@@ -15,9 +15,9 @@ enum BookmarkListSortMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .name: return "按名称"
-        case .recentlyAdded: return "按最近添加"
-        case .frequency: return "按使用频率"
+        case .name: return "按名称".obeliskLocalized
+        case .recentlyAdded: return "按最近添加".obeliskLocalized
+        case .frequency: return "按使用频率".obeliskLocalized
         }
     }
 

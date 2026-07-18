@@ -8,8 +8,8 @@ enum SidebarIconTheme: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .colorful: return "多彩"
-        case .professional: return "专业"
+        case .colorful: return "多彩".obeliskLocalized
+        case .professional: return "专业".obeliskLocalized
         }
     }
 }

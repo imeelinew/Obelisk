@@ -8,11 +8,13 @@ enum ObeliskAppDefaults {
             SidebarIconTheme.storageKey: SidebarIconTheme.colorful.rawValue,
             SidebarIconStyle.storageKey: SidebarIconStyle.lucide.rawValue,
             MenuBarIconStyle.storageKey: MenuBarIconStyle.outline.rawValue,
+            AppLanguagePreference.storageKey: AppLanguagePreference.auto.rawValue,
             openHiddenBookmarksIncognitoKey: true
         ])
         TitleOptimizationPreferences.register(in: defaults)
         BookmarkAutoGroupingPreferences.register(in: defaults)
         HiddenBookmarkKeywordExclusion.register(in: defaults)
+        AppLanguagePreference.applyStoredPreference(in: defaults)
     }
 }
 

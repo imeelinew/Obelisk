@@ -97,19 +97,19 @@ enum BookmarkMenuSectionOrder {
         return order(collections: collections, rawValue: rawValue).map { id in
             switch id {
             case .pinned:
-                return BookmarkMenuOrderItem(id: id, title: "置顶", systemImage: "pin.fill")
+                return BookmarkMenuOrderItem(id: id, title: "置顶".obeliskLocalized, systemImage: "pin.fill")
             case .recent:
-                return BookmarkMenuOrderItem(id: id, title: "最近添加", systemImage: "clock.arrow.circlepath")
+                return BookmarkMenuOrderItem(id: id, title: "最近添加".obeliskLocalized, systemImage: "clock.arrow.circlepath")
             case .browserHistory:
-                return BookmarkMenuOrderItem(id: id, title: "最近浏览", systemImage: "clock.fill")
+                return BookmarkMenuOrderItem(id: id, title: "最近浏览".obeliskLocalized, systemImage: "clock.fill")
             case .collection(let collectionId):
                 return BookmarkMenuOrderItem(
                     id: id,
-                    title: collectionNames[collectionId] ?? "分组",
+                    title: collectionNames[collectionId] ?? "分组".obeliskLocalized,
                     systemImage: "folder.fill"
                 )
             case .ungrouped:
-                return BookmarkMenuOrderItem(id: id, title: "未分组", systemImage: "bookmark.fill")
+                return BookmarkMenuOrderItem(id: id, title: "未分组".obeliskLocalized, systemImage: "bookmark.fill")
             }
         }
     }
@@ -208,7 +208,7 @@ struct BookmarkMenuSections {
                 guard !recent.isEmpty else { return nil }
                 return BookmarkMenuRenderSection(
                     id: id,
-                    title: "最近添加 (\(recent.count))",
+                    title: "\("最近添加".obeliskLocalized) (\(recent.count))",
                     bookmarks: recent,
                     presentation: .reference
                 )
@@ -682,7 +682,7 @@ final class BookmarksModel {
         guard !bookmarks.isEmpty else { return [] }
         return [
             BookmarkListSection(
-                title: "未分组 (\(bookmarks.count))",
+                title: "\("未分组".obeliskLocalized) (\(bookmarks.count))",
                 bookmarks: bookmarks,
                 sortMode: showsSortControl ? sortMode : nil,
                 sortScope: showsSortControl ? .ungrouped : nil
@@ -699,7 +699,7 @@ final class BookmarksModel {
         guard !bookmarks.isEmpty else { return [] }
         return [
             BookmarkListSection(
-                title: "置顶 (\(bookmarks.count))",
+                title: "\("置顶".obeliskLocalized) (\(bookmarks.count))",
                 bookmarks: bookmarks,
                 sortMode: showsSortControl ? sortMode : nil,
                 sortScope: showsSortControl ? .pinned : nil
@@ -748,7 +748,7 @@ final class BookmarksModel {
         if !pinnedBookmarks.isEmpty {
             sections.append(
                 BookmarkListSection(
-                    title: "置顶 (\(pinnedBookmarks.count))",
+                    title: "\("置顶".obeliskLocalized) (\(pinnedBookmarks.count))",
                     bookmarks: pinnedBookmarks
                 )
             )
@@ -777,7 +777,7 @@ final class BookmarksModel {
         if !ungroupedBookmarks.isEmpty {
             sections.append(
                 BookmarkListSection(
-                    title: "未分组 (\(ungroupedBookmarks.count))",
+                    title: "\("未分组".obeliskLocalized) (\(ungroupedBookmarks.count))",
                     bookmarks: ungroupedBookmarks
                 )
             )

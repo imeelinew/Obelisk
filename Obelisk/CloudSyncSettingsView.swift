@@ -82,7 +82,7 @@ struct CloudSyncSettingsView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 7, height: 7)
-                Text(cloudSync.statusTitle)
+                Text(cloudSync.statusTitle.obeliskLocalized)
                     .foregroundStyle(statusColor)
             }
         } label: {
@@ -109,7 +109,11 @@ struct CloudSyncSettingsView: View {
         Group {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(cloudSync.accountEmail ?? "已连接云账户")
+                    if let email = cloudSync.accountEmail {
+                        Text(email)
+                    } else {
+                        Text("已连接云账户")
+                    }
                     Text("此账户用于验证云端数据的访问权限")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -177,7 +181,7 @@ struct CloudSyncSettingsView: View {
     private var serviceSection: some View {
         Section("云服务") {
             LabeledContent {
-                Text(cloudSync.apiStatusTitle)
+                Text(cloudSync.apiStatusTitle.obeliskLocalized)
                     .foregroundStyle(.secondary)
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
@@ -196,7 +200,7 @@ struct CloudSyncSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 12)
-                Text(cloudSync.powerSyncStatusTitle)
+                Text(cloudSync.powerSyncStatusTitle.obeliskLocalized)
                     .foregroundStyle(.secondary)
                 Button(cloudSync.isTestingConnection ? "测试中…" : "测试连接") {
                     Task { await cloudSync.testConnection() }

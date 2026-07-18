@@ -262,7 +262,7 @@ private extension AppKitSettingsSidebar {
         for group in BookmarkManagerView.SettingsPage.Group.allCases where group != .content {
             let groupedPages = pages.filter { $0.group == group }
             guard !groupedPages.isEmpty else { continue }
-            result.append(.header(group.rawValue))
+            result.append(.header(group.title))
             result.append(contentsOf: groupedPages.map(SettingsSidebarItem.page))
         }
 

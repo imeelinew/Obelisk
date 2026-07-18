@@ -2,8 +2,8 @@ import KeyboardShortcuts
 import SwiftUI
 
 struct ShortcutRecorderRow: View {
-    let title: String
-    var description: String?
+    let title: LocalizedStringKey
+    var description: LocalizedStringKey?
     let name: KeyboardShortcuts.Name
 
     var body: some View {

@@ -13,8 +13,8 @@ private enum BookmarkDisplayMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .list: return "列表"
-        case .dateGrid: return "表格"
+        case .list: return "列表".obeliskLocalized
+        case .dateGrid: return "表格".obeliskLocalized
         }
     }
 
@@ -106,6 +106,8 @@ struct BookmarkManagerView: View {
     @AppStorage("windowSeeThrough") private var windowSeeThrough: Double = 0.0
     @AppStorage("customTransparencyEnabled") private var customTransparencyEnabled = false
     @State private var showCustomTransparencyAlert = false
+    @State private var showLanguageRestartAlert = false
+    @AppStorage(AppLanguagePreference.storageKey) private var appLanguagePreferenceRaw = AppLanguagePreference.auto.rawValue
     @State private var showNewCollectionDialog = false
     @State private var newCollectionName = ""
     @State private var collectionToRename: BookmarkCollection?
@@ -206,11 +208,19 @@ struct BookmarkManagerView: View {
         var id: String { rawValue }
 
         enum Group: String, CaseIterable, Identifiable {
-            case content = "内容"
-            case preferences = "偏好"
-            case advanced = "高级"
+            case content
+            case preferences
+            case advanced
 
             var id: String { rawValue }
+
+            var title: String {
+                switch self {
+                case .content: return "内容".obeliskLocalized
+                case .preferences: return "偏好".obeliskLocalized
+                case .advanced: return "高级".obeliskLocalized
+                }
+            }
         }
 
         var group: Group {
@@ -223,19 +233,19 @@ struct BookmarkManagerView: View {
 
         var title: String {
             switch self {
-            case .bookmarks:       return "书签"
-            case .search:          return "搜索"
-            case .collections:     return "分组"
-            case .browserHistory:  return "最近浏览"
-            case .hiddenBookmarks: return "隐藏书签"
-            case .archive:         return "归档"
-            case .appearance:      return "外观"
-            case .menuBar:         return "菜单栏"
-            case .shortcuts:       return "快捷键"
+            case .bookmarks:       return "书签".obeliskLocalized
+            case .search:          return "搜索".obeliskLocalized
+            case .collections:     return "分组".obeliskLocalized
+            case .browserHistory:  return "最近浏览".obeliskLocalized
+            case .hiddenBookmarks: return "隐藏书签".obeliskLocalized
+            case .archive:         return "归档".obeliskLocalized
+            case .appearance:      return "外观".obeliskLocalized
+            case .menuBar:         return "菜单栏".obeliskLocalized
+            case .shortcuts:       return "快捷键".obeliskLocalized
             case .ai:              return "Intelligence"
-            case .cloudSync:       return "云同步"
-            case .privacy:         return "隐私"
-            case .settings:        return "设置"
+            case .cloudSync:       return "云同步".obeliskLocalized
+            case .privacy:         return "隐私".obeliskLocalized
+            case .settings:        return "设置".obeliskLocalized
             }
         }
 
@@ -399,8 +409,8 @@ struct BookmarkManagerView: View {
         collectionBookmarkSections.map { section in
             BookmarkGridSection(
                 id: section.id,
-                title: section.title ?? "分组",
-                subtitle: "\(section.bookmarks.count) 个书签",
+                title: section.title ?? "分组".obeliskLocalized,
+                subtitle: bookmarkCountSubtitle(section.bookmarks.count),
                 bookmarks: section.bookmarks,
                 collectionId: section.collectionId
             )
@@ -430,9 +440,9 @@ struct BookmarkManagerView: View {
     private func searchFilterTitle(for filter: SearchFilter) -> String {
         switch filter {
         case .all:
-            return "全部"
+            return "全部".obeliskLocalized
         case .collection(let id):
-            return model.collections.first(where: { $0.id == id })?.name ?? "分组"
+            return model.collections.first(where: { $0.id == id })?.name ?? "分组".obeliskLocalized
         }
     }
 
@@ -1306,6 +1316,17 @@ struct BookmarkManagerView: View {
         } message: { message in
             Text(message)
         }
+        .alert(
+            "重新打开 Obelisk?",
+            isPresented: $showLanguageRestartAlert
+        ) {
+            Button("稍后", role: .cancel) {}
+            Button("重新打开") {
+                AppRelauncher.relaunch()
+            }
+        } message: {
+            Text("语言将在重新打开后生效")
+        }
         .modifier(ExtraAlerts(
             customTransparencyAlertBinding: customTransparencyAlertBinding,
             showCustomTransparencyAlert: $showCustomTransparencyAlert,
@@ -1397,7 +1418,7 @@ struct BookmarkManagerView: View {
         CompactBorderedMenuPicker(
             options: Array(LLMModelSource.allCases),
             selection: llmModelSourceBinding,
-            title: { $0.title }
+            title: { $0.localizedTitle }
         )
     }
 
@@ -2173,7 +2194,11 @@ struct BookmarkManagerView: View {
         .navigationTitle("快捷键")
     }
 
-    private func menuLimitStepper(_ title: String, desc: String? = nil, value: Binding<Int>) -> some View {
+    private func menuLimitStepper(
+        _ title: LocalizedStringKey,
+        desc: LocalizedStringKey? = nil,
+        value: Binding<Int>
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             LabeledContent(title) {
                 HStack(spacing: 10) {
@@ -2309,6 +2334,16 @@ struct BookmarkManagerView: View {
             Section("启动") {
                 Toggle("在登录时启动 Obelisk", isOn: launchAtLoginBinding)
             }
+
+            Section("语言") {
+                LabeledContent("语言") {
+                    CompactBorderedMenuPicker(
+                        options: Array(AppLanguagePreference.allCases),
+                        selection: appLanguagePreferenceBinding,
+                        title: { $0.pickerLabel }
+                    )
+                }
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
@@ -2317,6 +2352,19 @@ struct BookmarkManagerView: View {
         .onAppear {
             refreshLaunchAtLoginState()
         }
+    }
+
+    private var appLanguagePreferenceBinding: Binding<AppLanguagePreference> {
+        Binding(
+            get: { AppLanguagePreference(rawValue: appLanguagePreferenceRaw) ?? .auto },
+            set: { newValue in
+                let current = AppLanguagePreference(rawValue: appLanguagePreferenceRaw) ?? .auto
+                guard newValue != current else { return }
+                appLanguagePreferenceRaw = newValue.rawValue
+                AppLanguagePreference.persistForNextLaunch(newValue)
+                showLanguageRestartAlert = true
+            }
+        )
     }
 
     private var privacyPage: some View {

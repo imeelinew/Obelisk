@@ -60,12 +60,12 @@ struct NativeBookmarkList: NSViewRepresentable {
     var onRenameCollection: ((UUID) -> Void)? = nil
     var onDeleteCollection: ((UUID) -> Void)? = nil
     var onRevertTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
-    fileprivate static let contentInset: CGFloat = 18
-    fileprivate static let rowHeight: CGFloat = 50
-    fileprivate static let headerHeight: CGFloat = 24
-    fileprivate static let historyHeaderHeight: CGFloat = headerHeight + headerBottomSpacing
-    fileprivate static let headerBottomSpacing: CGFloat = 10
-    fileprivate static let headerSortControlHeight: CGFloat = 24
+    static let contentInset: CGFloat = 18
+    static let rowHeight: CGFloat = 50
+    static let headerHeight: CGFloat = 24
+    static let historyHeaderHeight: CGFloat = headerHeight + headerBottomSpacing
+    static let headerBottomSpacing: CGFloat = 10
+    static let headerSortControlHeight: CGFloat = 24
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -346,7 +346,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             }
             if !parent.collectionAssignOptions.isEmpty, parent.onAssignCollection != nil {
                 menu.addItem(NSMenuItem.separator())
-                let submenu = NSMenu(title: "移到分组")
+                let submenu = NSMenu(title: "移到分组".obeliskLocalized)
                 for option in parent.collectionAssignOptions {
                     let item = NSMenuItem(title: option.title, action: #selector(assignCollectionFromMenu(_:)), keyEquivalent: "")
                     item.representedObject = CollectionAssignTarget(
@@ -356,7 +356,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                     item.target = self
                     submenu.addItem(item)
                 }
-                let moveItem = NSMenuItem(title: "移到分组", action: nil, keyEquivalent: "")
+                let moveItem = NSMenuItem(title: "移到分组".obeliskLocalized, action: nil, keyEquivalent: "")
                 moveItem.image = Self.menuSymbolImage("folder")
                 moveItem.submenu = submenu
                 menu.addItem(moveItem)
@@ -708,7 +708,11 @@ struct NativeBookmarkList: NSViewRepresentable {
         }
 
         private func restoreBookmarkSymbolName(for title: String, defaultSymbolName: String) -> String {
-            title == "恢复到书签" ? "bookmark" : defaultSymbolName
+            let restoreTitle = "恢复到书签"
+            if title == restoreTitle || title == restoreTitle.obeliskLocalized {
+                return "bookmark"
+            }
+            return defaultSymbolName
         }
 
         private func menuItem(
@@ -717,7 +721,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             action: Selector,
             bookmark: Bookmark
         ) -> NSMenuItem {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            let item = NSMenuItem(title: title.obeliskLocalized, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = bookmark
             item.image = Self.menuSymbolImage(systemSymbolName)
@@ -740,7 +744,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             action: Selector,
             collectionId: UUID
         ) -> NSMenuItem {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            let item = NSMenuItem(title: title.obeliskLocalized, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = collectionId
             item.image = Self.menuSymbolImage(systemSymbolName)
@@ -791,7 +795,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             action: Selector,
             representedObject: Any
         ) -> NSMenuItem {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            let item = NSMenuItem(title: title.obeliskLocalized, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = representedObject
             item.identifier = Self.destructiveMenuItemIdentifier
@@ -1410,7 +1414,7 @@ class BookmarkMenuTableView: NSTableView {
     }
 }
 
-private final class HoverableRowView: NSTableRowView {
+final class HoverableRowView: NSTableRowView {
     var isHovered = false {
         didSet {
             guard isHovered != oldValue else { return }
@@ -1447,7 +1451,7 @@ private final class HoverableRowView: NSTableRowView {
     }
 }
 
-private final class BookmarkHeaderCellView: NSTableCellView {
+final class BookmarkHeaderCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("BookmarkHeaderCell")
     private let titleField = NSTextField(labelWithString: "")
     private let sortButton = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -1644,7 +1648,7 @@ private final class DisclosureChevronView: NSView {
     }
 }
 
-private final class BookmarkTableCellView: NSTableCellView {
+final class BookmarkTableCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("BookmarkTableCell")
 
     private static let faviconEdge: CGFloat = 18

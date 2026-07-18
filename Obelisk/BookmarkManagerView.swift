@@ -470,7 +470,7 @@ struct BookmarkManagerView: View {
         var options = model.collections.map {
             BookmarkCollectionAssignOption(title: $0.name, collectionId: $0.id)
         }
-        options.append(BookmarkCollectionAssignOption(title: "未分组", collectionId: nil))
+        options.append(BookmarkCollectionAssignOption(title: "未分组".obeliskLocalized, collectionId: nil))
         return options
     }
 
@@ -1540,9 +1540,9 @@ struct BookmarkManagerView: View {
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
-                    hiddenStateActionTitle: "移到隐藏书签",
+                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
                     onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
@@ -1567,11 +1567,11 @@ struct BookmarkManagerView: View {
                     onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "移到隐藏书签",
+                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
-                    archiveStateActionTitle: "归档",
+                    archiveStateActionTitle: "归档".obeliskLocalized,
                     onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     onSortModeChange: { sortMode, scope in
                         updateBookmarkListSortMode(sortMode, scope: scope)
@@ -1668,13 +1668,13 @@ struct BookmarkManagerView: View {
                     onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "移到隐藏书签",
+                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
                     archiveStateActionTitleProvider: { bookmark in
-                        model.isEffectivelyArchived(bookmark) ? "恢复到书签" : "归档"
+                        model.isEffectivelyArchived(bookmark) ? "恢复到书签".obeliskLocalized : "归档".obeliskLocalized
                     },
                     onSetArchived: { bookmark in setArchived(!model.isEffectivelyArchived(bookmark), for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
@@ -1717,9 +1717,9 @@ struct BookmarkManagerView: View {
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
-                    hiddenStateActionTitle: "移到隐藏书签",
+                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
                     onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
@@ -1754,11 +1754,11 @@ struct BookmarkManagerView: View {
                     onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "移到隐藏书签",
+                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
                     onSetHidden: { bookmark in setHidden(true, for: bookmark) },
-                    archiveStateActionTitle: "归档",
+                    archiveStateActionTitle: "归档".obeliskLocalized,
                     onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
                     onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                     onSortModeChange: { sortMode, _ in collectionListSortMode = sortMode },
                     collectionAssignOptions: collectionAssignOptions,
@@ -1810,9 +1810,9 @@ struct BookmarkManagerView: View {
                         onEdit: { bookmark in presentation = .edit(bookmark) },
                         onDelete: { ids in requestDelete(ids: ids) },
                         onSetHidden: { bookmark in setHidden(false, for: bookmark) },
-                        hiddenStateActionTitle: "恢复到书签",
+                        hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
                         onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                        pinStateActionTitle: { $0.isPinned ? "取消置顶" : "置顶" },
+                        pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
                         onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
                         collectionAssignOptions: collectionAssignOptions,
                         onAssignCollection: { bookmarkIds, collectionId in
@@ -1844,7 +1844,7 @@ struct BookmarkManagerView: View {
                         onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                         onEdit: { bookmark in presentation = .edit(bookmark) },
                         onDelete: { ids in requestDelete(ids: ids) },
-                        hiddenStateActionTitle: "恢复到书签",
+                        hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
                         onSetHidden: { bookmark in setHidden(false, for: bookmark) },
                         onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                     )
@@ -1935,7 +1935,7 @@ struct BookmarkManagerView: View {
                     onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
-                    archiveStateActionTitle: "恢复到书签",
+                    archiveStateActionTitle: "恢复到书签".obeliskLocalized,
                     onSetArchived: { bookmark in setArchived(false, for: bookmark) }
                 )
             }
@@ -2186,6 +2186,7 @@ struct BookmarkManagerView: View {
             Section("快捷键") {
                 ShortcutRecorderRow(title: "添加书签", name: .addBookmark)
                 ShortcutRecorderRow(title: "添加隐藏书签", name: .addHiddenBookmark)
+                ShortcutRecorderRow(title: "快速搜索", name: .quickSearch)
             }
         }
         .formStyle(.grouped)

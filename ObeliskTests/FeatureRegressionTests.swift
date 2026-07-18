@@ -172,6 +172,78 @@ struct FeatureRegressionTests {
         ].flattenedItems) == nil)
     }
 
+    @Test func quickSearchShortcutTogglesTheVisiblePanel() {
+        #expect(QuickSearchPanelToggleAction.resolve(isVisible: false) == .show)
+        #expect(QuickSearchPanelToggleAction.resolve(isVisible: true) == .hide)
+    }
+
+    @Test func quickSearchPanelAlignmentSnapsEachAxisIndependently() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
+        let centeredOrigin = NSPoint(x: 600, y: 250)
+        let frame = NSRect(
+            x: centeredOrigin.x + 6,
+            y: centeredOrigin.y + 30,
+            width: 400,
+            height: 500
+        )
+
+        let resolution = QuickSearchPanelAlignmentResolver.resolve(
+            frame: frame,
+            visibleFrame: visibleFrame,
+            alignsHorizontally: true,
+            alignsVertically: false
+        )
+
+        #expect(resolution.frame.origin.x == centeredOrigin.x)
+        #expect(resolution.frame.origin.y == frame.origin.y)
+    }
+
+    @Test func quickSearchPanelAlignmentLeavesFrameAloneWithoutNativeTokens() {
+        let visibleFrame = NSRect(x: 0, y: 0, width: 1_400, height: 900)
+        let frame = NSRect(x: 506, y: 217, width: 400, height: 500)
+
+        let resolution = QuickSearchPanelAlignmentResolver.resolve(
+            frame: frame,
+            visibleFrame: visibleFrame,
+            alignsHorizontally: false,
+            alignsVertically: false
+        )
+
+        #expect(resolution.frame == frame)
+    }
+
+    @MainActor
+    @Test func quickSearchPanelDragStartsOnlyFromNoninteractiveBackground() {
+        let rootView = NSView()
+        let backgroundView = NSView()
+        let searchField = NSSearchField()
+        let scrollView = NSScrollView()
+        let tableView = NSTableView()
+        let button = NSButton()
+        rootView.addSubview(backgroundView)
+        rootView.addSubview(searchField)
+        rootView.addSubview(scrollView)
+        rootView.addSubview(button)
+        scrollView.documentView = tableView
+
+        #expect(QuickSearchPanelDragTargetResolver.allowsWindowDrag(
+            from: backgroundView,
+            within: rootView
+        ))
+        #expect(!QuickSearchPanelDragTargetResolver.allowsWindowDrag(
+            from: searchField,
+            within: rootView
+        ))
+        #expect(!QuickSearchPanelDragTargetResolver.allowsWindowDrag(
+            from: tableView,
+            within: rootView
+        ))
+        #expect(!QuickSearchPanelDragTargetResolver.allowsWindowDrag(
+            from: button,
+            within: rootView
+        ))
+    }
+
     @MainActor
     @Test func nativeSearchFieldCommandsUseCurrentEditorText() {
         var text = ""

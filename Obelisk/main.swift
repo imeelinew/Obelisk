@@ -75,10 +75,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             self?.handleManagerWindowClosed()
         }
     )
+    private lazy var quickSearchPanel = QuickSearchPanelController(
+        model: bookmarksModel,
+        faviconLoader: faviconLoader
+    )
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
         loader.onIconLoaded = { [weak self] in
             self?.scheduleRebuild()
+            self?.quickSearchPanel.refreshFaviconsIfVisible()
         }
         return loader
     }()
@@ -158,9 +163,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         bookmarksModel.onChange = { [weak self] in
             self?.scheduleRebuild()
             self?.refreshMenuBrowserHistoryCache()
+            self?.quickSearchPanel.refreshResults()
         }
         userNotificationCenter.delegate = self
         installKeyboardShortcutHandlers()
+        quickSearchPanel.prepare()
         rebuildMenu()
         refreshMenuBrowserHistoryCache()
         startBrowserHistorySyncLoop()
@@ -216,6 +223,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         KeyboardShortcuts.onKeyUp(for: .addHiddenBookmark) { [weak self] in
             self?.handleGlobalHotkey(isHidden: true)
+        }
+        KeyboardShortcuts.onKeyUp(for: .quickSearch) { [weak self] in
+            self?.quickSearchPanel.toggle()
         }
     }
 

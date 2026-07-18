@@ -70,7 +70,6 @@ struct BookmarkSectionGridView: View {
     var selectedCollectionId: Binding<UUID?>? = nil
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
-    let collectionTitle: (Bookmark) -> String?
     let onOpen: (Bookmark) -> Void
     let onCopyURL: (Bookmark) -> Void
     let onRefreshFavicon: (Bookmark) -> Void
@@ -104,7 +103,6 @@ struct BookmarkSectionGridView: View {
                                     isSelected: selection.contains(bookmark.id),
                                     faviconLoader: faviconLoader,
                                     showsURLHostOnly: showsURLHostOnly,
-                                    collectionTitle: collectionTitle(bookmark),
                                     onSelect: {
                                         selectedCollectionId?.wrappedValue = nil
                                         selection = [bookmark.id]
@@ -202,7 +200,6 @@ struct BookmarkGridCard: View {
     let isSelected: Bool
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
-    let collectionTitle: String?
     let onSelect: () -> Void
     let onOpen: () -> Void
     let onCopyURL: () -> Void
@@ -218,14 +215,12 @@ struct BookmarkGridCard: View {
     let onAssignCollection: (UUID?) -> Void
 
     @State private var isPressed = false
-    @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let _ = faviconLoader.version
         let favicon = faviconLoader.image(for: bookmark.url)
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 10) {
                 faviconView(favicon)
 
@@ -240,7 +235,7 @@ struct BookmarkGridCard: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(bookmark.title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -252,15 +247,9 @@ struct BookmarkGridCard: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-
-            Spacer(minLength: 0)
-
-            if let collectionTitle {
-                cardPill(collectionTitle)
-            }
         }
-        .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
-        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 80, alignment: .topLeading)
+        .padding(9)
         .background(cardBackground)
         .overlay(cardBorder)
         .scaleEffect(isPressed ? 0.985 : 1)
@@ -304,38 +293,14 @@ struct BookmarkGridCard: View {
         .accessibilityLabel(bookmark.title)
     }
 
-    private var cardBackgroundColor: Color {
-        switch colorScheme {
-        case .dark:
-            return Color(red: 39 / 255, green: 41 / 255, blue: 54 / 255)
-        default:
-            return Color(red: 247 / 255, green: 247 / 255, blue: 247 / 255)
-        }
-    }
-
-    private var cardTransparentBackgroundColor: Color {
-        switch colorScheme {
-        case .dark:
-            return Color.white.opacity(0.04)
-        default:
-            return Color.black.opacity(0.04)
-        }
-    }
-
     private var cardBackground: some View {
-        let fill: Color
-        if windowTransparencyEnabled {
-            fill = isSelected ? Color.accentColor.opacity(0.20) : cardTransparentBackgroundColor
-        } else {
-            fill = isSelected ? Color.accentColor.opacity(0.14) : cardBackgroundColor
-        }
-        return RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(fill)
-            .shadow(
-                color: .black.opacity(isSelected ? 0.12 : 0.07),
-                radius: isSelected ? 8 : 4,
-                y: isSelected ? 4 : 2
-            )
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+
+        return shape
+            .fill(.thinMaterial)
+            .overlay {
+                shape.fill(isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.018))
+            }
     }
 
     private var cardBorder: some View {
@@ -366,15 +331,5 @@ struct BookmarkGridCard: View {
             }
         }
         .frame(width: 24, height: 24)
-    }
-
-    private func cardPill(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.65), in: RoundedRectangle(cornerRadius: 6))
     }
 }

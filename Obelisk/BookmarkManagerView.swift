@@ -383,11 +383,6 @@ struct BookmarkManagerView: View {
         BookmarkGridSection.dateSections(from: hiddenBookmarks)
     }
 
-    private func collectionTitle(for bookmark: Bookmark) -> String? {
-        guard let collectionId = model.collectionId(for: bookmark.id) else { return nil }
-        return model.collections.first { $0.id == collectionId }?.name
-    }
-
     private var collectionBookmarkSections: [BookmarkListSection] {
         model.visibleCollectionSections(
             sortMode: collectionListSortMode,
@@ -1544,7 +1539,6 @@ struct BookmarkManagerView: View {
                     selection: $selection,
                     faviconLoader: faviconLoader,
                     showsURLHostOnly: showsURLHostOnly,
-                    collectionTitle: { bookmark in collectionTitle(for: bookmark) },
                     onOpen: { bookmark in openBookmark(bookmark) },
                     onCopyURL: { bookmark in copyURL(bookmark) },
                     onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
@@ -1725,7 +1719,6 @@ struct BookmarkManagerView: View {
                     selectedCollectionId: $selectedCollectionId,
                     faviconLoader: faviconLoader,
                     showsURLHostOnly: showsURLHostOnly,
-                    collectionTitle: { _ in nil },
                     onOpen: { bookmark in openBookmark(bookmark) },
                     onCopyURL: { bookmark in copyURL(bookmark) },
                     onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
@@ -1818,7 +1811,6 @@ struct BookmarkManagerView: View {
                         selection: $selection,
                         faviconLoader: faviconLoader,
                         showsURLHostOnly: showsURLHostOnly,
-                        collectionTitle: { bookmark in collectionTitle(for: bookmark) },
                         onOpen: { bookmark in openHiddenBookmark(bookmark) },
                         onCopyURL: { bookmark in copyURL(bookmark) },
                         onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },

@@ -212,6 +212,18 @@ struct FeatureRegressionTests {
         #expect(resolution.frame == frame)
     }
 
+    @Test func quickSearchPanelAlignmentAmplifiesNativeCaptureRange() {
+        let guide: CGFloat = 700
+        let actualCoordinate: CGFloat = 720
+        let feedbackCoordinate = QuickSearchPanelAlignmentResolver.feedbackCoordinate(
+            default: actualCoordinate,
+            alignedTo: guide
+        )
+
+        #expect(feedbackCoordinate == 714)
+        #expect(abs(feedbackCoordinate - guide) < abs(actualCoordinate - guide))
+    }
+
     @MainActor
     @Test func quickSearchPanelDragStartsOnlyFromNoninteractiveBackground() {
         let rootView = NSView()

@@ -19,6 +19,15 @@ struct QuickSearchPanelAlignmentResolution: Equatable {
 }
 
 enum QuickSearchPanelAlignmentResolver {
+    // Make the system feedback filter see a slightly shorter distance to the
+    // guide. This widens its native capture and release range without replacing
+    // the system's velocity-aware alignment behavior.
+    static let feedbackDistanceScale: CGFloat = 0.7
+
+    static func feedbackCoordinate(default value: CGFloat, alignedTo guide: CGFloat) -> CGFloat {
+        guide + (value - guide) * feedbackDistanceScale
+    }
+
     static func resolve(
         frame: NSRect,
         visibleFrame: NSRect,
@@ -282,24 +291,40 @@ private final class QuickSearchPanel: NSPanel, NSGestureRecognizerDelegate {
         defaultFrame = constrainFrameRect(defaultFrame, to: alignmentScreen)
         let visibleFrame = alignmentScreen.visibleFrame
         let previousFrame = lastPresentedFrame ?? frame
+        let previousFeedbackX = QuickSearchPanelAlignmentResolver.feedbackCoordinate(
+            default: previousFrame.midX,
+            alignedTo: visibleFrame.midX
+        )
+        let defaultFeedbackX = QuickSearchPanelAlignmentResolver.feedbackCoordinate(
+            default: defaultFrame.midX,
+            alignedTo: visibleFrame.midX
+        )
+        let previousFeedbackY = QuickSearchPanelAlignmentResolver.feedbackCoordinate(
+            default: previousFrame.midY,
+            alignedTo: visibleFrame.midY
+        )
+        let defaultFeedbackY = QuickSearchPanelAlignmentResolver.feedbackCoordinate(
+            default: defaultFrame.midY,
+            alignedTo: visibleFrame.midY
+        )
         var feedbackTokens: [any NSAlignmentFeedbackToken] = []
         var alignsHorizontally = false
         var alignsVertically = false
 
         if let token = alignmentFeedbackFilter.alignmentFeedbackTokenForHorizontalMovement(
             in: nil,
-            previousX: previousFrame.midX,
+            previousX: previousFeedbackX,
             alignedX: visibleFrame.midX,
-            defaultX: defaultFrame.midX
+            defaultX: defaultFeedbackX
         ) {
             alignsHorizontally = true
             feedbackTokens.append(token)
         }
         if let token = alignmentFeedbackFilter.alignmentFeedbackTokenForVerticalMovement(
             in: nil,
-            previousY: previousFrame.midY,
+            previousY: previousFeedbackY,
             alignedY: visibleFrame.midY,
-            defaultY: defaultFrame.midY
+            defaultY: defaultFeedbackY
         ) {
             alignsVertically = true
             feedbackTokens.append(token)

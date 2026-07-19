@@ -1,8 +1,8 @@
 import Foundation
 
 enum SidebarIconTheme: String, CaseIterable, Identifiable {
-    case colorful
     case professional
+    case colorful
 
     var id: String { rawValue }
 
@@ -19,8 +19,8 @@ extension SidebarIconTheme {
 }
 
 enum SidebarIconStyle: String, CaseIterable, Identifiable {
-    case lucide
     case tabler
+    case lucide
 
     var id: String { rawValue }
 

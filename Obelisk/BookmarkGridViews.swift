@@ -248,7 +248,7 @@ struct BookmarkGridCard: View {
                     .truncationMode(.middle)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 80, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
         .padding(9)
         .background(cardBackground)
         .overlay(cardBorder)

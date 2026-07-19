@@ -74,8 +74,8 @@ struct BookmarkManagerView: View {
     @State private var isTestingLLMConfig = false
     @State private var hiddenBookmarksUnlocked = false
     @State private var quickLookController = QuickLookController()
-    @AppStorage(SidebarIconTheme.storageKey) private var sidebarIconThemeRaw = SidebarIconTheme.colorful.rawValue
-    @AppStorage(SidebarIconStyle.storageKey) private var sidebarIconStyleRaw = SidebarIconStyle.lucide.rawValue
+    @AppStorage(SidebarIconTheme.storageKey) private var sidebarIconThemeRaw = SidebarIconTheme.professional.rawValue
+    @AppStorage(SidebarIconStyle.storageKey) private var sidebarIconStyleRaw = SidebarIconStyle.tabler.rawValue
     @AppStorage(MenuBarIconStyle.storageKey) private var menuBarIconStyleRaw = MenuBarIconStyle.outline.rawValue
     private let sidebarIconTileSize = 22.0
     private let sidebarIconSymbolSize = 11.0
@@ -952,7 +952,7 @@ struct BookmarkManagerView: View {
     }
 
     private var sidebarIconTheme: SidebarIconTheme {
-        SidebarIconTheme(rawValue: sidebarIconThemeRaw) ?? .colorful
+        SidebarIconTheme(rawValue: sidebarIconThemeRaw) ?? .professional
     }
 
     private var sidebarIconThemeBinding: Binding<SidebarIconTheme> {
@@ -963,7 +963,7 @@ struct BookmarkManagerView: View {
     }
 
     private var sidebarIconStyle: SidebarIconStyle {
-        SidebarIconStyle(rawValue: sidebarIconStyleRaw) ?? .lucide
+        SidebarIconStyle(rawValue: sidebarIconStyleRaw) ?? .tabler
     }
 
     private var sidebarIconStyleBinding: Binding<SidebarIconStyle> {

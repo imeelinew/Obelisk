@@ -1600,6 +1600,9 @@
         }
       }
     },
+    "共计 %lld 个书签" : {
+
+    },
     "共计删除 %lld 个书签" : {
 
     },
@@ -1882,7 +1885,6 @@
       }
     },
     "刷新 favicon" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1899,6 +1901,7 @@
       }
     },
     "刷新 Favicon" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2902,7 +2905,6 @@
       }
     },
     "恢复原标题" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

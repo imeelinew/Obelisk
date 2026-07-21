@@ -70,24 +70,32 @@ struct BookmarkSectionGridView: View {
     var selectedCollectionId: Binding<UUID?>? = nil
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
-    let onOpen: (Bookmark) -> Void
-    let onCopyURL: (Bookmark) -> Void
-    let onRefreshFavicon: (Bookmark) -> Void
+    let onOpen: ([Bookmark]) -> Void
+    let onCopyURL: ([Bookmark]) -> Void
+    let onRefreshFavicon: ([Bookmark]) -> Void
     let onEdit: (Bookmark) -> Void
     let onDelete: (Set<Bookmark.ID>) -> Void
-    let onSetHidden: (Bookmark) -> Void
-    let hiddenStateActionTitle: String
-    let onSetArchived: (Bookmark) -> Void
-    let pinStateActionTitle: (Bookmark) -> String
-    let onSetPinned: (Bookmark) -> Void
+    var hiddenStateActionTitle: String? = nil
+    var onSetHidden: ((Set<Bookmark.ID>) -> Void)? = nil
+    var archiveStateActionTitle: String? = nil
+    var onSetArchived: ((Set<Bookmark.ID>) -> Void)? = nil
+    var onSetPinned: ((Set<Bookmark.ID>) -> Void)? = nil
     let collectionAssignOptions: [BookmarkCollectionAssignOption]
     let onAssignCollection: (Set<Bookmark.ID>, UUID?) -> Void
     var onRenameCollection: ((UUID) -> Void)? = nil
     var onDeleteCollection: ((UUID) -> Void)? = nil
+    var onRevertTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
+
+    @State private var selectionAnchorID: Bookmark.ID?
+    @FocusState private var isFocused: Bool
 
     private let columns = [
         GridItem(.adaptive(minimum: 168, maximum: 224), spacing: 12, alignment: .top)
     ]
+
+    private var orderedBookmarks: [Bookmark] {
+        sections.flatMap(\.bookmarks)
+    }
 
     var body: some View {
         ScrollView {
@@ -98,44 +106,67 @@ struct BookmarkSectionGridView: View {
 
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                             ForEach(section.bookmarks) { bookmark in
+                                let targets = targetBookmarks(contextBookmark: bookmark)
                                 BookmarkGridCard(
                                     bookmark: bookmark,
                                     isSelected: selection.contains(bookmark.id),
                                     faviconLoader: faviconLoader,
                                     showsURLHostOnly: showsURLHostOnly,
+                                    showsEdit: targets.count == 1,
+                                    showsRevertTitle: canRevertTitle(for: targets),
+                                    showsPin: onSetPinned != nil,
+                                    pinStateActionTitle: pinActionTitle(for: targets),
+                                    hiddenStateActionTitle: hiddenStateActionTitle,
+                                    archiveStateActionTitle: archiveStateActionTitle,
+                                    collectionAssignOptions: collectionAssignOptions,
                                     onSelect: {
-                                        selectedCollectionId?.wrappedValue = nil
-                                        selection = [bookmark.id]
+                                        selectBookmark(bookmark)
+                                    },
+                                    onOpenCard: {
+                                        isFocused = true
+                                        onOpen([bookmark])
                                     },
                                     onOpen: {
-                                        onOpen(bookmark)
+                                        alignSelectionForContextMenu(bookmark)
+                                        onOpen(targetBookmarks(contextBookmark: bookmark))
                                     },
                                     onCopyURL: {
-                                        onCopyURL(bookmark)
+                                        alignSelectionForContextMenu(bookmark)
+                                        onCopyURL(targetBookmarks(contextBookmark: bookmark))
                                     },
                                     onRefreshFavicon: {
-                                        onRefreshFavicon(bookmark)
+                                        alignSelectionForContextMenu(bookmark)
+                                        onRefreshFavicon(targetBookmarks(contextBookmark: bookmark))
                                     },
                                     onEdit: {
-                                        onEdit(bookmark)
+                                        alignSelectionForContextMenu(bookmark)
+                                        let targets = targetBookmarks(contextBookmark: bookmark)
+                                        guard targets.count == 1, let target = targets.first else { return }
+                                        onEdit(target)
+                                    },
+                                    onRevertTitle: {
+                                        alignSelectionForContextMenu(bookmark)
+                                        onRevertTitleOptimization?(targetBookmarkIDs(contextBookmark: bookmark))
                                     },
                                     onDelete: {
-                                        onDelete([bookmark.id])
+                                        alignSelectionForContextMenu(bookmark)
+                                        onDelete(targetBookmarkIDs(contextBookmark: bookmark))
                                     },
                                     onSetHidden: {
-                                        onSetHidden(bookmark)
+                                        alignSelectionForContextMenu(bookmark)
+                                        onSetHidden?(targetBookmarkIDs(contextBookmark: bookmark))
                                     },
-                                    hiddenStateActionTitle: hiddenStateActionTitle,
                                     onSetArchived: {
-                                        onSetArchived(bookmark)
+                                        alignSelectionForContextMenu(bookmark)
+                                        onSetArchived?(targetBookmarkIDs(contextBookmark: bookmark))
                                     },
-                                    pinStateActionTitle: pinStateActionTitle(bookmark),
                                     onSetPinned: {
-                                        onSetPinned(bookmark)
+                                        alignSelectionForContextMenu(bookmark)
+                                        onSetPinned?(targetBookmarkIDs(contextBookmark: bookmark))
                                     },
-                                    collectionAssignOptions: collectionAssignOptions,
                                     onAssignCollection: { collectionId in
-                                        onAssignCollection([bookmark.id], collectionId)
+                                        alignSelectionForContextMenu(bookmark)
+                                        onAssignCollection(targetBookmarkIDs(contextBookmark: bookmark), collectionId)
                                     }
                                 )
                             }
@@ -146,6 +177,22 @@ struct BookmarkSectionGridView: View {
             .padding(.horizontal, 18)
             .padding(.top, 6)
             .padding(.bottom, 20)
+        }
+        .focusable()
+        .focused($isFocused)
+        .focusEffectDisabled()
+        .onAppear {
+            isFocused = true
+        }
+        .onChange(of: selection) { _, newValue in
+            if newValue.isEmpty {
+                selectionAnchorID = nil
+            } else if let anchor = selectionAnchorID, !newValue.contains(anchor) {
+                selectionAnchorID = newValue.first
+            }
+        }
+        .onKeyPress { keyPress in
+            handleKeyPress(keyPress)
         }
     }
 
@@ -173,7 +220,9 @@ struct BookmarkSectionGridView: View {
         .onTapGesture {
             guard let collectionId = section.collectionId else { return }
             selection.removeAll()
+            selectionAnchorID = nil
             selectedCollectionId?.wrappedValue = collectionId
+            isFocused = true
         }
         .contextMenu {
             if let collectionId = section.collectionId {
@@ -193,6 +242,135 @@ struct BookmarkSectionGridView: View {
             }
         }
     }
+
+    private func selectBookmark(_ bookmark: Bookmark) {
+        isFocused = true
+        selectedCollectionId?.wrappedValue = nil
+
+        let modifiers = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        if modifiers.contains(.shift) {
+            let orderedIDs = orderedBookmarks.map(\.id)
+            let anchor = selectionAnchorID ?? selection.first ?? bookmark.id
+            guard
+                let from = orderedIDs.firstIndex(of: anchor),
+                let to = orderedIDs.firstIndex(of: bookmark.id)
+            else {
+                selection = [bookmark.id]
+                selectionAnchorID = bookmark.id
+                return
+            }
+            let lower = min(from, to)
+            let upper = max(from, to)
+            selection = Set(orderedIDs[lower...upper])
+            if selectionAnchorID == nil {
+                selectionAnchorID = anchor
+            }
+            return
+        }
+
+        if modifiers.contains(.command) {
+            if selection.contains(bookmark.id) {
+                selection.remove(bookmark.id)
+            } else {
+                selection.insert(bookmark.id)
+            }
+            selectionAnchorID = bookmark.id
+            return
+        }
+
+        selection = [bookmark.id]
+        selectionAnchorID = bookmark.id
+    }
+
+    private func alignSelectionForContextMenu(_ bookmark: Bookmark) {
+        selectedCollectionId?.wrappedValue = nil
+        if !selection.contains(bookmark.id) {
+            selection = [bookmark.id]
+            selectionAnchorID = bookmark.id
+        }
+        isFocused = true
+    }
+
+    private func targetBookmarkIDs(contextBookmark: Bookmark) -> Set<Bookmark.ID> {
+        if selection.contains(contextBookmark.id) {
+            return selection
+        }
+        return [contextBookmark.id]
+    }
+
+    private func targetBookmarks(contextBookmark: Bookmark) -> [Bookmark] {
+        let ids = targetBookmarkIDs(contextBookmark: contextBookmark)
+        return orderedBookmarks.filter { ids.contains($0.id) }
+    }
+
+    private func selectedBookmarks() -> [Bookmark] {
+        orderedBookmarks.filter { selection.contains($0.id) }
+    }
+
+    private func pinActionTitle(for bookmarks: [Bookmark]) -> String {
+        let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
+        return shouldPin ? "置顶" : "取消置顶"
+    }
+
+    private func canRevertTitle(for bookmarks: [Bookmark]) -> Bool {
+        guard onRevertTitleOptimization != nil else { return false }
+        return bookmarks.contains { bookmark in
+            guard bookmark.titleOptimized else { return false }
+            let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return !original.isEmpty
+        }
+    }
+
+    private func clearSelection() -> KeyPress.Result {
+        let hasBookmarkSelection = !selection.isEmpty
+        let hasCollectionSelection = selectedCollectionId?.wrappedValue != nil
+        guard hasBookmarkSelection || hasCollectionSelection else {
+            return .ignored
+        }
+        selection = []
+        selectionAnchorID = nil
+        selectedCollectionId?.wrappedValue = nil
+        return .handled
+    }
+
+    private func handleKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        let modifiers = keyPress.modifiers
+
+        if modifiers.isEmpty, keyPress.key == .escape {
+            return clearSelection()
+        }
+
+        if modifiers == .command, keyPress.key == KeyEquivalent("c") {
+            let bookmarks = selectedBookmarks()
+            guard !bookmarks.isEmpty else { return .ignored }
+            onCopyURL(bookmarks)
+            return .handled
+        }
+
+        if modifiers == .command, keyPress.key == KeyEquivalent("e") {
+            guard selection.count == 1, let bookmark = selectedBookmarks().first else {
+                return .ignored
+            }
+            onEdit(bookmark)
+            return .handled
+        }
+
+        if modifiers.isEmpty, keyPress.key == .return {
+            let bookmarks = selectedBookmarks()
+            guard !bookmarks.isEmpty else { return .ignored }
+            onOpen(bookmarks)
+            return .handled
+        }
+
+        if modifiers.isEmpty, keyPress.key == .delete || keyPress.characters == "\u{007F}" || keyPress.characters == "\u{F728}" {
+            guard !selection.isEmpty else { return .ignored }
+            onDelete(selection)
+            return .handled
+        }
+
+        return .ignored
+    }
 }
 
 struct BookmarkGridCard: View {
@@ -200,18 +378,24 @@ struct BookmarkGridCard: View {
     let isSelected: Bool
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
+    let showsEdit: Bool
+    let showsRevertTitle: Bool
+    let showsPin: Bool
+    let pinStateActionTitle: String
+    let hiddenStateActionTitle: String?
+    let archiveStateActionTitle: String?
+    let collectionAssignOptions: [BookmarkCollectionAssignOption]
     let onSelect: () -> Void
+    let onOpenCard: () -> Void
     let onOpen: () -> Void
     let onCopyURL: () -> Void
     let onRefreshFavicon: () -> Void
     let onEdit: () -> Void
+    let onRevertTitle: () -> Void
     let onDelete: () -> Void
     let onSetHidden: () -> Void
-    let hiddenStateActionTitle: String
     let onSetArchived: () -> Void
-    let pinStateActionTitle: String
     let onSetPinned: () -> Void
-    let collectionAssignOptions: [BookmarkCollectionAssignOption]
     let onAssignCollection: (UUID?) -> Void
 
     @State private var isPressed = false
@@ -260,7 +444,7 @@ struct BookmarkGridCard: View {
         }
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
-                onOpen()
+                onOpenCard()
             }
         )
         .simultaneousGesture(
@@ -271,10 +455,17 @@ struct BookmarkGridCard: View {
         .contextMenu {
             Button("打开", action: onOpen)
             Button("复制 URL", action: onCopyURL)
-            Button("刷新 Favicon", action: onRefreshFavicon)
-            Button("编辑", action: onEdit)
-            Divider()
-            Button(pinStateActionTitle, action: onSetPinned)
+            Button("刷新 favicon", action: onRefreshFavicon)
+            if showsEdit {
+                Button("编辑", action: onEdit)
+            }
+            if showsRevertTitle {
+                Button("恢复原标题", action: onRevertTitle)
+            }
+            if showsPin {
+                Divider()
+                Button(pinStateActionTitle, action: onSetPinned)
+            }
             if !collectionAssignOptions.isEmpty {
                 Menu("移到分组") {
                     ForEach(collectionAssignOptions, id: \.title) { option in
@@ -284,8 +475,12 @@ struct BookmarkGridCard: View {
                     }
                 }
             }
-            Button(hiddenStateActionTitle, action: onSetHidden)
-            Button("归档", action: onSetArchived)
+            if let hiddenStateActionTitle {
+                Button(hiddenStateActionTitle, action: onSetHidden)
+            }
+            if let archiveStateActionTitle {
+                Button(archiveStateActionTitle, action: onSetArchived)
+            }
             Divider()
             Button("删除", role: .destructive, action: onDelete)
         }

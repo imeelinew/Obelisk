@@ -63,6 +63,7 @@ struct BookmarkManagerView: View {
     @State private var selection: Set<Bookmark.ID> = []
     @State private var presentation: Presentation?
     @State private var deleteConfirmation: DeleteConfirmation?
+    @State private var contextMenuConfirmation: ContextMenuConfirmation?
     @State private var toast: Toast?
     @State private var settingsPage: SettingsPage = .bookmarks
     @State private var selectedCollectionId: UUID?
@@ -303,6 +304,72 @@ struct BookmarkManagerView: View {
 
         var count: Int {
             ids.count
+        }
+    }
+
+    struct ContextMenuConfirmation: Identifiable {
+        enum Kind {
+            case pin(isPinned: Bool)
+            case hide(isHidden: Bool)
+            case archive(isArchived: Bool)
+            case assign(collectionId: UUID?, collectionName: String?)
+        }
+
+        let ids: Set<Bookmark.ID>
+        let kind: Kind
+
+        var id: String {
+            let idsKey = ids.map(\.uuidString).sorted().joined(separator: ",")
+            switch kind {
+            case .pin(let isPinned):
+                return "pin-\(isPinned)-\(idsKey)"
+            case .hide(let isHidden):
+                return "hide-\(isHidden)-\(idsKey)"
+            case .archive(let isArchived):
+                return "archive-\(isArchived)-\(idsKey)"
+            case .assign(let collectionId, _):
+                return "assign-\(collectionId?.uuidString ?? "nil")-\(idsKey)"
+            }
+        }
+
+        var count: Int { ids.count }
+
+        var title: String {
+            switch kind {
+            case .pin(let isPinned):
+                return isPinned ? "置顶书签?" : "取消置顶?"
+            case .hide(let isHidden):
+                return isHidden ? "移到隐藏书签?" : "恢复到书签?"
+            case .archive(let isArchived):
+                return isArchived ? "归档书签?" : "恢复到书签?"
+            case .assign(_, let collectionName):
+                if let collectionName {
+                    return "移到「\(collectionName)」?"
+                }
+                return "移出分组?"
+            }
+        }
+
+        var confirmButtonTitle: String {
+            switch kind {
+            case .pin(let isPinned):
+                return isPinned ? "置顶" : "取消置顶"
+            case .hide(let isHidden):
+                return isHidden ? "移到隐藏书签" : "恢复到书签"
+            case .archive(let isArchived):
+                return isArchived ? "归档" : "恢复到书签"
+            case .assign:
+                return "移动"
+            }
+        }
+
+        var isDestructive: Bool {
+            switch kind {
+            case .hide(true), .archive(true):
+                return true
+            default:
+                return false
+            }
         }
     }
 
@@ -736,6 +803,47 @@ struct BookmarkManagerView: View {
         selection.subtract(confirmation.ids)
     }
 
+    private func requestPinFromContextMenu(ids: Set<Bookmark.ID>) {
+        let bookmarks = model.bookmarks.filter { ids.contains($0.id) }
+        guard !bookmarks.isEmpty else { return }
+        let isPinned = !bookmarks.allSatisfy(\.isPinned)
+        contextMenuConfirmation = ContextMenuConfirmation(ids: ids, kind: .pin(isPinned: isPinned))
+    }
+
+    private func requestHiddenFromContextMenu(ids: Set<Bookmark.ID>, isHidden: Bool) {
+        guard !ids.isEmpty else { return }
+        contextMenuConfirmation = ContextMenuConfirmation(ids: ids, kind: .hide(isHidden: isHidden))
+    }
+
+    private func requestArchivedFromContextMenu(ids: Set<Bookmark.ID>, isArchived: Bool) {
+        guard !ids.isEmpty else { return }
+        contextMenuConfirmation = ContextMenuConfirmation(ids: ids, kind: .archive(isArchived: isArchived))
+    }
+
+    private func requestAssignCollectionFromContextMenu(bookmarkIds: Set<Bookmark.ID>, collectionId: UUID?) {
+        guard !bookmarkIds.isEmpty else { return }
+        let collectionName = collectionId.flatMap { id in
+            model.collections.first { $0.id == id }?.name
+        }
+        contextMenuConfirmation = ContextMenuConfirmation(
+            ids: bookmarkIds,
+            kind: .assign(collectionId: collectionId, collectionName: collectionName)
+        )
+    }
+
+    private func confirmContextMenuAction(_ confirmation: ContextMenuConfirmation) {
+        switch confirmation.kind {
+        case .pin(let isPinned):
+            setPinned(isPinned, for: confirmation.ids)
+        case .hide(let isHidden):
+            setHidden(isHidden, for: confirmation.ids, showsToast: true)
+        case .archive(let isArchived):
+            setArchived(isArchived, for: confirmation.ids, showsToast: true)
+        case .assign(let collectionId, _):
+            assignCollection(bookmarkIds: confirmation.ids, collectionId: collectionId)
+        }
+    }
+
     private func requestDeleteSelectedCollection() {
         guard let selectedCollection else { return }
         beginDeleteCollection(id: selectedCollection.id)
@@ -774,28 +882,42 @@ struct BookmarkManagerView: View {
     }
 
     private func setHidden(_ isHidden: Bool, for bookmark: Bookmark) {
-        setHidden(isHidden, for: [bookmark.id])
+        setHidden(isHidden, for: [bookmark.id], showsToast: false)
     }
 
-    private func setHidden(_ isHidden: Bool, for ids: Set<Bookmark.ID>) {
+    private func setHidden(_ isHidden: Bool, for ids: Set<Bookmark.ID>, showsToast: Bool = false) {
         guard !ids.isEmpty else { return }
         if let errorMessage = model.setHidden(isHidden, for: ids) {
             model.errorMessage = errorMessage
         } else {
             selection.subtract(ids)
+            if showsToast {
+                if isHidden {
+                    showToast(ids.count > 1 ? "已移到隐藏书签 \(ids.count) 个书签" : "已移到隐藏书签")
+                } else {
+                    showToast(ids.count > 1 ? "已恢复到书签 \(ids.count) 个书签" : "已恢复到书签")
+                }
+            }
         }
     }
 
     private func setArchived(_ isArchived: Bool, for bookmark: Bookmark) {
-        setArchived(isArchived, for: [bookmark.id])
+        setArchived(isArchived, for: [bookmark.id], showsToast: false)
     }
 
-    private func setArchived(_ isArchived: Bool, for ids: Set<Bookmark.ID>) {
+    private func setArchived(_ isArchived: Bool, for ids: Set<Bookmark.ID>, showsToast: Bool = false) {
         guard !ids.isEmpty else { return }
         if let errorMessage = model.setArchived(isArchived, for: ids) {
             model.errorMessage = errorMessage
         } else {
             selection.subtract(ids)
+            if showsToast {
+                if isArchived {
+                    showToast(ids.count > 1 ? "已归档 \(ids.count) 个书签" : "已归档")
+                } else {
+                    showToast(ids.count > 1 ? "已恢复到书签 \(ids.count) 个书签" : "已恢复到书签")
+                }
+            }
         }
     }
 
@@ -1191,6 +1313,13 @@ struct BookmarkManagerView: View {
         )
     }
 
+    private var contextMenuConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { contextMenuConfirmation != nil },
+            set: { if !$0 { contextMenuConfirmation = nil } }
+        )
+    }
+
     private var llmConfigAlertBinding: Binding<Bool> {
         Binding(
             get: { llmConfigMessage != nil },
@@ -1378,6 +1507,21 @@ struct BookmarkManagerView: View {
             }
         } message: { confirmation in
             Text("共计删除 \(confirmation.count) 个书签")
+        }
+        .alert(
+            contextMenuConfirmation?.title ?? "",
+            isPresented: contextMenuConfirmationBinding,
+            presenting: contextMenuConfirmation
+        ) { confirmation in
+            Button("取消", role: .cancel) {
+                contextMenuConfirmation = nil
+            }
+            Button(confirmation.confirmButtonTitle, role: confirmation.isDestructive ? .destructive : nil) {
+                confirmContextMenuAction(confirmation)
+                contextMenuConfirmation = nil
+            }
+        } message: { confirmation in
+            Text("共计 \(confirmation.count) 个书签")
         }
         .alert(
             "提示",
@@ -1605,20 +1749,21 @@ struct BookmarkManagerView: View {
                     selection: $selection,
                     faviconLoader: faviconLoader,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmark in openBookmark(bookmark) },
-                    onCopyURL: { bookmark in copyURL(bookmark) },
-                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onOpen: { bookmarks in openBookmarks(bookmarks) },
+                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
-                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
-                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
+                    archiveStateActionTitle: "归档".obeliskLocalized,
+                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
+                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
-                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                    }
+                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                    },
+                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                 )
             } else if bookmarkSections.isEmpty {
                 ContentUnavailableView {
@@ -1639,16 +1784,16 @@ struct BookmarkManagerView: View {
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { ids in setHidden(true, for: ids) },
+                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
                     archiveStateActionTitle: "归档".obeliskLocalized,
-                    onSetArchived: { ids in setArchived(true, for: ids) },
-                    onSetPinned: { ids in setPinned(for: ids) },
+                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
+                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
                     onSortModeChange: { sortMode, scope in
                         updateBookmarkListSortMode(sortMode, scope: scope)
                     },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
-                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
                     },
                     onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                 )
@@ -1743,7 +1888,7 @@ struct BookmarkManagerView: View {
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { ids in setHidden(true, for: ids) },
+                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
                     archiveStateActionTitleProvider: { bookmarks in
                         let shouldArchive = bookmarks.isEmpty || !bookmarks.allSatisfy { model.isEffectivelyArchived($0) }
                         return shouldArchive ? "归档".obeliskLocalized : "恢复到书签".obeliskLocalized
@@ -1751,12 +1896,12 @@ struct BookmarkManagerView: View {
                     onSetArchived: { ids in
                         let bookmarks = model.bookmarks.filter { ids.contains($0.id) }
                         let shouldArchive = bookmarks.isEmpty || !bookmarks.allSatisfy { model.isEffectivelyArchived($0) }
-                        setArchived(shouldArchive, for: ids)
+                        requestArchivedFromContextMenu(ids: ids, isArchived: shouldArchive)
                     },
-                    onSetPinned: { ids in setPinned(for: ids) },
+                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
-                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
                     },
                     onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                 )
@@ -1788,22 +1933,23 @@ struct BookmarkManagerView: View {
                     selectedCollectionId: $selectedCollectionId,
                     faviconLoader: faviconLoader,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmark in openBookmark(bookmark) },
-                    onCopyURL: { bookmark in copyURL(bookmark) },
-                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onOpen: { bookmarks in openBookmarks(bookmarks) },
+                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
-                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
-                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
+                    archiveStateActionTitle: "归档".obeliskLocalized,
+                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
+                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
-                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
                     },
                     onRenameCollection: { id in beginRenameCollection(id: id) },
-                    onDeleteCollection: { id in beginDeleteCollection(id: id) }
+                    onDeleteCollection: { id in beginDeleteCollection(id: id) },
+                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                 )
             } else if collectionBookmarkSections.allSatisfy({ $0.bookmarks.isEmpty }) {
                 NativeBookmarkList(
@@ -1832,14 +1978,14 @@ struct BookmarkManagerView: View {
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { ids in setHidden(true, for: ids) },
+                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
                     archiveStateActionTitle: "归档".obeliskLocalized,
-                    onSetArchived: { ids in setArchived(true, for: ids) },
-                    onSetPinned: { ids in setPinned(for: ids) },
+                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
+                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
                     onSortModeChange: { sortMode, _ in collectionListSortMode = sortMode },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
-                        assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
                     },
                     onRenameCollection: { id in beginRenameCollection(id: id) },
                     onDeleteCollection: { id in beginDeleteCollection(id: id) },
@@ -1879,20 +2025,21 @@ struct BookmarkManagerView: View {
                         selection: $selection,
                         faviconLoader: faviconLoader,
                         showsURLHostOnly: showsURLHostOnly,
-                        onOpen: { bookmark in openHiddenBookmark(bookmark) },
-                        onCopyURL: { bookmark in copyURL(bookmark) },
-                        onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                        onOpen: { bookmarks in openHiddenBookmarks(bookmarks) },
+                        onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                        onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                         onEdit: { bookmark in presentation = .edit(bookmark) },
                         onDelete: { ids in requestDelete(ids: ids) },
-                        onSetHidden: { bookmark in setHidden(false, for: bookmark) },
                         hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
-                        onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                        pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
-                        onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                        onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: false) },
+                        archiveStateActionTitle: "归档".obeliskLocalized,
+                        onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
+                        onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
                         collectionAssignOptions: collectionAssignOptions,
                         onAssignCollection: { bookmarkIds, collectionId in
-                            assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                        }
+                            requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
+                        },
+                        onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                     )
                 }
             } else {
@@ -1920,7 +2067,7 @@ struct BookmarkManagerView: View {
                         onEdit: { bookmark in presentation = .edit(bookmark) },
                         onDelete: { ids in requestDelete(ids: ids) },
                         hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
-                        onSetHidden: { ids in setHidden(false, for: ids) },
+                        onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: false) },
                         onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                     )
                 }
@@ -2011,7 +2158,7 @@ struct BookmarkManagerView: View {
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     archiveStateActionTitle: "恢复到书签".obeliskLocalized,
-                    onSetArchived: { ids in setArchived(false, for: ids) }
+                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: false) }
                 )
             }
         }

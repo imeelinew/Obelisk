@@ -42,18 +42,17 @@ struct NativeBookmarkList: NSViewRepresentable {
     var faviconVersion: Int
     var showsURLHostOnly: Bool = false
 
-    var onOpen: ((Bookmark) -> Void)?
-    var onCopyURL: ((Bookmark) -> Void)?
-    var onRefreshFavicon: ((Bookmark) -> Void)?
+    var onOpen: (([Bookmark]) -> Void)?
+    var onCopyURL: (([Bookmark]) -> Void)?
+    var onRefreshFavicon: (([Bookmark]) -> Void)?
     var onEdit: ((Bookmark) -> Void)?
     var onDelete: ((Set<Bookmark.ID>) -> Void)?
     var hiddenStateActionTitle: String?
-    var onSetHidden: ((Bookmark) -> Void)?
+    var onSetHidden: ((Set<Bookmark.ID>) -> Void)?
     var archiveStateActionTitle: String? = nil
-    var archiveStateActionTitleProvider: ((Bookmark) -> String)? = nil
-    var onSetArchived: ((Bookmark) -> Void)? = nil
-    var pinStateActionTitle: ((Bookmark) -> String)? = nil
-    var onSetPinned: ((Bookmark) -> Void)? = nil
+    var archiveStateActionTitleProvider: (([Bookmark]) -> String)? = nil
+    var onSetArchived: ((Set<Bookmark.ID>) -> Void)? = nil
+    var onSetPinned: ((Set<Bookmark.ID>) -> Void)? = nil
     var onSortModeChange: ((BookmarkListSortMode, BookmarkListSortScope?) -> Void)? = nil
     var collectionAssignOptions: [BookmarkCollectionAssignOption] = []
     var onAssignCollection: ((Set<Bookmark.ID>, UUID?) -> Void)? = nil
@@ -293,6 +292,7 @@ struct NativeBookmarkList: NSViewRepresentable {
 
             let menu = NSMenu()
             menu.delegate = self
+            let targets = targetBookmarks(contextBookmark: bookmark)
 
             if parent.onOpen != nil {
                 menu.addItem(menuItem(
@@ -318,7 +318,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                     bookmark: bookmark
                 ))
             }
-            if parent.onEdit != nil {
+            if parent.onEdit != nil, targets.count == 1 {
                 menu.addItem(menuItem(
                     "编辑",
                     systemSymbolName: "pencil",
@@ -335,11 +335,11 @@ struct NativeBookmarkList: NSViewRepresentable {
                     bookmark: bookmark
                 ))
             }
-            if let pinStateActionTitle = parent.pinStateActionTitle, parent.onSetPinned != nil {
+            if parent.onSetPinned != nil {
                 menu.addItem(NSMenuItem.separator())
                 menu.addItem(menuItem(
-                    pinStateActionTitle(bookmark),
-                    systemSymbolName: pinStateSymbolName(for: bookmark),
+                    pinActionTitle(for: targets),
+                    systemSymbolName: pinStateSymbolName(for: targets),
                     action: #selector(setPinnedFromMenu(_:)),
                     bookmark: bookmark
                 ))
@@ -370,7 +370,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                     bookmark: bookmark
                 ))
             }
-            if let archiveStateActionTitle = parent.archiveStateActionTitleProvider?(bookmark) ?? parent.archiveStateActionTitle,
+            if let archiveStateActionTitle = archiveActionTitle(contextBookmark: bookmark),
                parent.onSetArchived != nil {
                 menu.addItem(NSMenuItem.separator())
                 menu.addItem(menuItem(
@@ -394,8 +394,9 @@ struct NativeBookmarkList: NSViewRepresentable {
         }
 
         func bookmarkMenuTableViewCopySelection(_ tableView: BookmarkMenuTableView) {
-            guard let bookmark = singleSelectedBookmark(in: tableView) else { return }
-            parent.onCopyURL?(bookmark)
+            let bookmarks = selectedBookmarks()
+            guard !bookmarks.isEmpty else { return }
+            parent.onCopyURL?(bookmarks)
         }
 
         func bookmarkMenuTableViewEditSelection(_ tableView: BookmarkMenuTableView) {
@@ -409,11 +410,23 @@ struct NativeBookmarkList: NSViewRepresentable {
         }
 
         func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView) {
-            guard let bookmark = singleSelectedBookmark(in: tableView) else { return }
-            parent.onOpen?(bookmark)
+            let bookmarks = selectedBookmarks()
+            guard !bookmarks.isEmpty else { return }
+            parent.onOpen?(bookmarks)
         }
 
         func bookmarkMenuTableViewCancel(_ tableView: BookmarkMenuTableView) -> Bool {
+            let hasBookmarkSelection = !parent.selection.isEmpty
+            let hasCollectionSelection = parent.selectedCollectionId?.wrappedValue != nil
+            if hasBookmarkSelection || hasCollectionSelection {
+                parent.selection = []
+                parent.selectedCollectionId?.wrappedValue = nil
+                selectedRowKeys = []
+                isSyncingSelection = true
+                tableView.deselectAll(nil)
+                isSyncingSelection = false
+                return true
+            }
             guard let onCancel = parent.onCancel else { return false }
             onCancel()
             return true
@@ -527,38 +540,38 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard row >= 0, row < items.count, let bookmark = items[row].bookmark else {
                 return
             }
-            parent.onOpen?(bookmark)
+            parent.onOpen?([bookmark])
         }
 
         @objc private func openFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onOpen?(bookmark)
+            parent.onOpen?(targetBookmarks(contextBookmark: bookmark))
         }
 
         @objc private func copyURLFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onCopyURL?(bookmark)
+            parent.onCopyURL?(targetBookmarks(contextBookmark: bookmark))
         }
 
         @objc private func refreshFaviconFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onRefreshFavicon?(bookmark)
+            parent.onRefreshFavicon?(targetBookmarks(contextBookmark: bookmark))
         }
 
         @objc private func editFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onEdit?(bookmark)
+            let targets = targetBookmarks(contextBookmark: bookmark)
+            guard targets.count == 1, let target = targets.first else { return }
+            parent.onEdit?(target)
         }
 
         @objc private func revertTitleFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            let bookmarkIds = parent.selection.isEmpty ? Set([bookmark.id]) : parent.selection
-            parent.onRevertTitleOptimization?(bookmarkIds)
+            parent.onRevertTitleOptimization?(targetBookmarkIDs(contextBookmark: bookmark))
         }
 
         private func selectionHasRevertableTitleOptimization(contextBookmark: Bookmark) -> Bool {
-            let targetIds = parent.selection.isEmpty ? Set([contextBookmark.id]) : parent.selection
-            return targetIds.contains { id in
+            targetBookmarkIDs(contextBookmark: contextBookmark).contains { id in
                 guard let bookmark = bookmark(for: id) else { return false }
                 guard bookmark.titleOptimized else { return false }
                 let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -570,10 +583,34 @@ struct NativeBookmarkList: NSViewRepresentable {
             items.compactMap(\.bookmark).first { $0.id == id }
         }
 
+        private func targetBookmarkIDs(contextBookmark: Bookmark) -> Set<Bookmark.ID> {
+            parent.selection.isEmpty ? [contextBookmark.id] : parent.selection
+        }
+
+        private func targetBookmarks(contextBookmark: Bookmark) -> [Bookmark] {
+            let ids = targetBookmarkIDs(contextBookmark: contextBookmark)
+            return items.compactMap(\.bookmark).filter { ids.contains($0.id) }
+        }
+
+        private func selectedBookmarks() -> [Bookmark] {
+            items.compactMap(\.bookmark).filter { parent.selection.contains($0.id) }
+        }
+
+        private func archiveActionTitle(contextBookmark: Bookmark) -> String? {
+            if let provider = parent.archiveStateActionTitleProvider {
+                return provider(targetBookmarks(contextBookmark: contextBookmark))
+            }
+            return parent.archiveStateActionTitle
+        }
+
+        private func pinActionTitle(for bookmarks: [Bookmark]) -> String {
+            let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
+            return shouldPin ? "置顶" : "取消置顶"
+        }
+
         @objc private func deleteFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            let selectedIDs = parent.selection.isEmpty ? [bookmark.id] : parent.selection
-            parent.onDelete?(selectedIDs)
+            parent.onDelete?(targetBookmarkIDs(contextBookmark: bookmark))
         }
 
         @objc private func renameCollectionFromMenu(_ sender: NSMenuItem) {
@@ -601,17 +638,17 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         @objc private func setHiddenFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onSetHidden?(bookmark)
+            parent.onSetHidden?(targetBookmarkIDs(contextBookmark: bookmark))
         }
 
         @objc private func setArchivedFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onSetArchived?(bookmark)
+            parent.onSetArchived?(targetBookmarkIDs(contextBookmark: bookmark))
         }
 
         @objc private func setPinnedFromMenu(_ sender: NSMenuItem) {
             guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onSetPinned?(bookmark)
+            parent.onSetPinned?(targetBookmarkIDs(contextBookmark: bookmark))
         }
 
         @objc private func changeSortModeFromHeader(_ sender: NSPopUpButton) {
@@ -703,8 +740,9 @@ struct NativeBookmarkList: NSViewRepresentable {
             return image.withSymbolConfiguration(configuration)
         }
 
-        private func pinStateSymbolName(for bookmark: Bookmark) -> String {
-            bookmark.isPinned ? "pin.slash" : "pin"
+        private func pinStateSymbolName(for bookmarks: [Bookmark]) -> String {
+            let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
+            return shouldPin ? "pin" : "pin.slash"
         }
 
         private func restoreBookmarkSymbolName(for title: String, defaultSymbolName: String) -> String {

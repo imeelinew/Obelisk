@@ -561,22 +561,38 @@ final class BookmarksModel {
     }
 
     func setHidden(_ isHidden: Bool, for id: UUID) -> String? {
-        guard var bookmark = bookmarks.first(where: { $0.id == id }) else {
-            return "找不到这个书签"
+        setHidden(isHidden, for: [id])
+    }
+
+    func setHidden(_ isHidden: Bool, for ids: Set<UUID>) -> String? {
+        guard !ids.isEmpty else { return nil }
+        var lastError: String?
+        for id in ids {
+            guard var bookmark = bookmarks.first(where: { $0.id == id }) else {
+                lastError = "找不到这个书签"
+                continue
+            }
+            guard bookmark.isHidden != isHidden else { continue }
+            if !isHidden, HiddenBookmarkKeywordExclusion.matches(url: bookmark.url) {
+                lastError = HiddenBookmarkKeywordExclusion.blockedBookmarkMessage
+                continue
+            }
+            bookmark.isHidden = isHidden
+            if let error = update(bookmark) {
+                lastError = error
+            }
         }
-        guard bookmark.isHidden != isHidden else {
-            return nil
-        }
-        if !isHidden, HiddenBookmarkKeywordExclusion.matches(url: bookmark.url) {
-            return HiddenBookmarkKeywordExclusion.blockedBookmarkMessage
-        }
-        bookmark.isHidden = isHidden
-        return update(bookmark)
+        return lastError
     }
 
     func setArchived(_ isArchived: Bool, for id: UUID) -> String? {
+        setArchived(isArchived, for: [id])
+    }
+
+    func setArchived(_ isArchived: Bool, for ids: Set<UUID>) -> String? {
+        guard !ids.isEmpty else { return nil }
         do {
-            try store.setArchived(isArchived, ids: [id])
+            try store.setArchived(isArchived, ids: ids)
             reload()
             return nil
         } catch {

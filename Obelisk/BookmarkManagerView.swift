@@ -763,63 +763,96 @@ struct BookmarkManagerView: View {
     }
 
     private func copyURL(_ bookmark: Bookmark) {
+        copyURLs(of: [bookmark])
+    }
+
+    private func copyURLs(of bookmarks: [Bookmark]) {
+        guard !bookmarks.isEmpty else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(bookmark.url, forType: .string)
-        showToast("已复制 URL")
+        NSPasteboard.general.setString(bookmarks.map(\.url).joined(separator: "\n"), forType: .string)
+        showToast(bookmarks.count > 1 ? "已复制 \(bookmarks.count) 个 URL" : "已复制 URL")
     }
 
     private func setHidden(_ isHidden: Bool, for bookmark: Bookmark) {
-        if let errorMessage = model.setHidden(isHidden, for: bookmark.id) {
+        setHidden(isHidden, for: [bookmark.id])
+    }
+
+    private func setHidden(_ isHidden: Bool, for ids: Set<Bookmark.ID>) {
+        guard !ids.isEmpty else { return }
+        if let errorMessage = model.setHidden(isHidden, for: ids) {
             model.errorMessage = errorMessage
         } else {
-            selection.remove(bookmark.id)
+            selection.subtract(ids)
         }
     }
 
     private func setArchived(_ isArchived: Bool, for bookmark: Bookmark) {
-        if let errorMessage = model.setArchived(isArchived, for: bookmark.id) {
+        setArchived(isArchived, for: [bookmark.id])
+    }
+
+    private func setArchived(_ isArchived: Bool, for ids: Set<Bookmark.ID>) {
+        guard !ids.isEmpty else { return }
+        if let errorMessage = model.setArchived(isArchived, for: ids) {
             model.errorMessage = errorMessage
         } else {
-            selection.remove(bookmark.id)
+            selection.subtract(ids)
         }
     }
 
     private func setPinned(_ isPinned: Bool, for bookmark: Bookmark) {
-        if let errorMessage = model.setPinned(isPinned, for: bookmark.id) {
+        setPinned(isPinned, for: [bookmark.id])
+    }
+
+    private func setPinned(_ isPinned: Bool, for ids: Set<Bookmark.ID>) {
+        guard !ids.isEmpty else { return }
+        if let errorMessage = model.setPinned(isPinned, for: ids) {
             model.errorMessage = errorMessage
         } else if isPinned {
-            showToast("已置顶")
+            showToast(ids.count > 1 ? "已置顶 \(ids.count) 个书签" : "已置顶")
         } else {
-            showToast("已取消置顶")
+            showToast(ids.count > 1 ? "已取消置顶 \(ids.count) 个书签" : "已取消置顶")
         }
+    }
+
+    private func setPinned(for ids: Set<Bookmark.ID>) {
+        let bookmarks = model.bookmarks.filter { ids.contains($0.id) }
+        guard !bookmarks.isEmpty else { return }
+        setPinned(!bookmarks.allSatisfy(\.isPinned), for: ids)
     }
 
     private func togglePinnedSelection() {
         guard canTogglePinnedSelection else { return }
-        let isPinned = selectedPinnedTargetState
-        if let errorMessage = model.setPinned(isPinned, for: selection) {
-            model.errorMessage = errorMessage
-        } else if isPinned {
-            showToast(selection.count > 1 ? "已置顶 \(selection.count) 个书签" : "已置顶")
-        } else {
-            showToast(selection.count > 1 ? "已取消置顶 \(selection.count) 个书签" : "已取消置顶")
-        }
+        setPinned(for: selection)
     }
 
     private func openArchivedBookmark(_ bookmark: Bookmark) {
-        if faviconLoader.image(for: bookmark.url) == nil {
-            refreshFavicon(for: bookmark)
+        openArchivedBookmarks([bookmark])
+    }
+
+    private func openArchivedBookmarks(_ bookmarks: [Bookmark]) {
+        guard !bookmarks.isEmpty else { return }
+        for bookmark in bookmarks {
+            if faviconLoader.image(for: bookmark.url) == nil {
+                faviconLoader.refresh(urlString: bookmark.url)
+            }
+            model.openArchivedBookmark(bookmark)
         }
-        model.openArchivedBookmark(bookmark)
-        selection.remove(bookmark.id)
+        selection.subtract(Set(bookmarks.map(\.id)))
     }
 
     private func openBookmark(_ bookmark: Bookmark) {
-        if faviconLoader.image(for: bookmark.url) == nil {
-            refreshFavicon(for: bookmark)
+        openBookmarks([bookmark])
+    }
+
+    private func openBookmarks(_ bookmarks: [Bookmark]) {
+        guard !bookmarks.isEmpty else { return }
+        for bookmark in bookmarks {
+            if faviconLoader.image(for: bookmark.url) == nil {
+                faviconLoader.refresh(urlString: bookmark.url)
+            }
+            model.openBookmark(bookmark)
         }
-        model.openBookmark(bookmark)
-        selection.remove(bookmark.id)
+        selection.subtract(Set(bookmarks.map(\.id)))
     }
 
     private func syncArchiveSettings() {
@@ -828,37 +861,56 @@ struct BookmarkManagerView: View {
     }
 
     private func refreshFavicon(for bookmark: Bookmark) {
-        faviconLoader.refresh(urlString: bookmark.url)
-        showToast("刷新 favicon 成功")
+        refreshFavicons(for: [bookmark])
+    }
+
+    private func refreshFavicons(for bookmarks: [Bookmark]) {
+        guard !bookmarks.isEmpty else { return }
+        for bookmark in bookmarks {
+            faviconLoader.refresh(urlString: bookmark.url)
+        }
+        showToast(bookmarks.count > 1 ? "已刷新 \(bookmarks.count) 个 favicon" : "刷新 favicon 成功")
     }
 
     private func openHiddenBookmark(_ bookmark: Bookmark) {
-        if faviconLoader.image(for: bookmark.url) == nil {
-            refreshFavicon(for: bookmark)
-        }
-        guard openHiddenBookmarksIncognito else {
-            guard let url = URL(string: bookmark.url) else { return }
-            if NSWorkspace.shared.open(url) {
-                model.recordUsage(for: bookmark)
-            }
-            return
-        }
+        openHiddenBookmarks([bookmark])
+    }
 
-        switch PrivateBrowserOpener.openIncognito(urlString: bookmark.url) {
-        case .opened:
-            model.recordUsage(for: bookmark)
-        case .unsupportedBrowser:
-            showToast("当前默认浏览器不支持无痕打开", kind: .error)
-        case .invalidURL:
-            showToast("网址格式不正确", kind: .error)
-        case .openFailed:
-            showToast("无法打开无痕窗口", kind: .error)
-        case .automationPermissionRequired(.accessibility):
-            showToast("请在“隐私与安全性 > 辅助功能”允许 Obelisk", kind: .error)
-            PermissionSettingsGuide.open(.accessibility)
-        case .automationPermissionRequired(.appleEvents):
-            showToast("请在“隐私与安全性 > 自动化”允许 Obelisk 控制 Dia", kind: .error)
-            PermissionSettingsGuide.open(.automation)
+    private func openHiddenBookmarks(_ bookmarks: [Bookmark]) {
+        guard !bookmarks.isEmpty else { return }
+        for bookmark in bookmarks {
+            if faviconLoader.image(for: bookmark.url) == nil {
+                faviconLoader.refresh(urlString: bookmark.url)
+            }
+            guard openHiddenBookmarksIncognito else {
+                guard let url = URL(string: bookmark.url) else { continue }
+                if NSWorkspace.shared.open(url) {
+                    model.recordUsage(for: bookmark)
+                }
+                continue
+            }
+
+            switch PrivateBrowserOpener.openIncognito(urlString: bookmark.url) {
+            case .opened:
+                model.recordUsage(for: bookmark)
+            case .unsupportedBrowser:
+                showToast("当前默认浏览器不支持无痕打开", kind: .error)
+                return
+            case .invalidURL:
+                showToast("网址格式不正确", kind: .error)
+                return
+            case .openFailed:
+                showToast("无法打开无痕窗口", kind: .error)
+                return
+            case .automationPermissionRequired(.accessibility):
+                showToast("请在“隐私与安全性 > 辅助功能”允许 Obelisk", kind: .error)
+                PermissionSettingsGuide.open(.accessibility)
+                return
+            case .automationPermissionRequired(.appleEvents):
+                showToast("请在“隐私与安全性 > 自动化”允许 Obelisk 控制 Dia", kind: .error)
+                PermissionSettingsGuide.open(.automation)
+                return
+            }
         }
     }
 
@@ -1581,17 +1633,16 @@ struct BookmarkManagerView: View {
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmark in openBookmark(bookmark) },
-                    onCopyURL: { bookmark in copyURL(bookmark) },
-                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onOpen: { bookmarks in openBookmarks(bookmarks) },
+                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
+                    onSetHidden: { ids in setHidden(true, for: ids) },
                     archiveStateActionTitle: "归档".obeliskLocalized,
-                    onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
-                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                    onSetArchived: { ids in setArchived(true, for: ids) },
+                    onSetPinned: { ids in setPinned(for: ids) },
                     onSortModeChange: { sortMode, scope in
                         updateBookmarkListSortMode(sortMode, scope: scope)
                     },
@@ -1686,19 +1737,23 @@ struct BookmarkManagerView: View {
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmark in openBookmark(bookmark) },
-                    onCopyURL: { bookmark in copyURL(bookmark) },
-                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onOpen: { bookmarks in openBookmarks(bookmarks) },
+                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
-                    archiveStateActionTitleProvider: { bookmark in
-                        model.isEffectivelyArchived(bookmark) ? "恢复到书签".obeliskLocalized : "归档".obeliskLocalized
+                    onSetHidden: { ids in setHidden(true, for: ids) },
+                    archiveStateActionTitleProvider: { bookmarks in
+                        let shouldArchive = bookmarks.isEmpty || !bookmarks.allSatisfy { model.isEffectivelyArchived($0) }
+                        return shouldArchive ? "归档".obeliskLocalized : "恢复到书签".obeliskLocalized
                     },
-                    onSetArchived: { bookmark in setArchived(!model.isEffectivelyArchived(bookmark), for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
-                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                    onSetArchived: { ids in
+                        let bookmarks = model.bookmarks.filter { ids.contains($0.id) }
+                        let shouldArchive = bookmarks.isEmpty || !bookmarks.allSatisfy { model.isEffectivelyArchived($0) }
+                        setArchived(shouldArchive, for: ids)
+                    },
+                    onSetPinned: { ids in setPinned(for: ids) },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
                         assignCollection(bookmarkIds: bookmarkIds, collectionId: collectionId)
@@ -1771,17 +1826,16 @@ struct BookmarkManagerView: View {
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmark in openBookmark(bookmark) },
-                    onCopyURL: { bookmark in copyURL(bookmark) },
-                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onOpen: { bookmarks in openBookmarks(bookmarks) },
+                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { bookmark in setHidden(true, for: bookmark) },
+                    onSetHidden: { ids in setHidden(true, for: ids) },
                     archiveStateActionTitle: "归档".obeliskLocalized,
-                    onSetArchived: { bookmark in setArchived(true, for: bookmark) },
-                    pinStateActionTitle: { $0.isPinned ? "取消置顶".obeliskLocalized : "置顶".obeliskLocalized },
-                    onSetPinned: { bookmark in setPinned(!bookmark.isPinned, for: bookmark) },
+                    onSetArchived: { ids in setArchived(true, for: ids) },
+                    onSetPinned: { ids in setPinned(for: ids) },
                     onSortModeChange: { sortMode, _ in collectionListSortMode = sortMode },
                     collectionAssignOptions: collectionAssignOptions,
                     onAssignCollection: { bookmarkIds, collectionId in
@@ -1860,13 +1914,13 @@ struct BookmarkManagerView: View {
                         faviconLoader: faviconLoader,
                         faviconVersion: faviconLoader.version,
                         showsURLHostOnly: showsURLHostOnly,
-                        onOpen: { bookmark in openHiddenBookmark(bookmark) },
-                        onCopyURL: { bookmark in copyURL(bookmark) },
-                        onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                        onOpen: { bookmarks in openHiddenBookmarks(bookmarks) },
+                        onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                        onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                         onEdit: { bookmark in presentation = .edit(bookmark) },
                         onDelete: { ids in requestDelete(ids: ids) },
                         hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
-                        onSetHidden: { bookmark in setHidden(false, for: bookmark) },
+                        onSetHidden: { ids in setHidden(false, for: ids) },
                         onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
                     )
                 }
@@ -1951,13 +2005,13 @@ struct BookmarkManagerView: View {
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmark in openArchivedBookmark(bookmark) },
-                    onCopyURL: { bookmark in copyURL(bookmark) },
-                    onRefreshFavicon: { bookmark in refreshFavicon(for: bookmark) },
+                    onOpen: { bookmarks in openArchivedBookmarks(bookmarks) },
+                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     archiveStateActionTitle: "恢复到书签".obeliskLocalized,
-                    onSetArchived: { bookmark in setArchived(false, for: bookmark) }
+                    onSetArchived: { ids in setArchived(false, for: ids) }
                 )
             }
         }

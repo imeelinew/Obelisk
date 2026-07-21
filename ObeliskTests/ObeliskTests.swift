@@ -119,6 +119,57 @@ struct ObeliskTests {
         )
     }
 
+    @Test func menuOrderMovePreservesSourceOrderAndSupportsEveryDestination() {
+        let collectionID = UUID()
+        let original: [BookmarkMenuSectionID] = [
+            .pinned,
+            .recent,
+            .browserHistory,
+            .collection(collectionID),
+            .ungrouped
+        ]
+
+        #expect(
+            BookmarkMenuSectionOrder.moving(
+                [.browserHistory],
+                before: .pinned,
+                in: original
+            ) == [
+                .browserHistory,
+                .pinned,
+                .recent,
+                .collection(collectionID),
+                .ungrouped
+            ]
+        )
+        #expect(
+            BookmarkMenuSectionOrder.moving(
+                [.recent, .pinned],
+                before: .ungrouped,
+                in: original
+            ) == [
+                .browserHistory,
+                .collection(collectionID),
+                .pinned,
+                .recent,
+                .ungrouped
+            ]
+        )
+        #expect(
+            BookmarkMenuSectionOrder.moving(
+                [.pinned],
+                before: nil,
+                in: original
+            ) == [
+                .recent,
+                .browserHistory,
+                .collection(collectionID),
+                .ungrouped,
+                .pinned
+            ]
+        )
+    }
+
     @MainActor
     @Test func appDelegateLeavesDockReopenToAppKit() {
         #expect(!AppDelegate.instancesRespond(to: #selector(

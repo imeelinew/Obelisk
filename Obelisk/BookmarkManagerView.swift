@@ -121,7 +121,6 @@ struct BookmarkManagerView: View {
     @State private var menuBarDragStartIndex: Int?
     @State private var menuBarDragTargetIndex: Int?
     @State private var menuBarDragOffsetY: CGFloat = 0
-    @State private var lastMenuBarOrderHapticDate = Date.distantPast
     @State private var launchAtLoginEnabled = LoginItemController.isEnabled
     private let menuBarOrderRowHeight: CGFloat = 50
     private var menuBarOrderBackgroundColor: Color {
@@ -484,8 +483,31 @@ struct BookmarkManagerView: View {
     }
 
     private func saveMenuBarSectionOrder(_ ids: [BookmarkMenuSectionID]) {
-        menuBarSectionOrderRaw = BookmarkMenuSectionOrder.encoded(ids)
+        let encodedOrder = BookmarkMenuSectionOrder.encoded(ids)
+        guard encodedOrder != menuBarSectionOrderRaw else { return }
+        menuBarSectionOrderRaw = encodedOrder
         model.notifyMenuPresentationChanged()
+    }
+
+    @available(macOS 27.0, *)
+    private func moveMenuBarSections(
+        using difference: ReorderDifference<BookmarkMenuSectionID, ReorderableSingleCollectionIdentifier>
+    ) {
+        let destinationID: BookmarkMenuSectionID?
+        switch difference.destination.position {
+        case .before(let id):
+            destinationID = id
+        case .end:
+            destinationID = nil
+        }
+
+        let currentOrder = menuBarOrderItems.map(\.id)
+        let updatedOrder = BookmarkMenuSectionOrder.moving(
+            difference.sources,
+            before: destinationID,
+            in: currentOrder
+        )
+        saveMenuBarSectionOrder(updatedOrder)
     }
 
     private func moveMenuBarSection(draggedID: BookmarkMenuSectionID, toIndex targetIndex: Int) {
@@ -503,7 +525,6 @@ struct BookmarkManagerView: View {
         let movedID = ids.remove(at: sourceIndex)
         ids.insert(movedID, at: destinationIndex)
         saveMenuBarSectionOrder(ids)
-        performMenuBarOrderHapticIfNeeded()
     }
 
     private func menuBarOrderTargetIndex(
@@ -567,13 +588,6 @@ struct BookmarkManagerView: View {
             return menuBarOrderRowHeight
         }
         return 0
-    }
-
-    private func performMenuBarOrderHapticIfNeeded() {
-        let now = Date()
-        guard now.timeIntervalSince(lastMenuBarOrderHapticDate) >= 0.22 else { return }
-        lastMenuBarOrderHapticDate = now
-        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
     }
 
     private var hiddenBookmarkSections: [BookmarkListSection] {
@@ -2056,12 +2070,50 @@ struct BookmarkManagerView: View {
         }
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
-        .animation(.easeInOut(duration: 0.12), value: menuBarOrderItems.map(\.id))
         .onDisappear(perform: resetMenuBarOrderDrag)
         .navigationTitle("菜单栏")
     }
 
+    @ViewBuilder
     private var menuBarOrderCard: some View {
+        if #available(macOS 27.0, *) {
+            nativeMenuBarOrderCard
+        } else {
+            legacyMenuBarOrderCard
+        }
+    }
+
+    @available(macOS 27.0, *)
+    private var nativeMenuBarOrderCard: some View {
+        let items = menuBarOrderItems
+
+        return VStack(spacing: 0) {
+            ForEach(items) { item in
+                menuBarOrderRow(for: item, isPlaceholder: false, isDropTarget: false)
+                    .overlay(alignment: .bottom) {
+                        if item.id != items.last?.id {
+                            Divider()
+                                .padding(.leading, 14)
+                        }
+                    }
+            }
+            .reorderable()
+        }
+        .reorderContainer(for: BookmarkMenuOrderItem.self, itemID: \.id) { difference in
+            moveMenuBarSections(using: difference)
+        }
+        .frame(height: CGFloat(items.count) * menuBarOrderRowHeight)
+        .background {
+            menuBarOrderBackground(cornerRadius: 10)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var legacyMenuBarOrderCard: some View {
         let items = menuBarOrderItems
 
         return ZStack(alignment: .topLeading) {
@@ -2106,6 +2158,7 @@ struct BookmarkManagerView: View {
                 .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .animation(.easeInOut(duration: 0.12), value: items.map(\.id))
     }
 
     @ViewBuilder
@@ -2173,7 +2226,6 @@ struct BookmarkManagerView: View {
 
                 if menuBarDragTargetIndex != targetIndex {
                     menuBarDragTargetIndex = targetIndex
-                    performMenuBarOrderHapticIfNeeded()
                 }
             }
             .onEnded { value in

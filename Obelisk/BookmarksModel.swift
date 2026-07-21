@@ -4,7 +4,7 @@ import ObeliskCore
 import ObeliskData
 import Observation
 
-enum BookmarkMenuSectionID: Hashable, Identifiable {
+enum BookmarkMenuSectionID: Hashable, Identifiable, Sendable {
     case pinned
     case recent
     case browserHistory
@@ -112,6 +112,35 @@ enum BookmarkMenuSectionOrder {
                 return BookmarkMenuOrderItem(id: id, title: "未分组".obeliskLocalized, systemImage: "bookmark.fill")
             }
         }
+    }
+
+    static func moving(
+        _ sourceIDs: [BookmarkMenuSectionID],
+        before destinationID: BookmarkMenuSectionID?,
+        in order: [BookmarkMenuSectionID]
+    ) -> [BookmarkMenuSectionID] {
+        let sourceSet = Set(sourceIDs)
+        guard !sourceSet.isEmpty else { return order }
+        if let destinationID, sourceSet.contains(destinationID) {
+            return order
+        }
+
+        let movedIDs = order.filter(sourceSet.contains)
+        guard !movedIDs.isEmpty else { return order }
+
+        var result = order.filter { !sourceSet.contains($0) }
+        let insertionIndex: Int
+        if let destinationID {
+            guard let destinationIndex = result.firstIndex(of: destinationID) else {
+                return order
+            }
+            insertionIndex = destinationIndex
+        } else {
+            insertionIndex = result.endIndex
+        }
+
+        result.insert(contentsOf: movedIDs, at: insertionIndex)
+        return result
     }
 
     private static func defaultOrder(collections: [BookmarkCollection]) -> [BookmarkMenuSectionID] {

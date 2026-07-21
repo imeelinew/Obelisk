@@ -1,6 +1,9 @@
 import AppKit
 
 enum AppIcon {
+    static let menuItemFaviconSize = NSSize(width: 16, height: 16)
+    static let menuItemFaviconCanvasSize = NSSize(width: 20, height: 20)
+
     static func menuBarImage() -> NSImage {
         let rawStyle = UserDefaults.standard.string(forKey: MenuBarIconStyle.storageKey)
         let style = rawStyle.flatMap(MenuBarIconStyle.init(rawValue:)) ?? .outline
@@ -94,7 +97,19 @@ enum AppIcon {
     }
 
     static func setMenuItemFavicon(_ image: NSImage, on menuItem: NSMenuItem) {
-        menuItem.image = image
+        let canvas = NSImage(size: menuItemFaviconCanvasSize)
+        canvas.lockFocus()
+        if let context = NSGraphicsContext.current {
+            context.imageInterpolation = .high
+        }
+        let origin = NSPoint(
+            x: (menuItemFaviconCanvasSize.width - menuItemFaviconSize.width) / 2,
+            y: (menuItemFaviconCanvasSize.height - menuItemFaviconSize.height) / 2
+        )
+        image.draw(in: NSRect(origin: origin, size: menuItemFaviconSize))
+        canvas.unlockFocus()
+        canvas.isTemplate = false
+        menuItem.image = canvas
         if #available(macOS 27.0, *) {
             menuItem.preferredImageVisibility = .visible
         }

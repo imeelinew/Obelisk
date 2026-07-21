@@ -183,13 +183,15 @@ struct FeatureRegressionTests {
     }
 
     @MainActor
-    @Test func menuItemFaviconsRemainVisibleOnMacOS27() {
+    @Test func menuItemFaviconsRemainVisibleAndUseBalancedRowHeight() {
         let menuItem = NSMenuItem(title: "Bookmark", action: nil, keyEquivalent: "")
-        let favicon = AppIcon.faviconPlaceholder(size: NSSize(width: 16, height: 16))
+        let oversizedFavicon = AppIcon.faviconPlaceholder(size: NSSize(width: 32, height: 32))
 
-        AppIcon.setMenuItemFavicon(favicon, on: menuItem)
+        AppIcon.setMenuItemFavicon(oversizedFavicon, on: menuItem)
 
-        #expect(menuItem.image === favicon)
+        #expect(AppIcon.menuItemFaviconSize == NSSize(width: 16, height: 16))
+        #expect(menuItem.image?.size == AppIcon.menuItemFaviconCanvasSize)
+        #expect(oversizedFavicon.size == NSSize(width: 32, height: 32))
         if #available(macOS 27.0, *) {
             #expect(menuItem.preferredImageVisibility == .visible)
         }

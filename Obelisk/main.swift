@@ -584,7 +584,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .inline:
                     appendSection(title: section.title, bookmarks: section.bookmarks, to: menu)
                 case .reference:
-                    appendSection(title: section.title, bookmarks: section.bookmarks, to: menu, isReference: true)
+                    appendSection(title: section.title, bookmarks: section.bookmarks, to: menu)
                 case .submenu:
                     appendBookmarkSubmenu(title: section.title, bookmarks: section.bookmarks, to: menu)
                 }
@@ -728,7 +728,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func appendSection(title: String, bookmarks: [Bookmark], to menu: NSMenu, isReference: Bool = false) {
+    private func appendSection(title: String, bookmarks: [Bookmark], to menu: NSMenu) {
         if menu.items.last != nil {
             menu.addItem(NSMenuItem.separator())
         }
@@ -736,7 +736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         header.isEnabled = false
         menu.addItem(header)
         for bookmark in bookmarks {
-            menu.addItem(menuItem(for: bookmark, isReference: isReference))
+            menu.addItem(menuItem(for: bookmark))
         }
     }
 
@@ -822,14 +822,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         item.target = self
         item.representedObject = record.url
-        let faviconSize = NSSize(width: 16, height: 16)
         let favicon = faviconLoader.image(for: record.url)
-            ?? AppIcon.faviconPlaceholder(size: faviconSize)
+            ?? AppIcon.faviconPlaceholder(size: AppIcon.menuItemFaviconSize)
         AppIcon.setMenuItemFavicon(favicon, on: item)
         return item
     }
 
-    private func menuItem(for bookmark: Bookmark, isReference: Bool = false) -> NSMenuItem {
+    private func menuItem(for bookmark: Bookmark) -> NSMenuItem {
         let title = truncatedTitle(bookmark.title)
         let item = NSMenuItem(
             title: title,
@@ -837,21 +836,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             keyEquivalent: ""
         )
         item.representedObject = bookmark
-        let faviconEdge: CGFloat = 16
-        let faviconSize = NSSize(width: faviconEdge, height: faviconEdge)
         let baseFavicon = faviconLoader.image(for: bookmark.url)
-            ?? AppIcon.faviconPlaceholder(size: faviconSize)
-        if isReference {
-            AppIcon.setMenuItemFavicon(
-                FaviconReferenceBadge.composited(
-                    favicon: baseFavicon,
-                    faviconEdge: faviconEdge
-                ),
-                on: item
-            )
-        } else {
-            AppIcon.setMenuItemFavicon(baseFavicon, on: item)
-        }
+            ?? AppIcon.faviconPlaceholder(size: AppIcon.menuItemFaviconSize)
+        AppIcon.setMenuItemFavicon(baseFavicon, on: item)
         return item
     }
 

@@ -182,6 +182,19 @@ struct FeatureRegressionTests {
         #expect(kinds.allSatisfy { $0.dismissalDelay == 5 })
     }
 
+    @MainActor
+    @Test func menuItemFaviconsRemainVisibleOnMacOS27() {
+        let menuItem = NSMenuItem(title: "Bookmark", action: nil, keyEquivalent: "")
+        let favicon = AppIcon.faviconPlaceholder(size: NSSize(width: 16, height: 16))
+
+        AppIcon.setMenuItemFavicon(favicon, on: menuItem)
+
+        #expect(menuItem.image === favicon)
+        if #available(macOS 27.0, *) {
+            #expect(menuItem.preferredImageVisibility == .visible)
+        }
+    }
+
     @Test func bookmarkFeedbackHUDUsesTheCurrentScreensUpperCenter() {
         let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
         let frame = BookmarkFeedbackPanelLayout.anchorFrame(in: visibleFrame)

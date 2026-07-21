@@ -93,6 +93,13 @@ enum AppIcon {
         return image
     }
 
+    static func setMenuItemFavicon(_ image: NSImage, on menuItem: NSMenuItem) {
+        menuItem.image = image
+        if #available(macOS 27.0, *) {
+            menuItem.preferredImageVisibility = .visible
+        }
+    }
+
     private static func resourceImage(name: String, extension pathExtension: String) -> NSImage? {
         (Bundle.main.resourceURL?.appendingPathComponent("\(name).\(pathExtension)"))
             .flatMap(NSImage.init(contentsOf:))

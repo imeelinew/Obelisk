@@ -823,8 +823,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.target = self
         item.representedObject = record.url
         let faviconSize = NSSize(width: 16, height: 16)
-        item.image = faviconLoader.image(for: record.url)
+        let favicon = faviconLoader.image(for: record.url)
             ?? AppIcon.faviconPlaceholder(size: faviconSize)
+        AppIcon.setMenuItemFavicon(favicon, on: item)
         return item
     }
 
@@ -841,12 +842,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let baseFavicon = faviconLoader.image(for: bookmark.url)
             ?? AppIcon.faviconPlaceholder(size: faviconSize)
         if isReference {
-            item.image = FaviconReferenceBadge.composited(
-                favicon: baseFavicon,
-                faviconEdge: faviconEdge
+            AppIcon.setMenuItemFavicon(
+                FaviconReferenceBadge.composited(
+                    favicon: baseFavicon,
+                    faviconEdge: faviconEdge
+                ),
+                on: item
             )
         } else {
-            item.image = baseFavicon
+            AppIcon.setMenuItemFavicon(baseFavicon, on: item)
         }
         return item
     }

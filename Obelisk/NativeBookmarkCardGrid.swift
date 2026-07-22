@@ -2,6 +2,26 @@ import AppKit
 import ObeliskCore
 import SwiftUI
 
+struct BookmarkCardMaterialBackground: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(.thinMaterial)
+    }
+}
+
+@MainActor
+enum BookmarkCardMaterialRenderer {
+    static func makeView() -> NSView {
+        BookmarkCardMaterialHostingView(rootView: BookmarkCardMaterialBackground())
+    }
+}
+
+private final class BookmarkCardMaterialHostingView: NSHostingView<BookmarkCardMaterialBackground> {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 @MainActor
 struct NativeBookmarkCardGrid: NSViewRepresentable {
     let sections: [BookmarkGridSection]
@@ -732,7 +752,7 @@ final class BookmarkCardCollectionItem: NSCollectionViewItem {
 }
 
 private final class BookmarkCardContentView: NSView {
-    private let materialView = NSVisualEffectView()
+    private let materialView = BookmarkCardMaterialRenderer.makeView()
     private let tintView = NSView()
     private let faviconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
@@ -749,9 +769,6 @@ private final class BookmarkCardContentView: NSView {
         layer?.masksToBounds = true
 
         materialView.translatesAutoresizingMaskIntoConstraints = false
-        materialView.material = .contentBackground
-        materialView.blendingMode = .withinWindow
-        materialView.state = .active
 
         tintView.translatesAutoresizingMaskIntoConstraints = false
         tintView.wantsLayer = true
@@ -875,7 +892,7 @@ private final class BookmarkCardContentView: NSView {
         guard let layer else { return }
         let accent = NSColor.controlAccentColor
         tintView.layer?.backgroundColor = (
-            selected ? accent.withAlphaComponent(0.14) : NSColor.labelColor.withAlphaComponent(0.018)
+            selected ? accent.withAlphaComponent(0.14) : NSColor.clear
         ).cgColor
         layer.borderColor = (
             selected ? accent.withAlphaComponent(0.75) : NSColor.separatorColor.withAlphaComponent(0.16)

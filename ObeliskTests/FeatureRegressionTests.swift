@@ -193,6 +193,13 @@ struct FeatureRegressionTests {
         #expect(BookmarkCardFlowLayout.itemWidth(for: 180) == 144)
     }
 
+    @MainActor
+    @Test func nativeCardsRenderTheirMaterialWithTheOriginalSwiftUIBackground() {
+        let materialView = BookmarkCardMaterialRenderer.makeView()
+        #expect(materialView is NSHostingView<BookmarkCardMaterialBackground>)
+        #expect(!(materialView is NSVisualEffectView))
+    }
+
     @Test func bookmarkViewsShareOneKeyboardCommandResolver() {
         #expect(BookmarkKeyboardCommandResolver.resolve(
             characters: "c",

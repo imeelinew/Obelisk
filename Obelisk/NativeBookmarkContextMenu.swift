@@ -4,6 +4,7 @@ import AppKit
 struct NativeBookmarkContextMenuConfiguration {
     var onOpen: (() -> Void)? = nil
     var onCopyURL: (() -> Void)? = nil
+    var onRefreshFavicon: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
     var onRevertTitleOptimization: (() -> Void)? = nil
     var pinStateActionTitle: String? = nil
@@ -83,6 +84,13 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
             systemSymbolName: "doc.on.doc",
             action: #selector(copyURL(_:)),
             when: configuration.onCopyURL != nil,
+            to: menu
+        )
+        appendItem(
+            title: "刷新 favicon".obeliskLocalized,
+            systemSymbolName: "arrow.clockwise",
+            action: #selector(refreshFavicon(_:)),
+            when: configuration.onRefreshFavicon != nil,
             to: menu
         )
         appendItem(
@@ -177,6 +185,10 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
         }
     }
 
+    func menuDidClose(_ menu: NSMenu) {
+        configuration = nil
+    }
+
     private func appendItem(
         title: String,
         systemSymbolName: String,
@@ -222,6 +234,10 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
 
     @objc private func copyURL(_ sender: NSMenuItem) {
         configuration?.onCopyURL?()
+    }
+
+    @objc private func refreshFavicon(_ sender: NSMenuItem) {
+        configuration?.onRefreshFavicon?()
     }
 
     @objc private func edit(_ sender: NSMenuItem) {
@@ -309,6 +325,10 @@ final class NativeCollectionContextMenuController: NSObject, NSMenuDelegate {
                 highlighted: menuItem === item
             )
         }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        configuration = nil
     }
 
     @objc private func rename(_ sender: NSMenuItem) {

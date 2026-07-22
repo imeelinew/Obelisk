@@ -984,6 +984,18 @@ struct BookmarkManagerView: View {
         model.reload()
     }
 
+    private func refreshFavicon(for bookmark: Bookmark) {
+        refreshFavicons(for: [bookmark])
+    }
+
+    private func refreshFavicons(for bookmarks: [Bookmark]) {
+        guard !bookmarks.isEmpty else { return }
+        for bookmark in bookmarks {
+            faviconLoader.refresh(urlString: bookmark.url)
+        }
+        showToast(bookmarks.count > 1 ? "已刷新 \(bookmarks.count) 个 favicon" : "刷新 favicon 成功")
+    }
+
     private func openHiddenBookmark(_ bookmark: Bookmark) {
         openHiddenBookmarks([bookmark])
     }
@@ -1737,14 +1749,14 @@ struct BookmarkManagerView: View {
                     Text("隐藏书签和归档书签不会显示在这里")
                 }
             } else if bookmarkDisplayMode == .dateGrid {
-                NativeBookmarkCardGrid(
+                BookmarkSectionGridView(
                     sections: dateGridBookmarkSections,
                     selection: $selection,
                     faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: { bookmarks in openBookmarks(bookmarks) },
                     onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
@@ -1773,6 +1785,7 @@ struct BookmarkManagerView: View {
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: { bookmarks in openBookmarks(bookmarks) },
                     onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
@@ -1876,6 +1889,7 @@ struct BookmarkManagerView: View {
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: { bookmarks in openBookmarks(bookmarks) },
                     onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
@@ -1918,15 +1932,15 @@ struct BookmarkManagerView: View {
                     Text("点击工具栏 + 创建分组")
                 }
             } else if collectionBookmarkDisplayMode == .dateGrid {
-                NativeBookmarkCardGrid(
+                BookmarkSectionGridView(
                     sections: collectionGridSections,
                     selection: $selection,
                     selectedCollectionId: $selectedCollectionId,
                     faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: { bookmarks in openBookmarks(bookmarks) },
                     onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
@@ -1965,6 +1979,7 @@ struct BookmarkManagerView: View {
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: { bookmarks in openBookmarks(bookmarks) },
                     onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
@@ -2010,14 +2025,14 @@ struct BookmarkManagerView: View {
                         .padding(.top, 12)
                         .padding(.bottom, 8)
 
-                    NativeBookmarkCardGrid(
+                    BookmarkSectionGridView(
                         sections: hiddenBookmarkDateGridSections,
                         selection: $selection,
                         faviconLoader: faviconLoader,
-                        faviconVersion: faviconLoader.version,
                         showsURLHostOnly: showsURLHostOnly,
                         onOpen: { bookmarks in openHiddenBookmarks(bookmarks) },
                         onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                        onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                         onEdit: { bookmark in presentation = .edit(bookmark) },
                         onDelete: { ids in requestDelete(ids: ids) },
                         hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
@@ -2053,6 +2068,7 @@ struct BookmarkManagerView: View {
                         showsURLHostOnly: showsURLHostOnly,
                         onOpen: { bookmarks in openHiddenBookmarks(bookmarks) },
                         onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                        onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                         onEdit: { bookmark in presentation = .edit(bookmark) },
                         onDelete: { ids in requestDelete(ids: ids) },
                         hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
@@ -2143,6 +2159,7 @@ struct BookmarkManagerView: View {
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: { bookmarks in openArchivedBookmarks(bookmarks) },
                     onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
+                    onRefreshFavicon: { bookmarks in refreshFavicons(for: bookmarks) },
                     onEdit: { bookmark in presentation = .edit(bookmark) },
                     onDelete: { ids in requestDelete(ids: ids) },
                     archiveStateActionTitle: "恢复到书签".obeliskLocalized,

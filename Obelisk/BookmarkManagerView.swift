@@ -14,7 +14,7 @@ private enum BookmarkDisplayMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .list: return "列表".obeliskLocalized
-        case .dateGrid: return "表格".obeliskLocalized
+        case .dateGrid: return "卡片".obeliskLocalized
         }
     }
 

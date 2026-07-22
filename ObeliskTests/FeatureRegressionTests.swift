@@ -211,6 +211,116 @@ struct FeatureRegressionTests {
         }
     }
 
+    @MainActor
+    @Test func bookmarkCardsAndListsShareTheNativeContextMenuStructure() throws {
+        let collectionID = UUID()
+        var opened = false
+        var assignedCollectionID: UUID?
+        var deleted = false
+        var configuration = NativeBookmarkContextMenuConfiguration()
+        configuration.onOpen = { opened = true }
+        configuration.onCopyURL = {}
+        configuration.onRefreshFavicon = {}
+        configuration.onEdit = {}
+        configuration.onRevertTitleOptimization = {}
+        configuration.pinStateActionTitle = "置顶".obeliskLocalized
+        configuration.pinStateSystemSymbolName = "pin"
+        configuration.onSetPinned = {}
+        configuration.collectionAssignOptions = [
+            BookmarkCollectionAssignOption(title: "工作", collectionId: collectionID)
+        ]
+        configuration.onAssignCollection = { assignedCollectionID = $0 }
+        configuration.hiddenStateActionTitle = "移到隐藏书签".obeliskLocalized
+        configuration.hiddenStateSystemSymbolName = "eye.slash"
+        configuration.onSetHidden = {}
+        configuration.archiveStateActionTitle = "归档".obeliskLocalized
+        configuration.archiveStateSystemSymbolName = "archivebox"
+        configuration.onSetArchived = {}
+        configuration.onDelete = { deleted = true }
+
+        let controller = NativeBookmarkContextMenuController()
+        let menu = try #require(controller.makeMenu(configuration: configuration))
+
+        #expect(menu.items.map(\.isSeparatorItem) == [
+            false, false, false, false, false,
+            true, false,
+            true, false,
+            true, false,
+            true, false,
+            true, false
+        ])
+        #expect(menu.items[0].title == "打开".obeliskLocalized)
+        #expect(menu.items[0].image != nil)
+        #expect(menu.items[8].title == "移到分组".obeliskLocalized)
+        #expect(menu.items[8].submenu?.items.map(\.title) == ["工作"])
+        #expect(menu.items[14].title == "删除".obeliskLocalized)
+        let destructiveTitle = try #require(menu.items[14].attributedTitle)
+        #expect(destructiveTitle.attribute(
+            .foregroundColor,
+            at: 0,
+            effectiveRange: nil
+        ) as? NSColor == .systemRed)
+
+        menu.performActionForItem(at: 0)
+        menu.items[8].submenu?.performActionForItem(at: 0)
+        menu.performActionForItem(at: 14)
+        #expect(opened)
+        #expect(assignedCollectionID == collectionID)
+        #expect(deleted)
+    }
+
+    @MainActor
+    @Test func nativeContextMenuHostUsesTheOriginalAppKitEvent() throws {
+        let menu = NSMenu()
+        var receivedEvent: NSEvent?
+        let hostingView = NativeContextMenuHostingView(rootView: EmptyView())
+        hostingView.menuProvider = { event in
+            receivedEvent = event
+            return menu
+        }
+        let event = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 0
+        ))
+
+        #expect(hostingView.menu(for: event) === menu)
+        #expect(receivedEvent === event)
+    }
+
+    @MainActor
+    @Test func collectionCardHeadersAndListHeadersShareTheNativeContextMenuStructure() throws {
+        var renamed = false
+        var deleted = false
+        let controller = NativeCollectionContextMenuController()
+        let menu = try #require(controller.makeMenu(configuration: .init(
+            onRename: { renamed = true },
+            onDelete: { deleted = true }
+        )))
+
+        #expect(menu.items.map(\.isSeparatorItem) == [false, true, false])
+        #expect(menu.items[0].title == "重命名分组".obeliskLocalized)
+        #expect(menu.items[0].image != nil)
+        #expect(menu.items[2].title == "删除分组".obeliskLocalized)
+        let destructiveTitle = try #require(menu.items[2].attributedTitle)
+        #expect(destructiveTitle.attribute(
+            .foregroundColor,
+            at: 0,
+            effectiveRange: nil
+        ) as? NSColor == .systemRed)
+
+        menu.performActionForItem(at: 0)
+        menu.performActionForItem(at: 2)
+        #expect(renamed)
+        #expect(deleted)
+    }
+
     @Test func bookmarkFeedbackHUDUsesTheCurrentScreensUpperCenter() {
         let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
         let frame = BookmarkFeedbackPanelLayout.anchorFrame(in: visibleFrame)

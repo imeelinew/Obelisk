@@ -133,7 +133,7 @@ struct NativeBookmarkList: NSViewRepresentable {
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("BookmarkColumn")
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
         var parent: NativeBookmarkList
         fileprivate var items: [NativeBookmarkListItem] = []
         weak var scrollView: NSScrollView?
@@ -145,6 +145,8 @@ struct NativeBookmarkList: NSViewRepresentable {
         fileprivate var cachedShowsURLHostOnly = false
         private var handledFocusFirstBookmarkRequest = 0
         private var handledFocusSelectedBookmarkRequest = 0
+        private var bookmarkContextMenuController: NativeBookmarkContextMenuController?
+        private var collectionContextMenuController: NativeCollectionContextMenuController?
 
         init(_ parent: NativeBookmarkList) {
             self.parent = parent
@@ -262,135 +264,112 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard row >= 0, row < items.count else { return nil }
 
             if let collectionId = items[row].collectionId {
-                let menu = NSMenu()
-                menu.delegate = self
+                var configuration = NativeCollectionContextMenuConfiguration()
                 if parent.onRenameCollection != nil {
-                    menu.addItem(collectionMenuItem(
-                        "重命名分组",
-                        systemSymbolName: "pencil",
-                        action: #selector(renameCollectionFromMenu(_:)),
-                        collectionId: collectionId
-                    ))
+                    configuration.onRename = { [weak self] in
+                        self?.parent.onRenameCollection?(collectionId)
+                    }
                 }
                 if parent.onDeleteCollection != nil {
-                    if !menu.items.isEmpty {
-                        menu.addItem(NSMenuItem.separator())
+                    configuration.onDelete = { [weak self] in
+                        self?.parent.onDeleteCollection?(collectionId)
                     }
-                    menu.addItem(destructiveCollectionMenuItem(
-                        "删除分组",
-                        systemSymbolName: "trash",
-                        action: #selector(deleteCollectionFromMenu(_:)),
-                        collectionId: collectionId
-                    ))
                 }
-                return menu.items.isEmpty ? nil : menu
+
+                let controller = NativeCollectionContextMenuController()
+                guard let menu = controller.makeMenu(configuration: configuration) else { return nil }
+                collectionContextMenuController = controller
+                return menu
             }
 
             guard let bookmark = items[row].bookmark else {
                 return nil
             }
 
-            let menu = NSMenu()
-            menu.delegate = self
             let targets = targetBookmarks(contextBookmark: bookmark)
+            var configuration = NativeBookmarkContextMenuConfiguration()
 
             if parent.onOpen != nil {
-                menu.addItem(menuItem(
-                    "打开",
-                    systemSymbolName: "arrow.up.forward.square",
-                    action: #selector(openFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+                configuration.onOpen = { [weak self] in
+                    guard let self else { return }
+                    parent.onOpen?(targetBookmarks(contextBookmark: bookmark))
+                }
             }
             if parent.onCopyURL != nil {
-                menu.addItem(menuItem(
-                    "复制 URL",
-                    systemSymbolName: "doc.on.doc",
-                    action: #selector(copyURLFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+                configuration.onCopyURL = { [weak self] in
+                    guard let self else { return }
+                    parent.onCopyURL?(targetBookmarks(contextBookmark: bookmark))
+                }
             }
             if parent.onRefreshFavicon != nil {
-                menu.addItem(menuItem(
-                    "刷新 favicon",
-                    systemSymbolName: "arrow.clockwise",
-                    action: #selector(refreshFaviconFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+                configuration.onRefreshFavicon = { [weak self] in
+                    guard let self else { return }
+                    parent.onRefreshFavicon?(targetBookmarks(contextBookmark: bookmark))
+                }
             }
             if parent.onEdit != nil, targets.count == 1 {
-                menu.addItem(menuItem(
-                    "编辑",
-                    systemSymbolName: "pencil",
-                    action: #selector(editFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+                configuration.onEdit = { [weak self] in
+                    guard let self else { return }
+                    let currentTargets = targetBookmarks(contextBookmark: bookmark)
+                    guard currentTargets.count == 1, let target = currentTargets.first else { return }
+                    parent.onEdit?(target)
+                }
             }
             if parent.onRevertTitleOptimization != nil,
                selectionHasRevertableTitleOptimization(contextBookmark: bookmark) {
-                menu.addItem(menuItem(
-                    "恢复原标题",
-                    systemSymbolName: "arrow.uturn.backward",
-                    action: #selector(revertTitleFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+                configuration.onRevertTitleOptimization = { [weak self] in
+                    guard let self else { return }
+                    parent.onRevertTitleOptimization?(targetBookmarkIDs(contextBookmark: bookmark))
+                }
             }
             if parent.onSetPinned != nil {
-                menu.addItem(NSMenuItem.separator())
-                menu.addItem(menuItem(
-                    pinActionTitle(for: targets),
-                    systemSymbolName: pinStateSymbolName(for: targets),
-                    action: #selector(setPinnedFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+                configuration.pinStateActionTitle = pinActionTitle(for: targets).obeliskLocalized
+                configuration.pinStateSystemSymbolName = pinStateSymbolName(for: targets)
+                configuration.onSetPinned = { [weak self] in
+                    guard let self else { return }
+                    parent.onSetPinned?(targetBookmarkIDs(contextBookmark: bookmark))
+                }
             }
             if !parent.collectionAssignOptions.isEmpty, parent.onAssignCollection != nil {
-                menu.addItem(NSMenuItem.separator())
-                let submenu = NSMenu(title: "移到分组".obeliskLocalized)
-                for option in parent.collectionAssignOptions {
-                    let item = NSMenuItem(title: option.title, action: #selector(assignCollectionFromMenu(_:)), keyEquivalent: "")
-                    item.representedObject = CollectionAssignTarget(
-                        contextBookmarkId: bookmark.id,
-                        collectionId: option.collectionId
-                    )
-                    item.target = self
-                    submenu.addItem(item)
+                configuration.collectionAssignOptions = parent.collectionAssignOptions
+                configuration.onAssignCollection = { [weak self] collectionId in
+                    guard let self else { return }
+                    parent.onAssignCollection?(targetBookmarkIDs(contextBookmark: bookmark), collectionId)
                 }
-                let moveItem = NSMenuItem(title: "移到分组".obeliskLocalized, action: nil, keyEquivalent: "")
-                moveItem.image = Self.menuSymbolImage("folder")
-                moveItem.submenu = submenu
-                menu.addItem(moveItem)
             }
-            if let hiddenStateActionTitle = parent.hiddenStateActionTitle, parent.onSetHidden != nil {
-                menu.addItem(NSMenuItem.separator())
-                menu.addItem(menuItem(
-                    hiddenStateActionTitle,
-                    systemSymbolName: restoreBookmarkSymbolName(for: hiddenStateActionTitle, defaultSymbolName: "eye.slash"),
-                    action: #selector(setHiddenFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+            if let title = parent.hiddenStateActionTitle, parent.onSetHidden != nil {
+                configuration.hiddenStateActionTitle = title
+                configuration.hiddenStateSystemSymbolName = restoreBookmarkSymbolName(
+                    for: title,
+                    defaultSymbolName: "eye.slash"
+                )
+                configuration.onSetHidden = { [weak self] in
+                    guard let self else { return }
+                    parent.onSetHidden?(targetBookmarkIDs(contextBookmark: bookmark))
+                }
             }
-            if let archiveStateActionTitle = archiveActionTitle(contextBookmark: bookmark),
-               parent.onSetArchived != nil {
-                menu.addItem(NSMenuItem.separator())
-                menu.addItem(menuItem(
-                    archiveStateActionTitle,
-                    systemSymbolName: restoreBookmarkSymbolName(for: archiveStateActionTitle, defaultSymbolName: "archivebox"),
-                    action: #selector(setArchivedFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+            if let title = archiveActionTitle(contextBookmark: bookmark), parent.onSetArchived != nil {
+                configuration.archiveStateActionTitle = title
+                configuration.archiveStateSystemSymbolName = restoreBookmarkSymbolName(
+                    for: title,
+                    defaultSymbolName: "archivebox"
+                )
+                configuration.onSetArchived = { [weak self] in
+                    guard let self else { return }
+                    parent.onSetArchived?(targetBookmarkIDs(contextBookmark: bookmark))
+                }
             }
             if parent.onDelete != nil {
-                menu.addItem(NSMenuItem.separator())
-                menu.addItem(destructiveMenuItem(
-                    "删除",
-                    systemSymbolName: "trash",
-                    action: #selector(deleteFromMenu(_:)),
-                    bookmark: bookmark
-                ))
+                configuration.onDelete = { [weak self] in
+                    guard let self else { return }
+                    parent.onDelete?(targetBookmarkIDs(contextBookmark: bookmark))
+                }
             }
 
-            return menu.items.isEmpty ? nil : menu
+            let controller = NativeBookmarkContextMenuController()
+            guard let menu = controller.makeMenu(configuration: configuration) else { return nil }
+            bookmarkContextMenuController = controller
+            return menu
         }
 
         func bookmarkMenuTableViewCopySelection(_ tableView: BookmarkMenuTableView) {
@@ -543,33 +522,6 @@ struct NativeBookmarkList: NSViewRepresentable {
             parent.onOpen?([bookmark])
         }
 
-        @objc private func openFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onOpen?(targetBookmarks(contextBookmark: bookmark))
-        }
-
-        @objc private func copyURLFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onCopyURL?(targetBookmarks(contextBookmark: bookmark))
-        }
-
-        @objc private func refreshFaviconFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onRefreshFavicon?(targetBookmarks(contextBookmark: bookmark))
-        }
-
-        @objc private func editFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            let targets = targetBookmarks(contextBookmark: bookmark)
-            guard targets.count == 1, let target = targets.first else { return }
-            parent.onEdit?(target)
-        }
-
-        @objc private func revertTitleFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onRevertTitleOptimization?(targetBookmarkIDs(contextBookmark: bookmark))
-        }
-
         private func selectionHasRevertableTitleOptimization(contextBookmark: Bookmark) -> Bool {
             targetBookmarkIDs(contextBookmark: contextBookmark).contains { id in
                 guard let bookmark = bookmark(for: id) else { return false }
@@ -606,49 +558,6 @@ struct NativeBookmarkList: NSViewRepresentable {
         private func pinActionTitle(for bookmarks: [Bookmark]) -> String {
             let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
             return shouldPin ? "置顶" : "取消置顶"
-        }
-
-        @objc private func deleteFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onDelete?(targetBookmarkIDs(contextBookmark: bookmark))
-        }
-
-        @objc private func renameCollectionFromMenu(_ sender: NSMenuItem) {
-            guard let collectionId = sender.representedObject as? UUID else { return }
-            parent.onRenameCollection?(collectionId)
-        }
-
-        @objc private func deleteCollectionFromMenu(_ sender: NSMenuItem) {
-            guard let collectionId = sender.representedObject as? UUID else { return }
-            parent.onDeleteCollection?(collectionId)
-        }
-
-        @objc private func assignCollectionFromMenu(_ sender: NSMenuItem) {
-            guard
-                let target = sender.representedObject as? CollectionAssignTarget,
-                let onAssignCollection = parent.onAssignCollection
-            else {
-                return
-            }
-            let bookmarkIds = parent.selection.isEmpty
-                ? Set([target.contextBookmarkId])
-                : parent.selection
-            onAssignCollection(bookmarkIds, target.collectionId)
-        }
-
-        @objc private func setHiddenFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onSetHidden?(targetBookmarkIDs(contextBookmark: bookmark))
-        }
-
-        @objc private func setArchivedFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onSetArchived?(targetBookmarkIDs(contextBookmark: bookmark))
-        }
-
-        @objc private func setPinnedFromMenu(_ sender: NSMenuItem) {
-            guard let bookmark = sender.representedObject as? Bookmark else { return }
-            parent.onSetPinned?(targetBookmarkIDs(contextBookmark: bookmark))
         }
 
         @objc private func changeSortModeFromHeader(_ sender: NSPopUpButton) {
@@ -719,27 +628,6 @@ struct NativeBookmarkList: NSViewRepresentable {
             }
         }
 
-        private static let destructiveMenuItemIdentifier = NSUserInterfaceItemIdentifier("ObeliskDestructiveMenuItem")
-
-        func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-            for menuItem in menu.items where menuItem.identifier == Self.destructiveMenuItemIdentifier {
-                applyDestructiveMenuItemStyle(to: menuItem, highlighted: menuItem === item)
-            }
-        }
-
-        private static func menuSymbolImage(_ symbolName: String, color: NSColor? = nil) -> NSImage? {
-            guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
-                return nil
-            }
-
-            var configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-            if let color {
-                configuration = configuration.applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-            }
-
-            return image.withSymbolConfiguration(configuration)
-        }
-
         private func pinStateSymbolName(for bookmarks: [Bookmark]) -> String {
             let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
             return shouldPin ? "pin" : "pin.slash"
@@ -753,42 +641,6 @@ struct NativeBookmarkList: NSViewRepresentable {
             return defaultSymbolName
         }
 
-        private func menuItem(
-            _ title: String,
-            systemSymbolName: String,
-            action: Selector,
-            bookmark: Bookmark
-        ) -> NSMenuItem {
-            let item = NSMenuItem(title: title.obeliskLocalized, action: action, keyEquivalent: "")
-            item.target = self
-            item.representedObject = bookmark
-            item.image = Self.menuSymbolImage(systemSymbolName)
-            return item
-        }
-
-        private final class CollectionAssignTarget: NSObject {
-            let contextBookmarkId: Bookmark.ID
-            let collectionId: UUID?
-
-            init(contextBookmarkId: Bookmark.ID, collectionId: UUID?) {
-                self.contextBookmarkId = contextBookmarkId
-                self.collectionId = collectionId
-            }
-        }
-
-        private func collectionMenuItem(
-            _ title: String,
-            systemSymbolName: String,
-            action: Selector,
-            collectionId: UUID
-        ) -> NSMenuItem {
-            let item = NSMenuItem(title: title.obeliskLocalized, action: action, keyEquivalent: "")
-            item.target = self
-            item.representedObject = collectionId
-            item.image = Self.menuSymbolImage(systemSymbolName)
-            return item
-        }
-
         private func selectedCollectionId(for row: Int) -> UUID? {
             guard parent.selectedCollectionId != nil,
                   row >= 0,
@@ -797,64 +649,6 @@ struct NativeBookmarkList: NSViewRepresentable {
                 return nil
             }
             return items[row].collectionId
-        }
-
-        private func destructiveCollectionMenuItem(
-            _ title: String,
-            systemSymbolName: String,
-            action: Selector,
-            collectionId: UUID
-        ) -> NSMenuItem {
-            destructiveMenuItem(
-                title,
-                systemSymbolName: systemSymbolName,
-                action: action,
-                representedObject: collectionId
-            )
-        }
-
-        private func destructiveMenuItem(
-            _ title: String,
-            systemSymbolName: String,
-            action: Selector,
-            bookmark: Bookmark
-        ) -> NSMenuItem {
-            destructiveMenuItem(
-                title,
-                systemSymbolName: systemSymbolName,
-                action: action,
-                representedObject: bookmark
-            )
-        }
-
-        private func destructiveMenuItem(
-            _ title: String,
-            systemSymbolName: String,
-            action: Selector,
-            representedObject: Any
-        ) -> NSMenuItem {
-            let item = NSMenuItem(title: title.obeliskLocalized, action: action, keyEquivalent: "")
-            item.target = self
-            item.representedObject = representedObject
-            item.identifier = Self.destructiveMenuItemIdentifier
-            applyDestructiveMenuItemStyle(to: item, systemSymbolName: systemSymbolName, highlighted: false)
-            return item
-        }
-
-        private func applyDestructiveMenuItemStyle(
-            to item: NSMenuItem,
-            systemSymbolName: String = "trash",
-            highlighted: Bool
-        ) {
-            let color: NSColor = highlighted ? .white : .systemRed
-            item.attributedTitle = NSAttributedString(
-                string: item.title,
-                attributes: [
-                    .font: NSFont.menuFont(ofSize: 0),
-                    .foregroundColor: color
-                ]
-            )
-            item.image = Self.menuSymbolImage(systemSymbolName, color: color)
         }
 
         private func singleSelectedBookmark(in tableView: NSTableView) -> Bookmark? {

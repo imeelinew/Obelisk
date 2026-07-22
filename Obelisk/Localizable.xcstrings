@@ -81,23 +81,6 @@
     "Base URL" : {
 
     },
-    "Bring All to Front" : {
-      "comment" : "Window menu",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bring All to Front"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将全部窗口前置"
-          }
-        }
-      }
-    },
     "bookmark.action.pin" : {
       "comment" : "Action title for pinning bookmarks",
       "localizations" : {
@@ -111,6 +94,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "置顶"
+          }
+        }
+      }
+    },
+    "Bring All to Front" : {
+      "comment" : "Window menu",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bring All to Front"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将全部窗口前置"
           }
         }
       }
@@ -1618,6 +1618,7 @@
       }
     },
     "共计 %lld 个书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1835,6 +1836,7 @@
       }
     },
     "删除分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1915,6 +1917,7 @@
       }
     },
     "刷新 favicon" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1980,6 +1983,23 @@
         }
       }
     },
+    "卡片" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cards"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卡片"
+          }
+        }
+      }
+    },
     "取消" : {
       "localizations" : {
         "en" : {
@@ -2013,6 +2033,7 @@
       }
     },
     "取消置顶?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2271,6 +2292,7 @@
       }
     },
     "复制 URL" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2848,6 +2870,7 @@
       }
     },
     "归档书签?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2967,6 +2990,7 @@
       }
     },
     "恢复到书签?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2983,6 +3007,7 @@
       }
     },
     "恢复原标题" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3032,6 +3057,7 @@
       }
     },
     "打开" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4084,23 +4110,8 @@
         }
       }
     },
-    "移到分组" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Move to Collection"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "移到分组"
-          }
-        }
-      }
-    },
     "移出分组?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4116,23 +4127,8 @@
         }
       }
     },
-    "移动" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Move"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "移动"
-          }
-        }
-      }
-    },
     "移到「%@」?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4144,6 +4140,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "移到「%@」?"
+          }
+        }
+      }
+    },
+    "移到分组" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to Collection"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移到分组"
           }
         }
       }
@@ -4166,6 +4178,7 @@
       }
     },
     "移到隐藏书签?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4177,6 +4190,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "移到隐藏书签?"
+          }
+        }
+      }
+    },
+    "移动" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移动"
           }
         }
       }
@@ -4347,6 +4377,7 @@
       }
     },
     "置顶书签?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4519,23 +4550,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "菜单栏排序"
-          }
-        }
-      }
-    },
-    "表格" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Grid"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表格"
           }
         }
       }

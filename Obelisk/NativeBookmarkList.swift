@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 import ObeliskCore
 import SwiftUI
 
@@ -44,7 +43,6 @@ struct NativeBookmarkList: NSViewRepresentable {
 
     var onOpen: (([Bookmark]) -> Void)?
     var onCopyURL: (([Bookmark]) -> Void)?
-    var onRefreshFavicon: (([Bookmark]) -> Void)?
     var onEdit: ((Bookmark) -> Void)?
     var onDelete: ((Set<Bookmark.ID>) -> Void)?
     var hiddenStateActionTitle: String?
@@ -301,12 +299,6 @@ struct NativeBookmarkList: NSViewRepresentable {
                     parent.onCopyURL?(targetBookmarks(contextBookmark: bookmark))
                 }
             }
-            if parent.onRefreshFavicon != nil {
-                configuration.onRefreshFavicon = { [weak self] in
-                    guard let self else { return }
-                    parent.onRefreshFavicon?(targetBookmarks(contextBookmark: bookmark))
-                }
-            }
             if parent.onEdit != nil, targets.count == 1 {
                 configuration.onEdit = { [weak self] in
                     guard let self else { return }
@@ -541,11 +533,17 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         private func targetBookmarks(contextBookmark: Bookmark) -> [Bookmark] {
             let ids = targetBookmarkIDs(contextBookmark: contextBookmark)
-            return items.compactMap(\.bookmark).filter { ids.contains($0.id) }
+            return BookmarkOperationTargetResolver.bookmarks(
+                in: items.compactMap(\.bookmark),
+                matching: ids
+            )
         }
 
         private func selectedBookmarks() -> [Bookmark] {
-            items.compactMap(\.bookmark).filter { parent.selection.contains($0.id) }
+            BookmarkOperationTargetResolver.bookmarks(
+                in: items.compactMap(\.bookmark),
+                matching: parent.selection
+            )
         }
 
         private func archiveActionTitle(contextBookmark: Bookmark) -> String? {
@@ -1176,42 +1174,29 @@ class BookmarkMenuTableView: NSTableView {
 
     override func keyDown(with event: NSEvent) {
         let characters = event.charactersIgnoringModifiers ?? ""
-        let modifiers = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting(.numericPad)
-
-        if modifiers == .command, characters == "c" {
+        switch BookmarkKeyboardCommandResolver.resolve(
+            characters: characters,
+            keyCode: event.keyCode,
+            modifiers: event.modifierFlags
+        ) {
+        case .copy:
             menuDelegate?.bookmarkMenuTableViewCopySelection(self)
-            return
-        }
-
-        if modifiers == .command, characters == "e" {
+        case .edit:
             menuDelegate?.bookmarkMenuTableViewEditSelection(self)
-            return
-        }
-
-        if modifiers.isEmpty,
-           event.keyCode == UInt16(kVK_Escape),
-           menuDelegate?.bookmarkMenuTableViewCancel(self) == true {
-            return
-        }
-
-        if modifiers.isEmpty, event.keyCode == UInt16(kVK_Tab) {
+        case .cancel:
+            guard menuDelegate?.bookmarkMenuTableViewCancel(self) == true else {
+                super.keyDown(with: event)
+                return
+            }
+        case .advanceSelection:
             moveSelectionDownLikeArrow()
-            return
-        }
-
-        if modifiers.isEmpty, event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) {
+        case .delete:
             menuDelegate?.bookmarkMenuTableViewDeleteSelection(self)
-            return
-        }
-
-        if modifiers.isEmpty, event.keyCode == UInt16(kVK_Return) || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) {
+        case .open:
             menuDelegate?.bookmarkMenuTableViewOpenSelection(self)
-            return
+        case nil:
+            super.keyDown(with: event)
         }
-
-        super.keyDown(with: event)
     }
 
     override func insertTab(_ sender: Any?) {

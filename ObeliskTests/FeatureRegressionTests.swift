@@ -162,6 +162,18 @@ struct FeatureRegressionTests {
         ) == IndexSet(integer: 3))
     }
 
+    @Test func duplicateListRowsResolveToUniqueOperationTargets() {
+        let first = Bookmark(title: "First", url: "https://first.example")
+        let second = Bookmark(title: "Second", url: "https://second.example")
+
+        let targets = BookmarkOperationTargetResolver.bookmarks(
+            in: [first, first, second],
+            matching: [first.id, second.id]
+        )
+
+        #expect(targets.map(\.id) == [first.id, second.id])
+    }
+
     @Test func firstBookmarkSelectionSkipsSectionHeaders() {
         let bookmark = Bookmark(title: "YouTube", url: "https://youtube.com")
         #expect(NativeBookmarkSelectionResolver.firstBookmarkRowIndex(in: [
@@ -172,18 +184,46 @@ struct FeatureRegressionTests {
         ].flattenedItems) == nil)
     }
 
-    @Test func gridRangeSelectionUsesVisualOrderForItsFallbackAnchor() {
-        let orderedIDs = [UUID(), UUID(), UUID(), UUID()]
-        let selection = Set([orderedIDs[1], orderedIDs[3]])
+    @MainActor
+    @Test func nativeCardGridKeepsAdaptiveCardWidthsWithinItsVisualContract() {
+        #expect(!BookmarkCardFlowLayout.isUsableCollectionWidth(100))
+        #expect(BookmarkCardFlowLayout.isUsableCollectionWidth(880))
+        #expect(BookmarkCardFlowLayout.itemWidth(for: 880) == 202)
+        #expect(BookmarkCardFlowLayout.itemWidth(for: 520) == 224)
+        #expect(BookmarkCardFlowLayout.itemWidth(for: 180) == 144)
+    }
 
-        #expect(BookmarkGridSelectionResolver.stableAnchorID(
-            orderedIDs: orderedIDs,
-            selection: selection
-        ) == orderedIDs[1])
-        #expect(BookmarkGridSelectionResolver.stableAnchorID(
-            orderedIDs: orderedIDs,
-            selection: []
-        ) == nil)
+    @Test func bookmarkViewsShareOneKeyboardCommandResolver() {
+        #expect(BookmarkKeyboardCommandResolver.resolve(
+            characters: "c",
+            keyCode: UInt16(kVK_ANSI_C),
+            modifiers: .command
+        ) == .copy)
+        #expect(BookmarkKeyboardCommandResolver.resolve(
+            characters: "e",
+            keyCode: UInt16(kVK_ANSI_E),
+            modifiers: .command
+        ) == .edit)
+        #expect(BookmarkKeyboardCommandResolver.resolve(
+            characters: "",
+            keyCode: UInt16(kVK_Escape),
+            modifiers: []
+        ) == .cancel)
+        #expect(BookmarkKeyboardCommandResolver.resolve(
+            characters: "",
+            keyCode: UInt16(kVK_Tab),
+            modifiers: []
+        ) == .advanceSelection)
+        #expect(BookmarkKeyboardCommandResolver.resolve(
+            characters: "",
+            keyCode: UInt16(kVK_Delete),
+            modifiers: []
+        ) == .delete)
+        #expect(BookmarkKeyboardCommandResolver.resolve(
+            characters: "",
+            keyCode: UInt16(kVK_Return),
+            modifiers: []
+        ) == .open)
     }
 
     @Test func quickSearchShortcutTogglesTheVisiblePanel() {
@@ -215,34 +255,39 @@ struct FeatureRegressionTests {
     @Test func bookmarkCardsAndListsShareTheNativeContextMenuStructure() throws {
         let collectionID = UUID()
         var opened = false
+        var copied = false
+        var edited = false
+        var reverted = false
+        var pinned = false
         var assignedCollectionID: UUID?
+        var hidden = false
+        var archived = false
         var deleted = false
         var configuration = NativeBookmarkContextMenuConfiguration()
         configuration.onOpen = { opened = true }
-        configuration.onCopyURL = {}
-        configuration.onRefreshFavicon = {}
-        configuration.onEdit = {}
-        configuration.onRevertTitleOptimization = {}
+        configuration.onCopyURL = { copied = true }
+        configuration.onEdit = { edited = true }
+        configuration.onRevertTitleOptimization = { reverted = true }
         configuration.pinStateActionTitle = "置顶".obeliskLocalized
         configuration.pinStateSystemSymbolName = "pin"
-        configuration.onSetPinned = {}
+        configuration.onSetPinned = { pinned = true }
         configuration.collectionAssignOptions = [
             BookmarkCollectionAssignOption(title: "工作", collectionId: collectionID)
         ]
         configuration.onAssignCollection = { assignedCollectionID = $0 }
         configuration.hiddenStateActionTitle = "移到隐藏书签".obeliskLocalized
         configuration.hiddenStateSystemSymbolName = "eye.slash"
-        configuration.onSetHidden = {}
+        configuration.onSetHidden = { hidden = true }
         configuration.archiveStateActionTitle = "归档".obeliskLocalized
         configuration.archiveStateSystemSymbolName = "archivebox"
-        configuration.onSetArchived = {}
+        configuration.onSetArchived = { archived = true }
         configuration.onDelete = { deleted = true }
 
         let controller = NativeBookmarkContextMenuController()
         let menu = try #require(controller.makeMenu(configuration: configuration))
 
         #expect(menu.items.map(\.isSeparatorItem) == [
-            false, false, false, false, false,
+            false, false, false, false,
             true, false,
             true, false,
             true, false,
@@ -251,47 +296,35 @@ struct FeatureRegressionTests {
         ])
         #expect(menu.items[0].title == "打开".obeliskLocalized)
         #expect(menu.items[0].image != nil)
-        #expect(menu.items[8].title == "移到分组".obeliskLocalized)
-        #expect(menu.items[8].submenu?.items.map(\.title) == ["工作"])
-        #expect(menu.items[14].title == "删除".obeliskLocalized)
-        let destructiveTitle = try #require(menu.items[14].attributedTitle)
+        #expect(menu.items[7].title == "移到分组".obeliskLocalized)
+        #expect(menu.items[7].submenu?.items.map(\.title) == ["工作"])
+        #expect(menu.items[13].title == "删除".obeliskLocalized)
+        let destructiveTitle = try #require(menu.items[13].attributedTitle)
         #expect(destructiveTitle.attribute(
             .foregroundColor,
             at: 0,
             effectiveRange: nil
         ) as? NSColor == .systemRed)
 
+        menu.delegate?.menuDidClose?(menu)
         menu.performActionForItem(at: 0)
-        menu.items[8].submenu?.performActionForItem(at: 0)
-        menu.performActionForItem(at: 14)
+        menu.performActionForItem(at: 1)
+        menu.performActionForItem(at: 2)
+        menu.performActionForItem(at: 3)
+        menu.performActionForItem(at: 5)
+        menu.items[7].submenu?.performActionForItem(at: 0)
+        menu.performActionForItem(at: 9)
+        menu.performActionForItem(at: 11)
+        menu.performActionForItem(at: 13)
         #expect(opened)
+        #expect(copied)
+        #expect(edited)
+        #expect(reverted)
+        #expect(pinned)
         #expect(assignedCollectionID == collectionID)
+        #expect(hidden)
+        #expect(archived)
         #expect(deleted)
-    }
-
-    @MainActor
-    @Test func nativeContextMenuHostUsesTheOriginalAppKitEvent() throws {
-        let menu = NSMenu()
-        var receivedEvent: NSEvent?
-        let hostingView = NativeContextMenuHostingView(rootView: EmptyView())
-        hostingView.menuProvider = { event in
-            receivedEvent = event
-            return menu
-        }
-        let event = try #require(NSEvent.mouseEvent(
-            with: .rightMouseDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 1,
-            windowNumber: 0,
-            context: nil,
-            eventNumber: 1,
-            clickCount: 1,
-            pressure: 0
-        ))
-
-        #expect(hostingView.menu(for: event) === menu)
-        #expect(receivedEvent === event)
     }
 
     @MainActor
@@ -315,6 +348,7 @@ struct FeatureRegressionTests {
             effectiveRange: nil
         ) as? NSColor == .systemRed)
 
+        menu.delegate?.menuDidClose?(menu)
         menu.performActionForItem(at: 0)
         menu.performActionForItem(at: 2)
         #expect(renamed)

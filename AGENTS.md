@@ -64,3 +64,15 @@ xcodebuild -project Obelisk.xcodeproj -scheme 'Obelisk iOS' -configuration Debug
 - Run server tests after changing API, schema, authentication, or merge behavior.
 - Add focused regression tests for every fixed bug and every non-trivial domain rule.
 - Before finishing, review the complete diff, remove dead code and temporary artifacts, and report exactly what was tested.
+
+## Cursor Cloud specific instructions
+
+The cloud VM is Linux, so only the `Server/` Go stack can build and run here. The macOS and iOS Xcode targets and the `Packages/ObeliskKit` Swift package require macOS/Xcode and cannot be built or tested in this environment; skip their `swift test`/`xcodebuild` verification steps unless you are on an Apple host.
+
+- Go 1.26 is required by `Server/go.mod` and is installed at `/usr/local/go` with `/usr/bin/go` symlinked to it. The default Ubuntu Go (1.22) is too old; if `go version` ever reports < 1.26, re-point `/usr/bin/go` to `/usr/local/go/bin/go`.
+- Server build/vet/test: `cd Server && go build ./... && go vet ./... && go test ./...`. Unit tests need no database.
+- Running the API for real (auth, schema, sync mutations) needs PostgreSQL. PostgreSQL 16 is installed but the cluster is not auto-started on a fresh VM: start it with `sudo pg_ctlcluster 16 main start`. Create the app role/db once with `CREATE ROLE obelisk_api LOGIN PASSWORD '...'; CREATE DATABASE obelisk OWNER obelisk_api;` (as the `postgres` user).
+- The API applies its schema (and the `powersync` publication) automatically on `create-account` and on startup, so no manual migration step is needed against a fresh `obelisk` database.
+- Required env vars to run `Server/cmd/obelisk-api` directly: `OBELISK_DATABASE_URL`, `OBELISK_TOKEN_ISSUER`, `OBELISK_JWT_KEY_ID`, `OBELISK_JWT_PRIVATE_KEY_PATH` (see `Server/internal/config/config.go`). Generate the JWT key with `Server/scripts/generate-jwt-key.sh` (writes to the gitignored `Server/secrets/`).
+- There is no public registration: provision an account with `printf '%s\n' 'password' | ./obelisk-api create-account owner@example.com`, then log in via `POST /v1/auth/login` with `email`, `password`, and a UUID `deviceId`.
+- The full documented stack (Postgres + api + PowerSync) in `Server/docker-compose.yml` needs Docker, which is not installed by default here. Running the api directly against local Postgres exercises the same auth and write paths without PowerSync; only add Docker if you specifically need to test PowerSync streaming.

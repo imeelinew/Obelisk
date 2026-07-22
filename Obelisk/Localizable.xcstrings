@@ -98,6 +98,23 @@
         }
       }
     },
+    "bookmark.action.pin" : {
+      "comment" : "Action title for pinning bookmarks",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置顶"
+          }
+        }
+      }
+    },
     "Check for Updates…" : {
       "comment" : "App menu",
       "localizations" : {
@@ -1601,7 +1618,20 @@
       }
     },
     "共计 %lld 个书签" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total bookmarks: %lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共计 %lld 个书签"
+          }
+        }
+      }
     },
     "共计删除 %lld 个书签" : {
 
@@ -1978,6 +2008,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消置顶"
+          }
+        }
+      }
+    },
+    "取消置顶?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unpin bookmarks?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消置顶?"
           }
         }
       }
@@ -2801,6 +2847,22 @@
         }
       }
     },
+    "归档书签?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive bookmarks?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "归档书签?"
+          }
+        }
+      }
+    },
     "当前浏览器标签无有效网址" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2900,6 +2962,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复到书签"
+          }
+        }
+      }
+    },
+    "恢复到书签?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore to bookmarks?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复到书签?"
           }
         }
       }
@@ -4022,6 +4100,54 @@
         }
       }
     },
+    "移出分组?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from collection?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移出分组?"
+          }
+        }
+      }
+    },
+    "移动" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移动"
+          }
+        }
+      }
+    },
+    "移到「%@」?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to “%@”?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移到「%@」?"
+          }
+        }
+      }
+    },
     "移到隐藏书签" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4035,6 +4161,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "移到隐藏书签"
+          }
+        }
+      }
+    },
+    "移到隐藏书签?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to hidden bookmarks?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移到隐藏书签?"
           }
         }
       }
@@ -4200,6 +4342,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "置顶"
+          }
+        }
+      }
+    },
+    "置顶书签?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin bookmarks?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置顶书签?"
           }
         }
       }

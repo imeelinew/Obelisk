@@ -172,6 +172,20 @@ struct FeatureRegressionTests {
         ].flattenedItems) == nil)
     }
 
+    @Test func gridRangeSelectionUsesVisualOrderForItsFallbackAnchor() {
+        let orderedIDs = [UUID(), UUID(), UUID(), UUID()]
+        let selection = Set([orderedIDs[1], orderedIDs[3]])
+
+        #expect(BookmarkGridSelectionResolver.stableAnchorID(
+            orderedIDs: orderedIDs,
+            selection: selection
+        ) == orderedIDs[1])
+        #expect(BookmarkGridSelectionResolver.stableAnchorID(
+            orderedIDs: orderedIDs,
+            selection: []
+        ) == nil)
+    }
+
     @Test func quickSearchShortcutTogglesTheVisiblePanel() {
         #expect(QuickSearchPanelToggleAction.resolve(isVisible: false) == .show)
         #expect(QuickSearchPanelToggleAction.resolve(isVisible: true) == .hide)

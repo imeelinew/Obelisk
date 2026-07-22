@@ -337,29 +337,31 @@ struct BookmarkManagerView: View {
         var title: String {
             switch kind {
             case .pin(let isPinned):
-                return isPinned ? "置顶书签?" : "取消置顶?"
+                return (isPinned ? "置顶书签?" : "取消置顶?").obeliskLocalized
             case .hide(let isHidden):
-                return isHidden ? "移到隐藏书签?" : "恢复到书签?"
+                return (isHidden ? "移到隐藏书签?" : "恢复到书签?").obeliskLocalized
             case .archive(let isArchived):
-                return isArchived ? "归档书签?" : "恢复到书签?"
+                return (isArchived ? "归档书签?" : "恢复到书签?").obeliskLocalized
             case .assign(_, let collectionName):
                 if let collectionName {
-                    return "移到「\(collectionName)」?"
+                    return String.localizedStringWithFormat("移到「%@」?".obeliskLocalized, collectionName)
                 }
-                return "移出分组?"
+                return "移出分组?".obeliskLocalized
             }
         }
 
         var confirmButtonTitle: String {
             switch kind {
             case .pin(let isPinned):
-                return isPinned ? "置顶" : "取消置顶"
+                return isPinned
+                    ? String(localized: "bookmark.action.pin", defaultValue: "置顶")
+                    : "取消置顶".obeliskLocalized
             case .hide(let isHidden):
-                return isHidden ? "移到隐藏书签" : "恢复到书签"
+                return (isHidden ? "移到隐藏书签" : "恢复到书签").obeliskLocalized
             case .archive(let isArchived):
-                return isArchived ? "归档" : "恢复到书签"
+                return (isArchived ? "归档" : "恢复到书签").obeliskLocalized
             case .assign:
-                return "移动"
+                return "移动".obeliskLocalized
             }
         }
 
@@ -1521,7 +1523,10 @@ struct BookmarkManagerView: View {
                 contextMenuConfirmation = nil
             }
         } message: { confirmation in
-            Text("共计 \(confirmation.count) 个书签")
+            Text(verbatim: String.localizedStringWithFormat(
+                "共计 %lld 个书签".obeliskLocalized,
+                confirmation.count
+            ))
         }
         .alert(
             "提示",

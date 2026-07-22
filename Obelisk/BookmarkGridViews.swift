@@ -122,6 +122,9 @@ struct BookmarkSectionGridView: View {
                                     onSelect: {
                                         selectBookmark(bookmark)
                                     },
+                                    onContextMenuOpen: {
+                                        alignSelectionForContextMenu(bookmark)
+                                    },
                                     onOpenCard: {
                                         isFocused = true
                                         onOpen([bookmark])
@@ -182,13 +185,14 @@ struct BookmarkSectionGridView: View {
         .focused($isFocused)
         .focusEffectDisabled()
         .onAppear {
+            selectionAnchorID = stableSelectionAnchorID(in: selection)
             isFocused = true
         }
         .onChange(of: selection) { _, newValue in
             if newValue.isEmpty {
                 selectionAnchorID = nil
             } else if let anchor = selectionAnchorID, !newValue.contains(anchor) {
-                selectionAnchorID = newValue.first
+                selectionAnchorID = stableSelectionAnchorID(in: newValue)
             }
         }
         .onKeyPress { keyPress in
@@ -251,7 +255,7 @@ struct BookmarkSectionGridView: View {
 
         if modifiers.contains(.shift) {
             let orderedIDs = orderedBookmarks.map(\.id)
-            let anchor = selectionAnchorID ?? selection.first ?? bookmark.id
+            let anchor = selectionAnchorID ?? stableSelectionAnchorID(in: selection) ?? bookmark.id
             guard
                 let from = orderedIDs.firstIndex(of: anchor),
                 let to = orderedIDs.firstIndex(of: bookmark.id)
@@ -308,9 +312,18 @@ struct BookmarkSectionGridView: View {
         orderedBookmarks.filter { selection.contains($0.id) }
     }
 
+    private func stableSelectionAnchorID(in selection: Set<Bookmark.ID>) -> Bookmark.ID? {
+        BookmarkGridSelectionResolver.stableAnchorID(
+            orderedIDs: orderedBookmarks.map(\.id),
+            selection: selection
+        )
+    }
+
     private func pinActionTitle(for bookmarks: [Bookmark]) -> String {
         let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
-        return shouldPin ? "置顶" : "取消置顶"
+        return shouldPin
+            ? String(localized: "bookmark.action.pin", defaultValue: "置顶")
+            : "取消置顶".obeliskLocalized
     }
 
     private func canRevertTitle(for bookmarks: [Bookmark]) -> Bool {
@@ -386,6 +399,7 @@ struct BookmarkGridCard: View {
     let archiveStateActionTitle: String?
     let collectionAssignOptions: [BookmarkCollectionAssignOption]
     let onSelect: () -> Void
+    let onContextMenuOpen: () -> Void
     let onOpenCard: () -> Void
     let onOpen: () -> Void
     let onCopyURL: () -> Void
@@ -452,6 +466,7 @@ struct BookmarkGridCard: View {
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in isPressed = false }
         )
+        .gesture(ContextMenuClickGesture(onRecognized: onContextMenuOpen))
         .contextMenu {
             Button("打开", action: onOpen)
             Button("复制 URL", action: onCopyURL)
@@ -526,5 +541,50 @@ struct BookmarkGridCard: View {
             }
         }
         .frame(width: 24, height: 24)
+    }
+}
+
+enum BookmarkGridSelectionResolver {
+    static func stableAnchorID<ID: Hashable>(orderedIDs: [ID], selection: Set<ID>) -> ID? {
+        orderedIDs.first { selection.contains($0) }
+    }
+}
+
+private struct ContextMenuClickGesture: NSGestureRecognizerRepresentable {
+    let onRecognized: () -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSGestureRecognizer(context: Context) -> NSPressGestureRecognizer {
+        let recognizer = NSPressGestureRecognizer()
+        recognizer.buttonMask = 0x3
+        recognizer.minimumPressDuration = 0
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func handleNSGestureRecognizerAction(_ recognizer: NSPressGestureRecognizer, context: Context) {
+        guard recognizer.state == .began else { return }
+        onRecognized()
+    }
+
+    final class Coordinator: NSObject, NSGestureRecognizerDelegate {
+        func gestureRecognizer(
+            _ gestureRecognizer: NSGestureRecognizer,
+            shouldAttemptToRecognizeWith event: NSEvent
+        ) -> Bool {
+            event.type == .rightMouseDown || (
+                event.type == .leftMouseDown && event.modifierFlags.contains(.control)
+            )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: NSGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: NSGestureRecognizer
+        ) -> Bool {
+            true
+        }
     }
 }

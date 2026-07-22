@@ -1916,57 +1916,6 @@
         }
       }
     },
-    "刷新 favicon" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Refresh Favicon"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "刷新 favicon"
-          }
-        }
-      }
-    },
-    "刷新 Favicon" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Refresh Favicon"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "刷新 Favicon"
-          }
-        }
-      }
-    },
-    "刷新 favicon 成功" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favicon Refreshed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "刷新 favicon 成功"
-          }
-        }
-      }
-    },
     "包含关键字的 URL 只能添加到「隐藏书签」" : {
       "localizations" : {
         "en" : {

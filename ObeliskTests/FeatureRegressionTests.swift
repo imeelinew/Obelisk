@@ -220,7 +220,6 @@ struct FeatureRegressionTests {
         var configuration = NativeBookmarkContextMenuConfiguration()
         configuration.onOpen = { opened = true }
         configuration.onCopyURL = {}
-        configuration.onRefreshFavicon = {}
         configuration.onEdit = {}
         configuration.onRevertTitleOptimization = {}
         configuration.pinStateActionTitle = "置顶".obeliskLocalized
@@ -242,7 +241,7 @@ struct FeatureRegressionTests {
         let menu = try #require(controller.makeMenu(configuration: configuration))
 
         #expect(menu.items.map(\.isSeparatorItem) == [
-            false, false, false, false, false,
+            false, false, false, false,
             true, false,
             true, false,
             true, false,
@@ -251,19 +250,21 @@ struct FeatureRegressionTests {
         ])
         #expect(menu.items[0].title == "打开".obeliskLocalized)
         #expect(menu.items[0].image != nil)
-        #expect(menu.items[8].title == "移到分组".obeliskLocalized)
-        #expect(menu.items[8].submenu?.items.map(\.title) == ["工作"])
-        #expect(menu.items[14].title == "删除".obeliskLocalized)
-        let destructiveTitle = try #require(menu.items[14].attributedTitle)
+        #expect(!menu.items.contains { $0.title == "刷新 favicon".obeliskLocalized })
+        #expect(menu.items[7].title == "移到分组".obeliskLocalized)
+        #expect(menu.items[7].submenu?.items.map(\.title) == ["工作"])
+        #expect(menu.items[13].title == "删除".obeliskLocalized)
+        let destructiveTitle = try #require(menu.items[13].attributedTitle)
         #expect(destructiveTitle.attribute(
             .foregroundColor,
             at: 0,
             effectiveRange: nil
         ) as? NSColor == .systemRed)
 
+        menu.delegate?.menuDidClose?(menu)
         menu.performActionForItem(at: 0)
-        menu.items[8].submenu?.performActionForItem(at: 0)
-        menu.performActionForItem(at: 14)
+        menu.items[7].submenu?.performActionForItem(at: 0)
+        menu.performActionForItem(at: 13)
         #expect(opened)
         #expect(assignedCollectionID == collectionID)
         #expect(deleted)
@@ -273,8 +274,8 @@ struct FeatureRegressionTests {
     @Test func nativeContextMenuHostUsesTheOriginalAppKitEvent() throws {
         let menu = NSMenu()
         var receivedEvent: NSEvent?
-        let hostingView = NativeContextMenuHostingView(rootView: EmptyView())
-        hostingView.menuProvider = { event in
+        let eventView = NativeContextMenuEventView()
+        eventView.menuProvider = { event in
             receivedEvent = event
             return menu
         }
@@ -290,7 +291,8 @@ struct FeatureRegressionTests {
             pressure: 0
         ))
 
-        #expect(hostingView.menu(for: event) === menu)
+        #expect(NativeContextMenuEventView.handlesContextMenuEvent(event))
+        #expect(eventView.menu(for: event) === menu)
         #expect(receivedEvent === event)
     }
 
@@ -315,6 +317,7 @@ struct FeatureRegressionTests {
             effectiveRange: nil
         ) as? NSColor == .systemRed)
 
+        menu.delegate?.menuDidClose?(menu)
         menu.performActionForItem(at: 0)
         menu.performActionForItem(at: 2)
         #expect(renamed)

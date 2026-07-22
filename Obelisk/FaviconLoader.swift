@@ -100,6 +100,47 @@ final class FaviconLoader {
         return nil
     }
 
+    /// Loads a favicon for scrolling surfaces without performing file I/O on
+    /// the main actor. Network misses keep using the shared fetch pipeline.
+    func loadImage(for urlString: String) async -> NSImage? {
+        guard
+            let pageURL = URL(string: urlString),
+            let key = FaviconDownloader.cacheKey(for: urlString)
+        else {
+            return nil
+        }
+
+        let cacheKey = key as NSString
+        if let image = imageCache.object(forKey: cacheKey) {
+            return image
+        }
+
+        let fileURL = iconURL(for: key)
+        let data = await Task.detached(priority: .userInitiated) {
+            try? LocalFileAccess.readData(from: fileURL)
+        }.value
+
+        if let data, let image = NSImage(data: data) {
+            image.size = NSSize(width: 16, height: 16)
+            imageCache.setObject(image, forKey: cacheKey, cost: Self.memoryCost(of: image))
+
+            if let record = index[key], Date().timeIntervalSince(record.fetchedAt) > positiveTTL {
+                fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
+            }
+            return image
+        }
+
+        if let record = index[key],
+           !record.success,
+           record.strategyVersion == faviconFetchStrategyVersion,
+           Date().timeIntervalSince(record.fetchedAt) < negativeTTL {
+            return nil
+        }
+
+        fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
+        return nil
+    }
+
     func refresh(urlString: String) {
         guard
             let pageURL = URL(string: urlString),

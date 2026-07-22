@@ -72,7 +72,6 @@ struct BookmarkSectionGridView: View {
     let showsURLHostOnly: Bool
     let onOpen: ([Bookmark]) -> Void
     let onCopyURL: ([Bookmark]) -> Void
-    let onRefreshFavicon: ([Bookmark]) -> Void
     let onEdit: (Bookmark) -> Void
     let onDelete: (Set<Bookmark.ID>) -> Void
     var hiddenStateActionTitle: String? = nil
@@ -280,9 +279,6 @@ struct BookmarkSectionGridView: View {
         configuration.onCopyURL = {
             onCopyURL(targetBookmarks(contextBookmark: bookmark))
         }
-        configuration.onRefreshFavicon = {
-            onRefreshFavicon(targetBookmarks(contextBookmark: bookmark))
-        }
         if targets.count == 1 {
             configuration.onEdit = {
                 let currentTargets = targetBookmarks(contextBookmark: bookmark)
@@ -448,12 +444,12 @@ struct BookmarkGridCard: View {
     @State private var isPressed = false
 
     var body: some View {
-        let _ = faviconLoader.version
-        let favicon = faviconLoader.image(for: bookmark.url)
-
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 10) {
-                faviconView(favicon)
+                BookmarkGridFaviconView(
+                    url: bookmark.url,
+                    faviconLoader: faviconLoader
+                )
 
                 Spacer(minLength: 0)
 
@@ -528,7 +524,14 @@ struct BookmarkGridCard: View {
         return host
     }
 
-    private func faviconView(_ favicon: NSImage?) -> some View {
+}
+
+private struct BookmarkGridFaviconView: View {
+    let url: String
+    let faviconLoader: FaviconLoader
+    @State private var favicon: NSImage?
+
+    var body: some View {
         Group {
             if let favicon {
                 Image(nsImage: favicon)
@@ -541,6 +544,15 @@ struct BookmarkGridCard: View {
             }
         }
         .frame(width: 24, height: 24)
+        .task(id: LoadRequest(url: url, version: faviconLoader.version)) {
+            favicon = nil
+            favicon = await faviconLoader.loadImage(for: url)
+        }
+    }
+
+    private struct LoadRequest: Hashable {
+        let url: String
+        let version: Int
     }
 }
 

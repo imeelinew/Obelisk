@@ -44,7 +44,6 @@ struct NativeBookmarkList: NSViewRepresentable {
 
     var onOpen: (([Bookmark]) -> Void)?
     var onCopyURL: (([Bookmark]) -> Void)?
-    var onRefreshFavicon: (([Bookmark]) -> Void)?
     var onEdit: ((Bookmark) -> Void)?
     var onDelete: ((Set<Bookmark.ID>) -> Void)?
     var hiddenStateActionTitle: String?
@@ -299,12 +298,6 @@ struct NativeBookmarkList: NSViewRepresentable {
                 configuration.onCopyURL = { [weak self] in
                     guard let self else { return }
                     parent.onCopyURL?(targetBookmarks(contextBookmark: bookmark))
-                }
-            }
-            if parent.onRefreshFavicon != nil {
-                configuration.onRefreshFavicon = { [weak self] in
-                    guard let self else { return }
-                    parent.onRefreshFavicon?(targetBookmarks(contextBookmark: bookmark))
                 }
             }
             if parent.onEdit != nil, targets.count == 1 {

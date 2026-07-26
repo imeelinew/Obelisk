@@ -2621,7 +2621,7 @@ struct BookmarkManagerView: View {
                 Toggle(isOn: $openHiddenBookmarksIncognito) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("使用无痕窗口打开隐藏书签")
-                        Text("Dia 会复用 Obelisk 创建的无痕窗口；Chrome 会创建无痕窗口；其他 Chromium 浏览器使用启动参数")
+                        Text("Dia 和 Chrome 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

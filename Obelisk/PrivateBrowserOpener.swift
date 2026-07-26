@@ -41,6 +41,7 @@ enum PrivateBrowserOpener {
 
     private static let diaBundleID = "company.thebrowser.dia"
     private static let diaIncognitoWindowIDKey = "diaIncognitoWindowID"
+    private static let chromeIncognitoWindowIDKeyPrefix = "chromeIncognitoWindowID."
 
     static func openIncognito(urlString: String) -> PrivateBrowserOpenResult {
         guard let url = URL(string: urlString) else {
@@ -97,9 +98,11 @@ enum PrivateBrowserOpener {
         url: URL,
         bundleID: String
     ) -> PrivateBrowserOpenResult {
+        let windowIDKey = chromeIncognitoWindowIDKeyPrefix + bundleID
         guard let script = NSAppleScript(source: chromeAppleScriptSource(
             url: url,
-            bundleID: bundleID
+            bundleID: bundleID,
+            savedWindowID: UserDefaults.standard.string(forKey: windowIDKey) ?? ""
         )) else {
             return .openFailed
         }
@@ -110,24 +113,60 @@ enum PrivateBrowserOpener {
             NSLog("Obelisk: failed to open Chrome incognito window: \(error)")
             return result(forAppleScriptError: error)
         }
-        guard output.stringValue?.lowercased() == "incognito" else {
+        guard let windowID = chromeIncognitoWindowID(fromAppleScriptOutput: output.stringValue ?? "") else {
             NSLog("Obelisk: Chrome did not confirm an incognito window")
             return .openFailed
         }
+        UserDefaults.standard.set(windowID, forKey: windowIDKey)
         return .opened
     }
 
-    static func chromeAppleScriptSource(url: URL, bundleID: String) -> String {
+    static func chromeAppleScriptSource(
+        url: URL,
+        bundleID: String,
+        savedWindowID: String
+    ) -> String {
         """
         set targetURL to "\(appleScriptEscaped(url.absoluteString))"
+        set savedWindowID to "\(appleScriptEscaped(savedWindowID))"
         tell application id "\(appleScriptEscaped(bundleID))"
+            if savedWindowID is not "" then
+                try
+                    set privateWindow to first window whose id is savedWindowID
+                    if (mode of privateWindow as text) is "incognito" then
+                        tell privateWindow
+                            make new tab at end of tabs with properties {URL:targetURL}
+                            set active tab index to count of tabs
+                            set visible to true
+                        end tell
+                        activate
+                        return "incognito" & linefeed & (id of privateWindow as text)
+                    end if
+                end try
+            end if
+
             set privateWindow to make new window with properties {mode:"incognito"}
             set URL of active tab of privateWindow to targetURL
             set visible of privateWindow to true
             activate
-            return (mode of privateWindow) as text
+            return (mode of privateWindow as text) & linefeed & (id of privateWindow as text)
         end tell
         """
+    }
+
+    static func chromeIncognitoWindowID(fromAppleScriptOutput output: String) -> String? {
+        let components = output.split(
+            separator: "\n",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard components.count == 2,
+              components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "incognito"
+        else {
+            return nil
+        }
+        let windowID = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return windowID.isEmpty ? nil : windowID
     }
 
     private static func openDiaIncognito(url: URL) -> PrivateBrowserOpenResult {

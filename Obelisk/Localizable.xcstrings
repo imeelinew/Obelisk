@@ -268,18 +268,18 @@
         }
       }
     },
-    "Dia 会复用 Obelisk 创建的无痕窗口；Chrome 会创建无痕窗口；其他 Chromium 浏览器使用启动参数" : {
+    "Dia 和 Chrome 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dia reuses the private window created by Obelisk; Chrome creates an incognito window; other Chromium browsers use launch arguments"
+            "value" : "Dia and Chrome reuse the private window created by Obelisk; other Chromium browsers use launch arguments"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dia 会复用 Obelisk 创建的无痕窗口；Chrome 会创建无痕窗口；其他 Chromium 浏览器使用启动参数"
+            "value" : "Dia 和 Chrome 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数"
           }
         }
       }

@@ -968,11 +968,23 @@ struct FeatureRegressionTests {
 
         let source = PrivateBrowserOpener.chromeAppleScriptSource(
             url: try #require(URL(string: "https://example.com/obelisk-incognito-test")),
-            bundleID: "com.google.Chrome"
+            bundleID: "com.google.Chrome",
+            savedWindowID: "window-1"
         )
+        #expect(source.contains("first window whose id is savedWindowID"))
+        #expect(source.contains("make new tab at end of tabs with properties {URL:targetURL}"))
+        #expect(source.contains("set active tab index to count of tabs"))
         #expect(source.contains("make new window with properties {mode:\"incognito\"}"))
         #expect(source.contains("set URL of active tab of privateWindow to targetURL"))
-        #expect(source.contains("return (mode of privateWindow) as text"))
+        #expect(source.contains("return (mode of privateWindow as text) & linefeed & (id of privateWindow as text)"))
+
+        #expect(
+            PrivateBrowserOpener.chromeIncognitoWindowID(
+                fromAppleScriptOutput: "incognito\nwindow-1"
+            ) == "window-1"
+        )
+        #expect(PrivateBrowserOpener.chromeIncognitoWindowID(fromAppleScriptOutput: "normal\nwindow-1") == nil)
+        #expect(PrivateBrowserOpener.chromeIncognitoWindowID(fromAppleScriptOutput: "incognito\n") == nil)
     }
 
     @MainActor

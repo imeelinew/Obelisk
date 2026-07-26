@@ -961,6 +961,20 @@ struct FeatureRegressionTests {
         ]) == .openFailed)
     }
 
+    @Test func chromeUsesNativeIncognitoWindowAutomation() throws {
+        #expect(PrivateBrowserOpener.strategy(forBundleID: "com.google.Chrome") == .chromeAppleScript)
+        #expect(PrivateBrowserOpener.strategy(forBundleID: "com.microsoft.edgemac") == .chromiumLaunchArguments)
+        #expect(PrivateBrowserOpener.strategy(forBundleID: "com.apple.Safari") == .unsupported)
+
+        let source = PrivateBrowserOpener.chromeAppleScriptSource(
+            url: try #require(URL(string: "https://example.com/obelisk-incognito-test")),
+            bundleID: "com.google.Chrome"
+        )
+        #expect(source.contains("make new window with properties {mode:\"incognito\"}"))
+        #expect(source.contains("set URL of active tab of privateWindow to targetURL"))
+        #expect(source.contains("return (mode of privateWindow) as text"))
+    }
+
     @MainActor
     private func withStore(
         _ body: @MainActor (BookmarkStore) async throws -> Void

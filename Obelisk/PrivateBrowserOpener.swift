@@ -15,7 +15,19 @@ enum PrivateBrowserOpenResult: Equatable {
     case automationPermissionRequired(BrowserAutomationPermission)
 }
 
+enum PrivateBrowserOpenStrategy: Equatable {
+    case diaAppleScript
+    case chromeAppleScript
+    case chromiumLaunchArguments
+    case unsupported
+}
+
 enum PrivateBrowserOpener {
+    private static let chromeBundleIDs: Set<String> = [
+        "com.google.Chrome",
+        "com.google.Chrome.canary"
+    ]
+
     private static let supportedChromiumBundleIDs: Set<String> = [
         "com.google.Chrome",
         "com.google.Chrome.canary",
@@ -41,14 +53,35 @@ enum PrivateBrowserOpener {
             return .unsupportedBrowser
         }
 
-        if bundleID == diaBundleID {
+        switch strategy(forBundleID: bundleID) {
+        case .diaAppleScript:
             return openDiaIncognito(url: url)
-        }
-
-        guard supportedChromiumBundleIDs.contains(bundleID) else {
+        case .chromeAppleScript:
+            return openChromeIncognito(url: url, bundleID: bundleID)
+        case .chromiumLaunchArguments:
+            return openChromiumIncognito(url: url, appURL: appURL)
+        case .unsupported:
             return .unsupportedBrowser
         }
+    }
 
+    static func strategy(forBundleID bundleID: String) -> PrivateBrowserOpenStrategy {
+        if bundleID == diaBundleID {
+            return .diaAppleScript
+        }
+        if chromeBundleIDs.contains(bundleID) {
+            return .chromeAppleScript
+        }
+        if supportedChromiumBundleIDs.contains(bundleID) {
+            return .chromiumLaunchArguments
+        }
+        return .unsupported
+    }
+
+    private static func openChromiumIncognito(
+        url: URL,
+        appURL: URL
+    ) -> PrivateBrowserOpenResult {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.arguments = ["--incognito", url.absoluteString]
 
@@ -58,6 +91,43 @@ enum PrivateBrowserOpener {
             }
         }
         return .opened
+    }
+
+    private static func openChromeIncognito(
+        url: URL,
+        bundleID: String
+    ) -> PrivateBrowserOpenResult {
+        guard let script = NSAppleScript(source: chromeAppleScriptSource(
+            url: url,
+            bundleID: bundleID
+        )) else {
+            return .openFailed
+        }
+
+        var error: NSDictionary?
+        let output = script.executeAndReturnError(&error)
+        if let error {
+            NSLog("Obelisk: failed to open Chrome incognito window: \(error)")
+            return result(forAppleScriptError: error)
+        }
+        guard output.stringValue?.lowercased() == "incognito" else {
+            NSLog("Obelisk: Chrome did not confirm an incognito window")
+            return .openFailed
+        }
+        return .opened
+    }
+
+    static func chromeAppleScriptSource(url: URL, bundleID: String) -> String {
+        """
+        set targetURL to "\(appleScriptEscaped(url.absoluteString))"
+        tell application id "\(appleScriptEscaped(bundleID))"
+            set privateWindow to make new window with properties {mode:"incognito"}
+            set URL of active tab of privateWindow to targetURL
+            set visible of privateWindow to true
+            activate
+            return (mode of privateWindow) as text
+        end tell
+        """
     }
 
     private static func openDiaIncognito(url: URL) -> PrivateBrowserOpenResult {

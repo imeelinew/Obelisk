@@ -268,18 +268,18 @@
         }
       }
     },
-    "Dia 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数" : {
+    "Dia 会复用 Obelisk 创建的无痕窗口；Chrome 会创建无痕窗口；其他 Chromium 浏览器使用启动参数" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dia reuses the private window created by Obelisk; other Chromium browsers use launch arguments"
+            "value" : "Dia reuses the private window created by Obelisk; Chrome creates an incognito window; other Chromium browsers use launch arguments"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dia 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数"
+            "value" : "Dia 会复用 Obelisk 创建的无痕窗口；Chrome 会创建无痕窗口；其他 Chromium 浏览器使用启动参数"
           }
         }
       }
@@ -4613,19 +4613,18 @@
         }
       }
     },
-    "请在“隐私与安全性 > 自动化”允许 Obelisk 控制 Dia" : {
-      "extractionState" : "stale",
+    "请在“隐私与安全性 > 自动化”允许 Obelisk 控制默认浏览器" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Allow Obelisk to control Dia in Privacy & Security > Automation"
+            "value" : "Allow Obelisk to control the default browser in Privacy & Security > Automation"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请在“隐私与安全性 > 自动化”允许 Obelisk 控制 Dia"
+            "value" : "请在“隐私与安全性 > 自动化”允许 Obelisk 控制默认浏览器"
           }
         }
       }

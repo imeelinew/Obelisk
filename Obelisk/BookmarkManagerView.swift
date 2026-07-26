@@ -1019,7 +1019,7 @@ struct BookmarkManagerView: View {
                 PermissionSettingsGuide.open(.accessibility)
                 return
             case .automationPermissionRequired(.appleEvents):
-                showToast("请在“隐私与安全性 > 自动化”允许 Obelisk 控制 Dia", kind: .error)
+                showToast("请在“隐私与安全性 > 自动化”允许 Obelisk 控制默认浏览器", kind: .error)
                 PermissionSettingsGuide.open(.automation)
                 return
             }
@@ -2621,7 +2621,7 @@ struct BookmarkManagerView: View {
                 Toggle(isOn: $openHiddenBookmarksIncognito) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("使用无痕窗口打开隐藏书签")
-                        Text("Dia 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数")
+                        Text("Dia 会复用 Obelisk 创建的无痕窗口；Chrome 会创建无痕窗口；其他 Chromium 浏览器使用启动参数")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

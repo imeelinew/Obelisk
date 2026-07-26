@@ -6,7 +6,6 @@ import ObeliskCore
 import ObeliskData
 import ObeliskSync
 import Observation
-import PowerSync
 import Sparkle
 import SwiftUI
 
@@ -56,7 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         (statusItem.view as? NSStatusBarButton) ?? statusItem.button
     }
     private var store: BookmarkStore!
-    private var authClient: ObeliskAuthClient!
     private var cloudSync: CloudSyncController!
     private var databaseWatchTask: Task<Void, Never>?
     private var rebuildDebounce: DispatchWorkItem?
@@ -131,14 +129,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
         guard !isUnitTesting else { return }
-        let configuration: ObeliskServerConfiguration
-        do {
-            configuration = try .load()
-        } catch {
-            presentStartupError(error)
-            return
-        }
-        authClient = ObeliskAuthClient(configuration: configuration)
         configureStatusItemAppearance()
         Task {
             await startApplication()
@@ -147,15 +137,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startApplication() async {
         do {
-            store = try await BookmarkStore.open(
-                deviceID: authClient.deviceID
+            store = try BookmarkStore.open(
+                deviceID: ObeliskDeviceIdentity.current()
             )
         } catch {
             presentStartupError(error)
             return
         }
 
-        cloudSync = CloudSyncController(database: store.database, authClient: authClient)
+        cloudSync = CloudSyncController(database: store.database)
         await cloudSync.start()
 
         installDefaultsObserver()
@@ -176,8 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        guard let cloudSync else { return }
-        Task { await cloudSync.resume() }
+        cloudSync?.resume()
     }
 
     private func presentStartupError(_ error: Error) {

@@ -37,10 +37,6 @@
 	<string>Obelisk uses AppleScript to read the URL and title of the active tab from your frontmost browser when you press the global add-bookmark shortcut.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
-	<key>ObeliskAPIURL</key>
-	<string>https://api.elinew.tech</string>
-	<key>ObeliskPowerSyncURL</key>
-	<string>https://sync.elinew.tech</string>
 	<!-- Sparkle: replace SUFeedURL and SUPublicEDKey before shipping auto-updates. -->
 	<key>SUEnableAutomaticChecks</key>
 	<true/>

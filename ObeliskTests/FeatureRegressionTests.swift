@@ -11,7 +11,7 @@ import Testing
 @Suite(.serialized)
 struct FeatureRegressionTests {
     @MainActor
-    @Test func cloudSyncStartsLocallyWithoutAnAccount() async throws {
+    @Test func cloudSyncStartsLocallyWithoutAConfiguredService() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObeliskCloudSync-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -19,33 +19,23 @@ struct FeatureRegressionTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        let database = try await ObeliskDatabase.open(
+        let database = try ObeliskDatabase.open(
             rootDirectory: root,
             deviceID: UUID()
         )
-        let sessionStore = RecordingCloudSessionStore()
-        let auth = ObeliskAuthClient(
-            configuration: ObeliskServerConfiguration(
-                apiURL: URL(string: "https://api.example.test")!,
-                powerSyncURL: URL(string: "https://sync.example.test")!
-            ),
-            store: sessionStore
-        )
         let controller = CloudSyncController(
             database: database,
-            authClient: auth,
-            defaults: defaults
+            defaults: defaults,
+            accessKeyStore: InMemoryAccessKeyStore()
         )
 
         await controller.start()
         #expect(!controller.isEnabled)
-        #expect(!controller.isAuthenticated)
+        #expect(!controller.isConfigured)
         #expect(controller.phase == .off)
-        #expect(sessionStore.loadCount == 0)
 
         await controller.setEnabled(true)
-        #expect(controller.phase == .authenticationRequired)
-        #expect(sessionStore.loadCount == 1)
+        #expect(controller.phase == .notConfigured)
 
         await controller.setEnabled(false)
         #expect(controller.phase == .off)
@@ -977,7 +967,7 @@ struct FeatureRegressionTests {
     ) async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = try await BookmarkStore.open(
+        let store = try BookmarkStore.open(
             rootDirectory: root,
             deviceID: UUID()
         )
@@ -1001,28 +991,20 @@ struct FeatureRegressionTests {
     }
 }
 
-private final class RecordingCloudSessionStore: ObeliskSessionStore, @unchecked Sendable {
+private final class InMemoryAccessKeyStore: SyncAccessKeyStoring, @unchecked Sendable {
     private let lock = NSLock()
-    private var session: ObeliskAuthSession?
-    private var loads = 0
+    private var key: String?
 
-    var loadCount: Int {
-        lock.withLock { loads }
+    func load() throws -> String? {
+        lock.withLock { key }
     }
 
-    func load() throws -> ObeliskAuthSession? {
-        lock.withLock {
-            loads += 1
-            return session
-        }
-    }
-
-    func save(_ session: ObeliskAuthSession) throws {
-        lock.withLock { self.session = session }
+    func save(_ key: String) throws {
+        lock.withLock { self.key = key }
     }
 
     func clear() throws {
-        lock.withLock { session = nil }
+        lock.withLock { key = nil }
     }
 }
 

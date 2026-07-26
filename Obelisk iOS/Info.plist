@@ -26,10 +26,6 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>使用 Face ID 保护隐藏书签</string>
-	<key>ObeliskAPIURL</key>
-	<string>https://api.elinew.tech</string>
-	<key>ObeliskPowerSyncURL</key>
-	<string>https://sync.elinew.tech</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

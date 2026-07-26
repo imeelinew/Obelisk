@@ -43,8 +43,8 @@ public final class BookmarkStore {
     public static func open(
         rootDirectory: URL = defaultRootDirectory(),
         deviceID: UUID
-    ) async throws -> BookmarkStore {
-        let database = try await ObeliskDatabase.open(
+    ) throws -> BookmarkStore {
+        let database = try ObeliskDatabase.open(
             rootDirectory: rootDirectory,
             deviceID: deviceID
         )

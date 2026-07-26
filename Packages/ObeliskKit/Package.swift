@@ -15,10 +15,6 @@ let package = Package(
     ],
     dependencies: [
         .package(
-            url: "https://github.com/powersync-ja/powersync-swift.git",
-            exact: "1.14.4"
-        ),
-        .package(
             url: "https://github.com/groue/GRDB.swift.git",
             from: "7.11.0"
         ),
@@ -29,8 +25,6 @@ let package = Package(
             name: "ObeliskData",
             dependencies: [
                 "ObeliskCore",
-                .product(name: "PowerSync", package: "powersync-swift"),
-                .product(name: "PowerSyncGRDB", package: "powersync-swift"),
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),
@@ -39,12 +33,16 @@ let package = Package(
             dependencies: [
                 "ObeliskCore",
                 "ObeliskData",
-                .product(name: "PowerSync", package: "powersync-swift"),
             ]
         ),
         .testTarget(
             name: "ObeliskKitTests",
-            dependencies: ["ObeliskCore", "ObeliskData", "ObeliskSync"]
+            dependencies: [
+                "ObeliskCore",
+                "ObeliskData",
+                "ObeliskSync",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ]
         ),
     ]
 )

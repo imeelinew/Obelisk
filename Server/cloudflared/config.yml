@@ -1,9 +1,0 @@
-tunnel: f843ba14-f4cf-4c3a-b8c8-1e39e94be9a6
-credentials-file: /etc/cloudflared/f843ba14-f4cf-4c3a-b8c8-1e39e94be9a6.json
-
-ingress:
-  - hostname: api.elinew.tech
-    service: http://api:8081
-  - hostname: sync.elinew.tech
-    service: http://powersync:8080
-  - service: http_status:404

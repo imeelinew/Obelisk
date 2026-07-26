@@ -9,7 +9,7 @@
   - `ObeliskSync`: authentication, session handling, and PowerSync integration.
 - Keep macOS UI and system integrations in `Obelisk/`.
 - Keep iOS UI and system integrations in `Obelisk iOS/`.
-- Keep backend code and deployment configuration in `Server/`.
+- Keep the Cloudflare Worker sync backend in `Server/worker/`.
 - Never import AppKit or UIKit into `ObeliskKit`. Shared SwiftUI code is acceptable only when it is genuinely identical on both platforms.
 
 ## Product decisions
@@ -31,12 +31,13 @@
 
 - Follow `docs/STORAGE_ARCHITECTURE.md` as the canonical storage and synchronization specification.
 - SQLite is the local source used by every UI. All writes are local-first and must work while offline or while cloud sync is disabled.
-- UI code must not issue SQL, call sync endpoints, or access authentication secrets directly. Route those operations through `ObeliskData` and `ObeliskSync`.
-- Maintain one domain model and one canonical schema across macOS, iOS, the API, and PostgreSQL. Do not add a parallel persistence path.
-- Preserve the existing HLC field-version conflict rules, tombstone deletion model, immutable usage events, and idempotent mutation handling.
+- UI code must not issue SQL, call sync endpoints, or access the access key directly. Route those operations through `ObeliskData` and `ObeliskSync`.
+- Maintain one domain model and one canonical schema across macOS, iOS, and the Worker's D1 database. Do not add a parallel persistence path.
+- Synchronization is state-based: clients upload full row state from the outbox and the server merges per-field HLC versions. Never reintroduce a replayed operation queue, and never let one bad row block other uploads.
+- Preserve the HLC field-version conflict rules, soft-delete model, immutable usage events, device-scoped browser-history reconciliation, and idempotent request handling.
 - Cloud sync remains optional. Re-enabling it must upload queued local changes and converge with remote state.
-- When cloud sync is enabled, every local create, update, delete, and usage write must begin uploading immediately, and every active device must converge automatically without a manual sync action. Foreground activation and network recovery must resume or rebuild synchronization automatically.
-- Keychain is for authentication sessions and explicit secrets only. Do not add application-level database encryption or database keys to Keychain.
+- When cloud sync is enabled, every local create, update, delete, and usage write must begin uploading immediately, and every active device must converge automatically without a manual sync action. Foreground activation and network recovery must resume synchronization automatically.
+- Keychain is for the sync access key and explicit secrets only. Do not add application-level database encryption or database keys to Keychain.
 
 ## Change policy
 
@@ -56,11 +57,11 @@ Test every completed step at the narrowest useful level, then run the affected t
 swift test --package-path Packages/ObeliskKit
 xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug -destination 'platform=macOS' build
 xcodebuild -project Obelisk.xcodeproj -scheme 'Obelisk iOS' -configuration Debug -destination 'generic/platform=iOS Simulator' build
-(cd Server && go test ./...)
+(cd Server/worker && npm test && npm run typecheck)
 ```
 
 - Run shared package tests after changing domain, data, or sync code.
 - Build both app targets after changing shared code.
-- Run server tests after changing API, schema, authentication, or merge behavior.
+- Run Worker tests after changing endpoints, the D1 schema, or merge behavior.
 - Add focused regression tests for every fixed bug and every non-trivial domain rule.
 - Before finishing, review the complete diff, remove dead code and temporary artifacts, and report exactly what was tested.

@@ -1,312 +1,406 @@
 import Foundation
-import ObeliskData
+import Network
 import Observation
-import PowerSync
+import ObeliskData
 
+/// Push/pull sync engine over the Worker API.
+///
+/// Local writes land in `outbox`; the engine uploads full row state, the
+/// server merges per-field HLC versions, and pulls apply remote pages back
+/// with the same merge rules. Every row is handled independently, so one bad
+/// row can never block the queue. All triggers funnel into one serialized
+/// sync pass: outbox growth, a 30-second timer, app activation, and network
+/// recovery.
 @MainActor
 @Observable
 public final class CloudSyncController {
-    public static let enabledKey = "cloudSyncEnabled"
-    public static let accountEmailKey = "cloudSyncAccountEmail"
-
-    public enum Phase: Equatable {
+    public enum Phase: Equatable, Sendable {
         case off
-        case authenticationRequired
-        case connecting
-        case uploading
-        case downloading
+        case notConfigured
+        case waiting
         case syncing
         case synced
-        case offline
         case failed
     }
 
-    public private(set) var isEnabled = false
-    public private(set) var accountEmail: String?
+    public private(set) var phase: Phase = .off
     public private(set) var pendingUploadCount = 0
-    public private(set) var connected = false
-    public private(set) var connecting = false
-    public private(set) var uploading = false
-    public private(set) var downloading = false
     public private(set) var lastSyncedAt: Date?
     public private(set) var syncError: String?
-    public private(set) var apiAvailable: Bool?
-    public private(set) var isPerformingAction = false
     public private(set) var isTestingConnection = false
+    public private(set) var isPerformingAction = false
+    public private(set) var serverURLString: String
+    public private(set) var hasAccessKey = false
 
-    public let apiHost: String
-    public let powerSyncHost: String
-
-    private let database: ObeliskDatabase
-    private let authClient: ObeliskAuthClient
-    private let defaults: UserDefaults
-    private var session: ObeliskAuthSession?
-    private var statusTask: Task<Void, Never>?
-    private var pendingCountTask: Task<Void, Never>?
-    private var connectionStarted = false
-
-    public init(
-        database: ObeliskDatabase,
-        authClient: ObeliskAuthClient,
-        defaults: UserDefaults = .standard
-    ) {
-        self.database = database
-        self.authClient = authClient
-        self.defaults = defaults
-        self.apiHost = authClient.configuration.apiURL.host
-            ?? authClient.configuration.apiURL.absoluteString
-        self.powerSyncHost = authClient.configuration.powerSyncURL.host
-            ?? authClient.configuration.powerSyncURL.absoluteString
+    public var isEnabled: Bool {
+        defaults.bool(forKey: Self.enabledKey)
     }
 
-    public var phase: Phase {
-        if !isEnabled { return .off }
-        if syncError != nil { return .failed }
-        if !isAuthenticated { return .authenticationRequired }
-        if connecting { return .connecting }
-        if uploading && downloading { return .syncing }
-        if uploading { return .uploading }
-        if downloading { return .downloading }
-        if connected && pendingUploadCount > 0 { return .uploading }
-        if connected { return .synced }
-        return .offline
-    }
-
-    public var isAuthenticated: Bool {
-        session != nil
+    public var isConfigured: Bool {
+        serverURL != nil && hasAccessKey
     }
 
     public var statusTitle: String {
         switch phase {
-        case .off: return "已关闭"
-        case .authenticationRequired: return "需要登录"
-        case .connecting: return "正在连接"
-        case .uploading: return "正在上传"
-        case .downloading: return "正在下载"
-        case .syncing: return "正在同步"
-        case .synced: return "已同步"
-        case .offline: return "等待连接"
-        case .failed: return "同步失败"
+        case .off: "已关闭"
+        case .notConfigured: "未配置"
+        case .waiting: "等待同步"
+        case .syncing: "正在同步"
+        case .synced: "已同步"
+        case .failed: "同步失败"
         }
     }
 
-    public var apiStatusTitle: String {
-        if isTestingConnection { return "测试中…" }
-        switch apiAvailable {
-        case true: return "可用"
-        case false: return "不可用"
-        case nil: return "未检测"
-        }
+    private static let enabledKey = "cloudSyncEnabled"
+    private static let serverURLKey = "cloudSyncServerURL"
+    private static let lastSyncedKey = "cloudSyncLastSyncedAt"
+
+    private let database: ObeliskDatabase
+    private let defaults: UserDefaults
+    private let accessKeyStore: any SyncAccessKeyStoring
+    private let engine: SyncEngine
+
+    @ObservationIgnored private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var wantsAnotherPass = false
+    @ObservationIgnored private var observationTask: Task<Void, Never>?
+    @ObservationIgnored private var timerTask: Task<Void, Never>?
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored private var networkWasSatisfied = true
+
+    public init(
+        database: ObeliskDatabase,
+        defaults: UserDefaults = .standard,
+        accessKeyStore: any SyncAccessKeyStoring = SyncAccessKeyStore()
+    ) {
+        self.database = database
+        self.defaults = defaults
+        self.accessKeyStore = accessKeyStore
+        self.engine = SyncEngine(database: database)
+        self.serverURLString = defaults.string(forKey: Self.serverURLKey) ?? ""
+        let lastSynced = defaults.double(forKey: Self.lastSyncedKey)
+        self.lastSyncedAt = lastSynced > 0 ? Date(timeIntervalSince1970: lastSynced) : nil
     }
 
-    public var powerSyncStatusTitle: String {
-        if !isEnabled { return "未启用" }
-        if connecting { return "连接中" }
-        return connected ? "已连接" : "未连接"
+    private var serverURL: URL? {
+        let trimmed = serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            !trimmed.isEmpty,
+            let url = URL(string: trimmed),
+            url.scheme == "https" || url.scheme == "http"
+        else {
+            return nil
+        }
+        return url
     }
+
+    // MARK: - Lifecycle
 
     public func start() async {
-        isEnabled = defaults.bool(forKey: Self.enabledKey)
-        observeStatus()
-        observePendingUploadCount()
-
-        guard isEnabled else { return }
-        await loadSession()
-        if session != nil {
-            await connectIfNeeded()
-        }
+        hasAccessKey = (try? accessKeyStore.load()) != nil
+        pendingUploadCount = (try? database.loadPendingUploadCount()) ?? 0
+        await reloadEngineCredentials()
+        refreshPhase()
+        startObservingOutbox()
+        startNetworkMonitor()
+        applyEnabledState()
     }
 
     public func setEnabled(_ enabled: Bool) async {
-        guard enabled != isEnabled else { return }
-        isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
         syncError = nil
-
-        if enabled {
-            if session == nil {
-                await loadSession()
-            }
-            if session != nil {
-                await connectIfNeeded()
-            }
-        } else {
-            await disconnect()
-        }
+        applyEnabledState()
     }
 
-    public func login(email: String, password: String) async throws {
-        isPerformingAction = true
-        syncError = nil
-        defer { isPerformingAction = false }
-
-        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let authenticated = try await authClient.login(email: normalizedEmail, password: password)
-        do {
-            try database.bindToCloudAccount(authenticated.accountID)
-        } catch {
-            try? await authClient.signOut()
-            throw error
+    /// Saves the service address and access key, then starts a full sync.
+    /// An empty key keeps the previously saved one.
+    public func saveService(serverURL: String, accessKey: String) async throws {
+        let trimmedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedKey = accessKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            let url = URL(string: trimmedURL),
+            url.scheme == "https" || url.scheme == "http"
+        else {
+            throw ObeliskSyncError.server("服务地址必须是 http(s) URL")
         }
-        session = authenticated
-        accountEmail = normalizedEmail
-        defaults.set(normalizedEmail, forKey: Self.accountEmailKey)
-        isEnabled = true
-        defaults.set(true, forKey: Self.enabledKey)
-        apiAvailable = true
-        await connectIfNeeded()
-    }
+        let effectiveKey = trimmedKey.isEmpty ? ((try? accessKeyStore.load()) ?? "") : trimmedKey
+        guard !effectiveKey.isEmpty else {
+            throw ObeliskSyncError.notConfigured
+        }
 
-    public func signOut() async throws {
         isPerformingAction = true
         defer { isPerformingAction = false }
 
-        await disconnect()
-        try await authClient.signOut()
-        session = nil
-        accountEmail = nil
-        isEnabled = false
+        // Validate address and key before persisting anything. A cursor past
+        // any real sequence returns an empty page cheaply.
+        _ = try await ObeliskSyncClient(baseURL: url, accessKey: effectiveKey)
+            .changes(since: Int64(9_007_199_254_740_991))
+
+        defaults.set(trimmedURL, forKey: Self.serverURLKey)
+        serverURLString = trimmedURL
+        try accessKeyStore.save(effectiveKey)
+        hasAccessKey = true
         syncError = nil
-        apiAvailable = nil
-        defaults.set(false, forKey: Self.enabledKey)
-        defaults.removeObject(forKey: Self.accountEmailKey)
+        try database.resetSyncCursor()
+        await reloadEngineCredentials()
+        applyEnabledState()
     }
 
-    public func resume() async {
-        guard isEnabled else { return }
-        if session == nil {
-            await loadSession()
-        }
-        guard session != nil else { return }
-        syncError = nil
-        await connectIfNeeded()
+    public func resume() {
+        guard isEnabled, isConfigured else { return }
+        requestSync()
     }
 
     public func retry() async {
-        guard isEnabled else { return }
-        isPerformingAction = true
-        defer { isPerformingAction = false }
-        await resume()
-    }
-
-    @discardableResult
-    public func finishPendingUploads(timeout: Duration = .seconds(20)) async -> Bool {
-        guard isEnabled else { return true }
-        if session == nil {
-            await loadSession()
-        }
-        guard session != nil else { return false }
-        await resume()
-
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        do {
-            while clock.now < deadline {
-                let count = try database.loadPendingUploadCount()
-                pendingUploadCount = count
-                if count == 0 { return true }
-                try await Task.sleep(for: .milliseconds(100))
-            }
-            pendingUploadCount = try database.loadPendingUploadCount()
-            return pendingUploadCount == 0
-        } catch is CancellationError {
-            return false
-        } catch {
-            syncError = error.localizedDescription
-            return false
-        }
+        syncError = nil
+        refreshPhase()
+        requestSync()
     }
 
     public func testConnection() async {
+        guard let url = serverURL else {
+            syncError = ObeliskSyncError.notConfigured.errorDescription
+            return
+        }
         isTestingConnection = true
         defer { isTestingConnection = false }
         do {
-            try await authClient.testAPIConnection()
-            apiAvailable = true
+            let key = (try? accessKeyStore.load()) ?? ""
+            let client = ObeliskSyncClient(baseURL: url, accessKey: key)
+            try await client.testConnection()
+            // Health check passes without auth; exercise the key as well.
+            _ = try await client.changes(since: Int64(9_007_199_254_740_991))
             syncError = nil
-            if isEnabled, session != nil {
-                await connectIfNeeded()
-            }
-        } catch {
-            apiAvailable = false
-            syncError = error.localizedDescription
-        }
-    }
-
-    private func connectIfNeeded() async {
-        guard let session, !connectionStarted else { return }
-        connectionStarted = true
-        do {
-            try database.bindToCloudAccount(session.accountID)
-            let connector = ObeliskPowerSyncConnector(auth: authClient)
-            try await database.powerSync.connect(connector: connector)
-        } catch {
-            connectionStarted = false
-            syncError = error.localizedDescription
-        }
-    }
-
-    private func loadSession() async {
-        do {
-            session = try await authClient.restoreSession()
-            if session != nil {
-                accountEmail = defaults.string(forKey: Self.accountEmailKey)
-            }
         } catch {
             syncError = error.localizedDescription
         }
+        refreshPhase()
     }
 
-    private func disconnect() async {
-        do {
-            try await database.powerSync.disconnect()
-            connectionStarted = false
-        } catch {
-            syncError = error.localizedDescription
+    // MARK: - Engine wiring
+
+    private func applyEnabledState() {
+        refreshPhase()
+        guard isEnabled, isConfigured else {
+            timerTask?.cancel()
+            timerTask = nil
+            return
         }
-    }
-
-    private func observeStatus() {
-        statusTask?.cancel()
-        let status = database.powerSync.currentStatus
-        statusTask = Task { [weak self] in
-            for await update in status.asFlow() {
-                guard !Task.isCancelled else { return }
-                self?.connected = update.connected
-                self?.connecting = update.connecting
-                self?.uploading = update.uploading
-                self?.downloading = update.downloading
-                self?.lastSyncedAt = update.lastSyncedAt
-                if let error = update.anyError, !Self.isExpectedCancellation(error) {
-                    self?.syncError = String(describing: error)
-                } else if update.connected {
-                    self?.apiAvailable = true
-                    self?.syncError = nil
-                }
-            }
+        if (try? database.syncCursor()) ?? 0 == 0 {
+            // First contact with this server: upload the complete local
+            // library so the merge can converge both sides.
+            try? database.enqueueFullPush()
         }
+        startTimer()
+        requestSync()
     }
 
-    private func observePendingUploadCount() {
-        pendingCountTask?.cancel()
-        let database = database
-        pendingCountTask = Task { [weak self] in
+    private func reloadEngineCredentials() async {
+        let client: ObeliskSyncClient?
+        if let url = serverURL, let key = try? accessKeyStore.load() {
+            client = ObeliskSyncClient(baseURL: url, accessKey: key)
+        } else {
+            client = nil
+        }
+        await engine.setClient(client)
+    }
+
+    private func startObservingOutbox() {
+        observationTask?.cancel()
+        observationTask = Task { [weak self, database] in
             do {
                 for try await count in database.pendingUploadCounts() {
-                    guard !Task.isCancelled else { return }
-                    self?.pendingUploadCount = count
+                    guard let self else { return }
+                    self.pendingUploadCount = count
+                    self.refreshPhase()
+                    if count > 0, self.isEnabled, self.isConfigured {
+                        self.requestSync()
+                    }
                 }
             } catch {
-                self?.syncError = error.localizedDescription
+                // Observation only stops when the database closes.
             }
         }
     }
 
-    private static func isExpectedCancellation(_ error: Any) -> Bool {
-        if error is CancellationError {
-            return true
+    private func startTimer() {
+        guard timerTask == nil else { return }
+        timerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard let self, self.isEnabled, self.isConfigured else { continue }
+                self.requestSync()
+            }
         }
-        guard let error = error as? NSError else { return false }
-        return error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled
+    }
+
+    private func startNetworkMonitor() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        pathMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let recovered = satisfied && !self.networkWasSatisfied
+                self.networkWasSatisfied = satisfied
+                if recovered, self.isEnabled, self.isConfigured {
+                    self.requestSync()
+                }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "obelisk.sync.network-monitor"))
+    }
+
+    private func requestSync() {
+        guard isEnabled, isConfigured else { return }
+        if syncTask != nil {
+            wantsAnotherPass = true
+            return
+        }
+        syncTask = Task { [weak self] in
+            await self?.runSyncLoop()
+        }
+    }
+
+    private func runSyncLoop() async {
+        defer { syncTask = nil }
+        repeat {
+            wantsAnotherPass = false
+            phase = .syncing
+            let outcome = await engine.performSync()
+            pendingUploadCount = (try? database.loadPendingUploadCount()) ?? pendingUploadCount
+            switch outcome {
+            case .success(let rejectedMessage):
+                lastSyncedAt = Date()
+                defaults.set(lastSyncedAt!.timeIntervalSince1970, forKey: Self.lastSyncedKey)
+                syncError = rejectedMessage
+            case .failure(let message):
+                syncError = message
+            case .skipped:
+                break
+            }
+            refreshPhase()
+        } while wantsAnotherPass && isEnabled
+    }
+
+    private func refreshPhase() {
+        if !isEnabled {
+            phase = .off
+        } else if !isConfigured {
+            phase = .notConfigured
+        } else if syncTask != nil {
+            phase = .syncing
+        } else if syncError != nil {
+            phase = .failed
+        } else if pendingUploadCount > 0 {
+            phase = .waiting
+        } else if lastSyncedAt != nil {
+            phase = .synced
+        } else {
+            phase = .waiting
+        }
+    }
+}
+
+/// Off-main-actor worker that performs one full push + pull pass. Database
+/// calls are synchronous SQLite operations and must not block the UI.
+actor SyncEngine {
+    enum Outcome: Sendable {
+        case success(rejectedMessage: String?)
+        case failure(String)
+        case skipped
+    }
+
+    private let database: ObeliskDatabase
+    private var client: ObeliskSyncClient?
+
+    init(database: ObeliskDatabase) {
+        self.database = database
+    }
+
+    func setClient(_ client: ObeliskSyncClient?) {
+        self.client = client
+    }
+
+    func performSync() async -> Outcome {
+        guard let client else { return .skipped }
+        do {
+            let rejectedMessage = try await push(client)
+            try await pull(client)
+            return .success(rejectedMessage: rejectedMessage)
+        } catch is CancellationError {
+            return .skipped
+        } catch {
+            return .failure(error.localizedDescription)
+        }
+    }
+
+    private func push(_ client: ObeliskSyncClient) async throws -> String? {
+        var rejectedMessage: String?
+        // Rows rejected in this pass are skipped until the next sync so a
+        // failing row is attempted at most once per pass.
+        var rejectedKeys = Set<String>()
+        while true {
+            let batch = try database.outboxBatch()
+                .filter { !rejectedKeys.contains("\($0.tableName)/\($0.rowID)") }
+            guard !batch.isEmpty else { break }
+            var progressed = false
+
+            var rowEntries: [SyncOutboxEntry] = []
+            var payloads: [SyncPushRow] = []
+            for entry in batch {
+                if entry.tableName == ObeliskDatabase.historyOutboxTable {
+                    let records = try database.localHistoryRecords()
+                    try await client.reconcileHistory(deviceID: database.deviceID, records: records)
+                    try database.completeOutboxEntries([entry])
+                    progressed = true
+                } else if let payload = try database.pushRow(for: entry) {
+                    rowEntries.append(entry)
+                    payloads.append(payload)
+                } else {
+                    // Row vanished locally; nothing to upload.
+                    try database.completeOutboxEntries([entry])
+                    progressed = true
+                }
+            }
+
+            if !payloads.isEmpty {
+                let response = try await client.push(payloads)
+                var resultsByKey: [String: ObeliskSyncClient.PushRowResult] = [:]
+                for result in response.results {
+                    resultsByKey["\(result.table)/\(result.id.lowercased())"] = result
+                }
+                var completed: [SyncOutboxEntry] = []
+                for entry in rowEntries {
+                    guard let result = resultsByKey["\(entry.tableName)/\(entry.rowID)"] else {
+                        continue
+                    }
+                    if result.isApplied {
+                        completed.append(entry)
+                        progressed = true
+                    } else {
+                        let message = result.error ?? "row rejected"
+                        try database.recordOutboxFailure(entry, message: message)
+                        rejectedKeys.insert("\(entry.tableName)/\(entry.rowID)")
+                        rejectedMessage = "部分数据被服务器拒绝：\(message)"
+                    }
+                }
+                try database.completeOutboxEntries(completed)
+            }
+
+            guard progressed else { break }
+        }
+        return rejectedMessage
+    }
+
+    private func pull(_ client: ObeliskSyncClient) async throws {
+        var cursor = try database.syncCursor()
+        while true {
+            let page = try await client.changes(since: cursor)
+            try database.applyRemoteChanges(page)
+            try database.setSyncCursor(page.cursor)
+            cursor = page.cursor
+            guard page.hasMore else { break }
+        }
     }
 }

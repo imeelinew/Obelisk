@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "obelisk-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "obelisk-sync",
+      "database_id": "b6207f7a-1d4c-483b-b0c7-eedc0ee6b1f9",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

@@ -38,6 +38,11 @@ public struct LogicalClock: Sendable {
         if milliseconds > lastMilliseconds {
             lastMilliseconds = milliseconds
             counter = 0
+        } else if counter == .max {
+            // Counter saturation within one millisecond: advance the logical
+            // clock instead of trapping on overflow.
+            lastMilliseconds += 1
+            counter = 0
         } else {
             counter += 1
         }
@@ -50,17 +55,24 @@ public struct LogicalClock: Sendable {
 
     public mutating func observe(_ remote: LogicalTimestamp, now: Date = Date()) -> LogicalTimestamp {
         let localNow = Int64(now.timeIntervalSince1970 * 1_000)
-        let maximum = max(localNow, lastMilliseconds, remote.milliseconds)
+        var maximum = max(localNow, lastMilliseconds, remote.milliseconds)
 
+        let observedCounter: UInt64
         switch (maximum == lastMilliseconds, maximum == remote.milliseconds) {
         case (true, true):
-            counter = max(counter, remote.counter) + 1
+            observedCounter = UInt64(max(counter, remote.counter)) + 1
         case (true, false):
-            counter += 1
+            observedCounter = UInt64(counter) + 1
         case (false, true):
-            counter = remote.counter + 1
+            observedCounter = UInt64(remote.counter) + 1
         case (false, false):
+            observedCounter = 0
+        }
+        if observedCounter > UInt64(UInt32.max) {
+            maximum += 1
             counter = 0
+        } else {
+            counter = UInt32(observedCounter)
         }
 
         lastMilliseconds = maximum

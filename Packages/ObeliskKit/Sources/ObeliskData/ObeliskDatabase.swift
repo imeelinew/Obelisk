@@ -2,24 +2,19 @@ import CryptoKit
 import Foundation
 import GRDB
 import ObeliskCore
-import PowerSync
-import PowerSyncGRDB
 
-private struct StoredBrowserHistoryRecord: Equatable {
-    let browser: String
-    let profileName: String
-    let title: String
-    let url: String
-    let visitedAt: String
-}
-
+/// Local SQLite database and the client half of the state-based sync
+/// protocol. Every domain write runs in one transaction that also registers
+/// the touched row in `outbox`; the sync engine uploads full row state and
+/// merges remote rows back with the same per-field HLC rules the server uses.
 public final class ObeliskDatabase: @unchecked Sendable {
     public static let fileName = "obelisk-sync.sqlite"
+    public static let historyOutboxTable = "browser_history"
+    static let historyOutboxRowID = "local-device"
 
     public let rootDirectory: URL
     public let fileURL: URL
     public let deviceID: UUID
-    public let powerSync: any PowerSyncDatabaseProtocol
 
     private let pool: DatabasePool
 
@@ -35,33 +30,26 @@ public final class ObeliskDatabase: @unchecked Sendable {
         )
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rootDirectory.path)
         var configuration = Configuration()
-        try configuration.configurePowerSync(schema: ObeliskSchema.current)
+        configuration.busyMode = .timeout(5)
         let pool = try DatabasePool(path: fileURL.path, configuration: configuration)
         self.pool = pool
-        self.powerSync = openPowerSyncWithGRDB(
-            pool: pool,
-            schema: ObeliskSchema.current,
-            identifier: fileURL.path
-        )
+        try ObeliskSchema.migrator().migrate(pool)
         try applyPrivatePermissions()
     }
 
     public static func open(
         rootDirectory: URL,
         deviceID: UUID
-    ) async throws -> ObeliskDatabase {
+    ) throws -> ObeliskDatabase {
         let database = try ObeliskDatabase(
             rootDirectory: rootDirectory,
             deviceID: deviceID
         )
-        _ = try await database.powerSync.getPowerSyncVersion()
         try database.removeUnsupportedBrowserHistoryData()
         return database
     }
 
-    public func bindToCloudAccount(_ accountID: UUID) throws {
-        try bind(to: accountID)
-    }
+    // MARK: - Snapshot
 
     public func loadSnapshot() throws -> ObeliskLibrarySnapshot {
         try pool.read { database in
@@ -171,42 +159,26 @@ public final class ObeliskDatabase: @unchecked Sendable {
         }
     }
 
-    public func libraryChanges() -> AsyncThrowingStream<Void, any Error> {
-        let pool = pool
-        let observation = ValueObservation
-            .tracking { database in
-                try String.fetchAll(
-                    database,
-                    sql: """
-                    SELECT 'bookmark:' || id || ':' || updated_at FROM bookmarks
-                    UNION ALL
-                    SELECT 'collection:' || id || ':' || updated_at FROM collections
-                    UNION ALL
-                    SELECT 'usage:' || id || ':' || occurred_at FROM usage_events
-                    UNION ALL
-                    SELECT 'history:' || id || ':' || visited_at FROM browser_history_events
-                    UNION ALL
-                    SELECT 'history-settings:' || id || ':' || updated_at FROM browser_history_settings
-                    """
-                )
-            }
-            .removeDuplicates()
+    // MARK: - Observation
 
+    /// Emits after every committed transaction that touches library tables,
+    /// including remote changes applied by the sync engine.
+    public func libraryChanges() -> AsyncThrowingStream<Void, any Error> {
+        let observation = DatabaseRegionObservation(tracking: [
+            Table("bookmarks"),
+            Table("collections"),
+            Table("usage_events"),
+            Table("browser_history_events"),
+            Table("browser_history_settings"),
+        ])
+        let pool = pool
         return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    for try await _ in observation.values(in: pool) {
-                        guard !Task.isCancelled else { break }
-                        continuation.yield(())
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
+            let cancellable = observation.start(
+                in: pool,
+                onError: { error in continuation.finish(throwing: error) },
+                onChange: { _ in continuation.yield(()) }
+            )
+            continuation.onTermination = { _ in cancellable.cancel() }
         }
     }
 
@@ -214,7 +186,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
         let pool = pool
         let observation = ValueObservation
             .tracking { database in
-                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM ps_crud") ?? 0
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM outbox") ?? 0
             }
             .removeDuplicates()
 
@@ -238,13 +210,15 @@ public final class ObeliskDatabase: @unchecked Sendable {
 
     public func loadPendingUploadCount() throws -> Int {
         try pool.read { database in
-            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM ps_crud") ?? 0
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM outbox") ?? 0
         }
     }
 
+    // MARK: - Domain writes
+
     public func saveBookmark(_ bookmark: Bookmark, collectionID: UUID?) throws {
         let now = Date()
-        try writeMutation { database in
+        try pool.write { database in
             let id = bookmark.id.uuidString.lowercased()
             let current = try Row.fetchOne(
                 database,
@@ -257,10 +231,9 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 """,
                 arguments: [id]
             )
-            let mutationID = UUID().uuidString.lowercased()
             if let current {
                 var versions = try Self.decodeVersions(current["field_versions"])
-                let timestamp = try nextTimestamp(database, observing: Array(versions.values), now: now)
+                let timestamp = try self.nextTimestamp(database, observing: Array(versions.values), now: now)
                 let collection = collectionID?.uuidString.lowercased()
                 let archived = bookmark.archivedAt.map(Self.encodeDate)
                 var changed = false
@@ -279,7 +252,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     UPDATE bookmarks SET
                         collection_id = ?, title = ?, url = ?, title_optimized = ?,
                         is_hidden = ?, archived_at = ?, is_pinned = ?, original_title = ?,
-                        field_versions = ?, updated_at = ?, deleted_at = NULL, _metadata = ?
+                        field_versions = ?, updated_at = ?, deleted_at = NULL
                     WHERE id = ?
                     """,
                     arguments: [
@@ -293,12 +266,11 @@ public final class ObeliskDatabase: @unchecked Sendable {
                         bookmark.originalTitle,
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
-                        mutationID,
                         id,
                     ]
                 )
             } else {
-                let timestamp = try nextTimestamp(database, now: now)
+                let timestamp = try self.nextTimestamp(database, now: now)
                 let position = Self.bookmarkPosition(bookmark)
                 let versionedFields = [
                     "collection_id", "title", "url", "title_optimized", "is_hidden",
@@ -310,8 +282,8 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     INSERT INTO bookmarks (
                         id, collection_id, title, url, title_optimized,
                         is_hidden, archived_at, is_pinned, original_title,
-                        position_key, field_versions, created_at, updated_at, deleted_at, _metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                        position_key, field_versions, created_at, updated_at, deleted_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     arguments: [
                         id,
@@ -327,16 +299,16 @@ public final class ObeliskDatabase: @unchecked Sendable {
                         try Self.encodeVersions(versions),
                         Self.encodeDate(bookmark.createdAt),
                         Self.encodeDate(now),
-                        mutationID,
                     ]
                 )
             }
+            try Self.enqueueOutbox(database, table: "bookmarks", rowID: id, now: now)
         }
     }
 
     public func saveCollection(_ collection: BookmarkCollection) throws {
         let now = Date()
-        try writeMutation { database in
+        try pool.write { database in
             let id = collection.id.uuidString.lowercased()
             let current = try Row.fetchOne(
                 database,
@@ -347,11 +319,10 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 """,
                 arguments: [id]
             )
-            let mutationID = UUID().uuidString.lowercased()
             let position = Self.collectionPosition(collection.sortOrder)
             if let current {
                 var versions = try Self.decodeVersions(current["field_versions"])
-                let timestamp = try nextTimestamp(database, observing: Array(versions.values), now: now)
+                let timestamp = try self.nextTimestamp(database, observing: Array(versions.values), now: now)
                 var changed = false
                 Self.markChange("name", current["name"] as String, collection.name, timestamp, &versions, &changed)
                 Self.markChange("position_key", current["position_key"] as String, position, timestamp, &versions, &changed)
@@ -362,7 +333,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     sql: """
                     UPDATE collections SET
                         name = ?, position_key = ?, show_in_menu = ?,
-                        field_versions = ?, updated_at = ?, deleted_at = NULL, _metadata = ?
+                        field_versions = ?, updated_at = ?, deleted_at = NULL
                     WHERE id = ?
                     """,
                     arguments: [
@@ -371,20 +342,19 @@ public final class ObeliskDatabase: @unchecked Sendable {
                         collection.showInMenu,
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
-                        mutationID,
                         id,
                     ]
                 )
             } else {
-                let timestamp = try nextTimestamp(database, now: now)
+                let timestamp = try self.nextTimestamp(database, now: now)
                 let versionedFields = ["name", "position_key", "show_in_menu", "deleted_at"]
                 let versions = Dictionary(uniqueKeysWithValues: versionedFields.map { ($0, timestamp) })
                 try database.execute(
                     sql: """
                     INSERT INTO collections (
                         id, name, position_key, show_in_menu,
-                        field_versions, created_at, updated_at, deleted_at, _metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                        field_versions, created_at, updated_at, deleted_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     arguments: [
                         id,
@@ -394,95 +364,98 @@ public final class ObeliskDatabase: @unchecked Sendable {
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
                         Self.encodeDate(now),
-                        mutationID,
                     ]
                 )
             }
+            try Self.enqueueOutbox(database, table: "collections", rowID: id, now: now)
         }
     }
 
     public func deleteBookmark(id: UUID, at date: Date = Date()) throws {
-        try writeMutation { database in
+        try pool.write { database in
+            let rowID = id.uuidString.lowercased()
             guard let rawVersions = try String.fetchOne(
                 database,
                 sql: "SELECT field_versions FROM bookmarks WHERE id = ? AND deleted_at IS NULL",
-                arguments: [id.uuidString.lowercased()]
+                arguments: [rowID]
             ) else { return }
             var versions = try Self.decodeVersions(rawVersions)
-            let timestamp = try nextTimestamp(database, observing: Array(versions.values), now: date)
+            let timestamp = try self.nextTimestamp(database, observing: Array(versions.values), now: date)
             versions["deleted_at"] = timestamp
             versions["is_pinned"] = timestamp
             try database.execute(
                 sql: """
                 UPDATE bookmarks
-                SET deleted_at = ?, updated_at = ?, is_pinned = 0,
-                    field_versions = ?, _metadata = ?
+                SET deleted_at = ?, updated_at = ?, is_pinned = 0, field_versions = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 arguments: [
                     Self.encodeDate(date),
                     Self.encodeDate(date),
                     try Self.encodeVersions(versions),
-                    UUID().uuidString.lowercased(),
-                    id.uuidString.lowercased(),
+                    rowID,
                 ]
             )
+            try Self.enqueueOutbox(database, table: "bookmarks", rowID: rowID, now: date)
         }
     }
 
     public func deleteCollection(id: UUID, at date: Date = Date()) throws {
-        try writeMutation { database in
+        try pool.write { database in
+            let rowID = id.uuidString.lowercased()
             guard let rawVersions = try String.fetchOne(
                 database,
                 sql: "SELECT field_versions FROM collections WHERE id = ? AND deleted_at IS NULL",
-                arguments: [id.uuidString.lowercased()]
+                arguments: [rowID]
             ) else { return }
             var versions = try Self.decodeVersions(rawVersions)
-            let timestamp = try nextTimestamp(database, observing: Array(versions.values), now: date)
+            let timestamp = try self.nextTimestamp(database, observing: Array(versions.values), now: date)
             versions["deleted_at"] = timestamp
             try database.execute(
                 sql: """
                 UPDATE collections
-                SET deleted_at = ?, updated_at = ?, field_versions = ?, _metadata = ?
+                SET deleted_at = ?, updated_at = ?, field_versions = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 arguments: [
                     Self.encodeDate(date),
                     Self.encodeDate(date),
                     try Self.encodeVersions(versions),
-                    UUID().uuidString.lowercased(),
-                    id.uuidString.lowercased(),
+                    rowID,
                 ]
             )
+            try Self.enqueueOutbox(database, table: "collections", rowID: rowID, now: date)
+
             let bookmarkRows = try Row.fetchAll(
                 database,
                 sql: """
                 SELECT id, field_versions FROM bookmarks
                 WHERE collection_id = ? AND deleted_at IS NULL
                 """,
-                arguments: [id.uuidString.lowercased()]
+                arguments: [rowID]
             )
             for row in bookmarkRows {
                 var bookmarkVersions = try Self.decodeVersions(row["field_versions"])
-                let bookmarkTimestamp = try nextTimestamp(
+                let bookmarkTimestamp = try self.nextTimestamp(
                     database,
                     observing: Array(bookmarkVersions.values),
                     now: date
                 )
                 bookmarkVersions["collection_id"] = bookmarkTimestamp
+                let bookmarkID: String = row["id"]
                 try database.execute(
                     sql: """
                     UPDATE bookmarks
-                    SET collection_id = NULL, updated_at = ?, field_versions = ?, _metadata = ?
+                    SET collection_id = NULL, updated_at = ?, field_versions = ?
                     WHERE id = ?
                     """,
                     arguments: [
                         Self.encodeDate(date),
                         try Self.encodeVersions(bookmarkVersions),
-                        UUID().uuidString.lowercased(),
-                        row["id"] as String,
+                        bookmarkID,
                     ]
                 )
+                try Self.enqueueOutbox(database, table: "bookmarks", rowID: bookmarkID, now: date)
             }
         }
     }
@@ -490,48 +463,49 @@ public final class ObeliskDatabase: @unchecked Sendable {
     public func setCollection(_ collectionID: UUID?, for bookmarkIDs: Set<UUID>) throws {
         guard !bookmarkIDs.isEmpty else { return }
         let now = Date()
-        try writeMutation { database in
+        try pool.write { database in
             for bookmarkID in bookmarkIDs {
+                let rowID = bookmarkID.uuidString.lowercased()
                 guard let row = try Row.fetchOne(
                     database,
                     sql: """
                     SELECT collection_id, field_versions FROM bookmarks
                     WHERE id = ? AND deleted_at IS NULL
                     """,
-                    arguments: [bookmarkID.uuidString.lowercased()]
+                    arguments: [rowID]
                 ) else { continue }
                 let collection = collectionID?.uuidString.lowercased()
                 let current: String? = row["collection_id"]
                 guard current != collection else { continue }
                 var versions = try Self.decodeVersions(row["field_versions"])
-                let timestamp = try nextTimestamp(database, observing: Array(versions.values), now: now)
+                let timestamp = try self.nextTimestamp(database, observing: Array(versions.values), now: now)
                 versions["collection_id"] = timestamp
                 try database.execute(
                     sql: """
                     UPDATE bookmarks
-                    SET collection_id = ?, updated_at = ?, field_versions = ?, _metadata = ?
+                    SET collection_id = ?, updated_at = ?, field_versions = ?
                     WHERE id = ? AND deleted_at IS NULL
                     """,
                     arguments: [
                         collection,
                         Self.encodeDate(now),
                         try Self.encodeVersions(versions),
-                        UUID().uuidString.lowercased(),
-                        bookmarkID.uuidString.lowercased(),
+                        rowID,
                     ]
                 )
+                try Self.enqueueOutbox(database, table: "bookmarks", rowID: rowID, now: now)
             }
         }
     }
 
     public func recordUsage(bookmarkID: UUID, at date: Date = Date()) throws {
-        try writeMutation { database in
+        try pool.write { database in
             let eventID = UUID().uuidString.lowercased()
             try database.execute(
                 sql: """
                 INSERT INTO usage_events (
-                    id, bookmark_id, device_id, occurred_at, created_at, _metadata
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    id, bookmark_id, device_id, occurred_at, created_at
+                ) VALUES (?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     eventID,
@@ -539,15 +513,15 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     deviceID.uuidString.lowercased(),
                     Self.encodeDate(date),
                     Self.encodeDate(date),
-                    eventID,
                 ]
             )
+            try Self.enqueueOutbox(database, table: "usage_events", rowID: eventID, now: date)
         }
     }
 
     public func saveBrowserHistorySettings(_ settings: BrowserHistorySettings) throws {
         let now = Date()
-        try writeMutation { database in
+        try pool.write { database in
             let id = BrowserHistorySettings.sharedID.uuidString.lowercased()
             let current = try Row.fetchOne(
                 database,
@@ -559,11 +533,10 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 arguments: [id]
             )
             let enabledSources = settings.encodedEnabledSources
-            let mutationID = UUID().uuidString.lowercased()
 
             if let current {
                 var versions = try Self.decodeVersions(current["field_versions"])
-                let timestamp = try nextTimestamp(
+                let timestamp = try self.nextTimestamp(
                     database,
                     observing: Array(versions.values),
                     now: now
@@ -581,25 +554,24 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 try database.execute(
                     sql: """
                     UPDATE browser_history_settings
-                    SET enabled_sources = ?, field_versions = ?, updated_at = ?, _metadata = ?
+                    SET enabled_sources = ?, field_versions = ?, updated_at = ?
                     WHERE id = ?
                     """,
                     arguments: [
                         enabledSources,
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
-                        mutationID,
                         id,
                     ]
                 )
             } else {
-                let timestamp = try nextTimestamp(database, now: now)
+                let timestamp = try self.nextTimestamp(database, now: now)
                 let versions = ["enabled_sources": timestamp]
                 try database.execute(
                     sql: """
                     INSERT INTO browser_history_settings (
-                        id, enabled_sources, field_versions, created_at, updated_at, _metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        id, enabled_sources, field_versions, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
                     """,
                     arguments: [
                         id,
@@ -607,12 +579,14 @@ public final class ObeliskDatabase: @unchecked Sendable {
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
                         Self.encodeDate(now),
-                        mutationID,
                     ]
                 )
             }
+            try Self.enqueueOutbox(database, table: "browser_history_settings", rowID: id, now: now)
         }
     }
+
+    // MARK: - Browser history mirror
 
     public func reconcileBrowserHistory(
         _ records: [BrowserHistoryRecord],
@@ -620,10 +594,10 @@ public final class ObeliskDatabase: @unchecked Sendable {
     ) throws {
         guard !browsers.isEmpty else { return }
 
-        let cutoff = Date().addingTimeInterval(
+        let now = Date()
+        let cutoff = now.addingTimeInterval(
             -TimeInterval(BrowserHistoryGrouping.dayLimit) * 86_400
         )
-        try pruneBrowserHistory(before: cutoff)
         var desiredIDs = Set<UUID>()
         let desiredRecords = records
             .filter { browsers.contains($0.browser) && $0.visitedAt >= cutoff }
@@ -634,9 +608,15 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 return (id: id, record: record)
             }
         let desiredIDStrings = Set(desiredIDs.map { $0.uuidString.lowercased() })
-
         let sourceDeviceID = deviceID.uuidString.lowercased()
-        let existingRecords = try pool.read { database in
+
+        try pool.write { database in
+            try database.execute(
+                sql: "DELETE FROM browser_history_events WHERE visited_at < ?",
+                arguments: [Self.encodeDate(cutoff)]
+            )
+            var changed = database.changesCount > 0
+
             let rows = try Row.fetchAll(
                 database,
                 sql: """
@@ -646,121 +626,98 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 """,
                 arguments: [sourceDeviceID]
             )
-            return Dictionary(uniqueKeysWithValues: rows.map { row in
-                let id: String = row["id"]
-                let record = StoredBrowserHistoryRecord(
-                    browser: row["browser"],
-                    profileName: row["profile_name"],
-                    title: row["title"],
-                    url: row["url"],
-                    visitedAt: row["visited_at"]
-                )
-                return (id, record)
-            })
-        }
-        let staleIDs = existingRecords.compactMap { id, record -> String? in
-            guard
-                let browser = BrowserHistoryBrowser(rawValue: record.browser),
-                browsers.contains(browser),
-                !desiredIDStrings.contains(id)
-            else {
-                return nil
+            var existing: [String: Row] = [:]
+            for row in rows {
+                existing[row["id"]] = row
             }
-            return id
-        }
-        let insertedRecords = desiredRecords.filter {
-            existingRecords[$0.id.uuidString.lowercased()] == nil
-        }
-        let updatedRecords = desiredRecords.filter { desired in
-            guard let existing = existingRecords[desired.id.uuidString.lowercased()] else {
-                return false
-            }
-            return existing != StoredBrowserHistoryRecord(
-                browser: desired.record.browser.rawValue,
-                profileName: desired.record.profileName,
-                title: desired.record.title,
-                url: desired.record.url,
-                visitedAt: Self.encodeDate(desired.record.visitedAt)
-            )
-        }
 
-        try writeMutation { database in
-            for id in staleIDs {
-                try database.execute(
-                    sql: "UPDATE browser_history_events SET _metadata = ? WHERE id = ?",
-                    arguments: [UUID().uuidString.lowercased(), id]
-                )
+            for (id, row) in existing {
+                let browserValue: String = row["browser"]
+                guard
+                    let browser = BrowserHistoryBrowser(rawValue: browserValue),
+                    browsers.contains(browser),
+                    !desiredIDStrings.contains(id)
+                else { continue }
                 try database.execute(
                     sql: "DELETE FROM browser_history_events WHERE id = ?",
                     arguments: [id]
                 )
+                changed = true
             }
 
-            for desired in insertedRecords {
+            for desired in desiredRecords {
+                let id = desired.id.uuidString.lowercased()
                 let record = desired.record
-                try database.execute(
-                    sql: """
-                    INSERT INTO browser_history_events (
-                        id, source_device_id, browser, profile_name, title,
-                        url, visited_at, created_at, _metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    arguments: [
-                        desired.id.uuidString.lowercased(),
-                        sourceDeviceID,
-                        record.browser.rawValue,
-                        record.profileName,
-                        record.title,
-                        record.url,
-                        Self.encodeDate(record.visitedAt),
-                        Self.encodeDate(Date()),
-                        UUID().uuidString.lowercased(),
-                    ]
-                )
+                let visited = Self.encodeDate(record.visitedAt)
+                if let row = existing[id] {
+                    let matches = row["browser"] as String == record.browser.rawValue
+                        && row["profile_name"] as String == record.profileName
+                        && row["title"] as String == record.title
+                        && row["url"] as String == record.url
+                        && row["visited_at"] as String == visited
+                    guard !matches else { continue }
+                    try database.execute(
+                        sql: """
+                        UPDATE browser_history_events
+                        SET browser = ?, profile_name = ?, title = ?, url = ?, visited_at = ?
+                        WHERE id = ? AND source_device_id = ?
+                        """,
+                        arguments: [
+                            record.browser.rawValue,
+                            record.profileName,
+                            record.title,
+                            record.url,
+                            visited,
+                            id,
+                            sourceDeviceID,
+                        ]
+                    )
+                } else {
+                    try database.execute(
+                        sql: """
+                        INSERT INTO browser_history_events (
+                            id, source_device_id, browser, profile_name, title,
+                            url, visited_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        arguments: [
+                            id,
+                            sourceDeviceID,
+                            record.browser.rawValue,
+                            record.profileName,
+                            record.title,
+                            record.url,
+                            visited,
+                            Self.encodeDate(Date()),
+                        ]
+                    )
+                }
+                changed = true
             }
 
-            for desired in updatedRecords {
-                let record = desired.record
-                try database.execute(
-                    sql: """
-                    UPDATE browser_history_events
-                    SET browser = ?, profile_name = ?, title = ?, url = ?,
-                        visited_at = ?, _metadata = ?
-                    WHERE id = ? AND source_device_id = ?
-                    """,
-                    arguments: [
-                        record.browser.rawValue,
-                        record.profileName,
-                        record.title,
-                        record.url,
-                        Self.encodeDate(record.visitedAt),
-                        UUID().uuidString.lowercased(),
-                        desired.id.uuidString.lowercased(),
-                        sourceDeviceID,
-                    ]
-                )
+            if changed {
+                try Self.enqueueHistoryPush(database, now: now)
             }
         }
     }
 
     public func pruneBrowserHistory(before cutoff: Date) throws {
-        let ids = try pool.read { database in
-            try String.fetchAll(
-                database,
-                sql: "SELECT id FROM browser_history_events WHERE visited_at < ?",
+        try pool.write { database in
+            try database.execute(
+                sql: "DELETE FROM browser_history_events WHERE visited_at < ?",
                 arguments: [Self.encodeDate(cutoff)]
             )
+            if database.changesCount > 0 {
+                try Self.enqueueHistoryPush(database, now: Date())
+            }
         }
-        try deleteBrowserHistory(ids: ids)
     }
 
     private func removeUnsupportedBrowserHistoryData() throws {
-        let unsupportedIDs = try pool.read { database in
-            try String.fetchAll(
-                database,
+        try pool.write { database in
+            try database.execute(
                 sql: """
-                SELECT id
-                FROM browser_history_events
+                DELETE FROM browser_history_events
                 WHERE browser NOT IN (?, ?, ?)
                 """,
                 arguments: [
@@ -769,8 +726,10 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     BrowserHistoryBrowser.safari.rawValue,
                 ]
             )
+            if database.changesCount > 0 {
+                try Self.enqueueHistoryPush(database, now: Date())
+            }
         }
-        try deleteBrowserHistory(ids: unsupportedIDs)
 
         let storedSources: String? = try pool.read { database in
             try String.fetchOne(
@@ -789,68 +748,446 @@ public final class ObeliskDatabase: @unchecked Sendable {
         try saveBrowserHistorySettings(normalizedSettings)
     }
 
-    private func deleteBrowserHistory(ids: [String]) throws {
-        for offset in stride(from: 0, to: ids.count, by: 400) {
-            let end = min(offset + 400, ids.count)
-            let batch = ids[offset..<end]
-            try writeMutation { database in
-                for id in batch {
-                    try database.execute(
-                        sql: "UPDATE browser_history_events SET _metadata = ? WHERE id = ?",
-                        arguments: [UUID().uuidString.lowercased(), id]
-                    )
-                    try database.execute(
-                        sql: "DELETE FROM browser_history_events WHERE id = ?",
-                        arguments: [id]
-                    )
-                }
-            }
-        }
-    }
-
-    private func writeMutation(_ updates: (Database) throws -> Void) throws {
-        try pool.write { database in
-            let previousQueueID = try Int64.fetchOne(
+    /// Rows this device owns, in the shape the reconcile endpoint expects.
+    public func localHistoryRecords() throws -> [SyncHistoryRecord] {
+        try pool.read { database in
+            let rows = try Row.fetchAll(
                 database,
-                sql: "SELECT IFNULL(MAX(id), 0) FROM ps_crud"
-            ) ?? 0
-            try updates(database)
-            let currentQueueID = try Int64.fetchOne(
-                database,
-                sql: "SELECT IFNULL(MAX(id), 0) FROM ps_crud"
-            ) ?? 0
-            if currentQueueID != previousQueueID {
-                try database.notifyChanges(in: Table("ps_crud"))
-            }
-        }
-    }
-
-    private func bind(to accountID: UUID) throws {
-        let account = accountID.uuidString.lowercased()
-        try pool.write { database in
-            let existing: String? = try String.fetchOne(
-                database,
-                sql: "SELECT value FROM sync_state WHERE id = 'account_id'"
+                sql: """
+                SELECT id, browser, profile_name, title, url, visited_at, created_at
+                FROM browser_history_events
+                WHERE source_device_id = ?
+                ORDER BY visited_at DESC
+                """,
+                arguments: [deviceID.uuidString.lowercased()]
             )
-            if let existing {
-                guard existing == account else {
-                    throw ObeliskDatabaseError.accountMismatch
-                }
-                return
+            return rows.map { row in
+                SyncHistoryRecord(
+                    id: row["id"],
+                    browser: row["browser"],
+                    profileName: row["profile_name"],
+                    title: row["title"],
+                    url: row["url"],
+                    visitedAt: row["visited_at"],
+                    createdAt: row["created_at"]
+                )
             }
+        }
+    }
+
+    // MARK: - Outbox
+
+    static func enqueueOutbox(_ database: Database, table: String, rowID: String, now: Date) throws {
+        try database.execute(
+            sql: """
+            INSERT INTO outbox (table_name, row_id, queued_at, attempts, last_error)
+            VALUES (?, ?, ?, 0, NULL)
+            ON CONFLICT (table_name, row_id) DO UPDATE SET
+                queued_at = excluded.queued_at, attempts = 0, last_error = NULL
+            """,
+            arguments: [table, rowID, encodeDate(now)]
+        )
+    }
+
+    static func enqueueHistoryPush(_ database: Database, now: Date) throws {
+        try enqueueOutbox(database, table: historyOutboxTable, rowID: historyOutboxRowID, now: now)
+    }
+
+    /// Registers every current row for upload. Used for the initial push and
+    /// for recovery; with state-based merge this is always safe to repeat.
+    public func enqueueFullPush() throws {
+        let now = Date()
+        try pool.write { database in
+            for table in ["bookmarks", "collections", "usage_events", "browser_history_settings"] {
+                let ids = try String.fetchAll(database, sql: "SELECT id FROM \(table)")
+                for id in ids {
+                    try Self.enqueueOutbox(database, table: table, rowID: id, now: now)
+                }
+            }
+            try Self.enqueueHistoryPush(database, now: now)
+        }
+    }
+
+    public func outboxBatch(limit: Int = 300, maxAttempts: Int = 5) throws -> [SyncOutboxEntry] {
+        try pool.read { database in
+            let rows = try Row.fetchAll(
+                database,
+                sql: """
+                SELECT table_name, row_id, queued_at, attempts
+                FROM outbox
+                WHERE attempts < ?
+                ORDER BY queued_at, table_name, row_id
+                LIMIT ?
+                """,
+                arguments: [maxAttempts, limit]
+            )
+            return rows.map { row in
+                SyncOutboxEntry(
+                    tableName: row["table_name"],
+                    rowID: row["row_id"],
+                    queuedAt: row["queued_at"],
+                    attempts: row["attempts"]
+                )
+            }
+        }
+    }
+
+    /// Builds upload payloads for outbox entries. Returns `nil` for rows that
+    /// no longer exist locally; those entries can be completed immediately.
+    public func pushRow(for entry: SyncOutboxEntry) throws -> SyncPushRow? {
+        try pool.read { database in
+            switch entry.tableName {
+            case "bookmarks":
+                return try Self.versionedPushRow(
+                    database,
+                    table: "bookmarks",
+                    id: entry.rowID,
+                    fields: [
+                        "collection_id", "title", "url", "title_optimized", "is_hidden",
+                        "archived_at", "is_pinned", "original_title", "position_key", "deleted_at",
+                    ]
+                )
+            case "collections":
+                return try Self.versionedPushRow(
+                    database,
+                    table: "collections",
+                    id: entry.rowID,
+                    fields: ["name", "position_key", "show_in_menu", "deleted_at"]
+                )
+            case "browser_history_settings":
+                return try Self.versionedPushRow(
+                    database,
+                    table: "browser_history_settings",
+                    id: entry.rowID,
+                    fields: ["enabled_sources"]
+                )
+            case "usage_events":
+                guard let row = try Row.fetchOne(
+                    database,
+                    sql: """
+                    SELECT bookmark_id, device_id, occurred_at, created_at
+                    FROM usage_events WHERE id = ?
+                    """,
+                    arguments: [entry.rowID]
+                ) else { return nil }
+                return SyncPushRow(
+                    table: "usage_events",
+                    id: entry.rowID,
+                    values: [
+                        "bookmark_id": .string(row["bookmark_id"]),
+                        "device_id": .string(row["device_id"]),
+                        "occurred_at": .string(row["occurred_at"]),
+                        "created_at": .string(row["created_at"]),
+                    ]
+                )
+            default:
+                return nil
+            }
+        }
+    }
+
+    private static func versionedPushRow(
+        _ database: Database,
+        table: String,
+        id: String,
+        fields: [String]
+    ) throws -> SyncPushRow? {
+        guard let row = try Row.fetchOne(
+            database,
+            sql: "SELECT * FROM \(table) WHERE id = ?",
+            arguments: [id]
+        ) else { return nil }
+        var values: [String: SyncJSONValue] = [:]
+        for field in fields {
+            values[field] = jsonValue(row[field])
+        }
+        values["created_at"] = jsonValue(row["created_at"])
+        let versions = try decodeVersions(row["field_versions"])
+        return SyncPushRow(table: table, id: id, values: values, fieldVersions: versions)
+    }
+
+    private static func jsonValue(_ value: DatabaseValue) -> SyncJSONValue {
+        switch value.storage {
+        case .null:
+            return .null
+        case .int64(let integer):
+            return .integer(Int(integer))
+        case .string(let string):
+            return .string(string)
+        case .double(let double):
+            return .integer(Int(double))
+        case .blob:
+            return .null
+        }
+    }
+
+    public func completeOutboxEntries(_ entries: [SyncOutboxEntry]) throws {
+        guard !entries.isEmpty else { return }
+        try pool.write { database in
+            for entry in entries {
+                try database.execute(
+                    sql: """
+                    DELETE FROM outbox
+                    WHERE table_name = ? AND row_id = ? AND queued_at = ?
+                    """,
+                    arguments: [entry.tableName, entry.rowID, entry.queuedAt]
+                )
+            }
+        }
+    }
+
+    public func recordOutboxFailure(_ entry: SyncOutboxEntry, message: String) throws {
+        try pool.write { database in
             try database.execute(
-                sql: "INSERT INTO sync_state(id, value) VALUES ('account_id', ?)",
-                arguments: [account]
+                sql: """
+                UPDATE outbox
+                SET attempts = attempts + 1, last_error = ?
+                WHERE table_name = ? AND row_id = ? AND queued_at = ?
+                """,
+                arguments: [message, entry.tableName, entry.rowID, entry.queuedAt]
             )
         }
     }
 
-    private func applyPrivatePermissions() throws {
-        for path in [fileURL.path, fileURL.path + "-wal", fileURL.path + "-shm"]
-        where FileManager.default.fileExists(atPath: path) {
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+    // MARK: - Remote apply
+
+    public func syncCursor() throws -> Int64 {
+        try pool.read { database in
+            let raw = try String.fetchOne(
+                database,
+                sql: "SELECT value FROM sync_state WHERE id = 'cursor'"
+            )
+            return raw.flatMap(Int64.init) ?? 0
         }
     }
+
+    public func setSyncCursor(_ cursor: Int64) throws {
+        try pool.write { database in
+            try database.execute(
+                sql: """
+                INSERT INTO sync_state (id, value) VALUES ('cursor', ?)
+                ON CONFLICT (id) DO UPDATE SET value = excluded.value
+                """,
+                arguments: [String(cursor)]
+            )
+        }
+    }
+
+    public func resetSyncCursor() throws {
+        try pool.write { database in
+            try database.execute(sql: "DELETE FROM sync_state WHERE id = 'cursor'")
+        }
+    }
+
+    /// Applies one page of remote changes in a single transaction, merging
+    /// versioned rows field-by-field with the same rules the server uses.
+    /// These writes never re-enter the outbox.
+    public func applyRemoteChanges(_ page: SyncChangesPage) throws {
+        let ownDeviceID = deviceID.uuidString.lowercased()
+        try pool.write { database in
+            for row in page.collections {
+                try Self.applyRemoteVersionedRow(
+                    database,
+                    table: "collections",
+                    fields: ["name", "position_key", "show_in_menu", "deleted_at"],
+                    row: row
+                )
+            }
+            for row in page.bookmarks {
+                try Self.applyRemoteVersionedRow(
+                    database,
+                    table: "bookmarks",
+                    fields: [
+                        "collection_id", "title", "url", "title_optimized", "is_hidden",
+                        "archived_at", "is_pinned", "original_title", "position_key", "deleted_at",
+                    ],
+                    row: row
+                )
+            }
+            for row in page.browserHistorySettings {
+                try Self.applyRemoteVersionedRow(
+                    database,
+                    table: "browser_history_settings",
+                    fields: ["enabled_sources"],
+                    row: row
+                )
+            }
+            for event in page.usageEvents {
+                try database.execute(
+                    sql: """
+                    INSERT INTO usage_events (id, bookmark_id, device_id, occurred_at, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    arguments: [
+                        event.id.lowercased(),
+                        event.bookmarkID.lowercased(),
+                        event.deviceID.lowercased(),
+                        event.occurredAt,
+                        event.createdAt,
+                    ]
+                )
+            }
+            // The local browser is the source of truth for this device's own
+            // rows; only mirror rows owned by other devices.
+            for event in page.browserHistoryEvents where event.sourceDeviceID.lowercased() != ownDeviceID {
+                try database.execute(
+                    sql: """
+                    INSERT INTO browser_history_events (
+                        id, source_device_id, browser, profile_name, title,
+                        url, visited_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO UPDATE SET
+                        browser = excluded.browser,
+                        profile_name = excluded.profile_name,
+                        title = excluded.title,
+                        url = excluded.url,
+                        visited_at = excluded.visited_at
+                    """,
+                    arguments: [
+                        event.id.lowercased(),
+                        event.sourceDeviceID.lowercased(),
+                        event.browser,
+                        event.profileName,
+                        event.title,
+                        event.url,
+                        event.visitedAt,
+                        event.createdAt,
+                    ]
+                )
+            }
+            for id in page.browserHistoryDeletions {
+                try database.execute(
+                    sql: "DELETE FROM browser_history_events WHERE id = ? AND source_device_id != ?",
+                    arguments: [id.lowercased(), ownDeviceID]
+                )
+            }
+        }
+    }
+
+    private static func applyRemoteVersionedRow(
+        _ database: Database,
+        table: String,
+        fields: [String],
+        row: SyncRemoteVersionedRow
+    ) throws {
+        let current = try Row.fetchOne(
+            database,
+            sql: "SELECT * FROM \(table) WHERE id = ?",
+            arguments: [row.id]
+        )
+
+        if let current {
+            var versions = try decodeVersions(current["field_versions"])
+            var accepted: [String: SyncJSONValue] = [:]
+            for field in fields {
+                guard
+                    let value = row.values[field],
+                    let incoming = row.fieldVersions[field]
+                else { continue }
+                if let existing = versions[field], !(incoming > existing) {
+                    continue
+                }
+                accepted[field] = value
+                versions[field] = incoming
+            }
+            guard !accepted.isEmpty else { return }
+
+            if table == "bookmarks" {
+                enforcePinInvariant(current: current, accepted: &accepted, versions: &versions)
+            }
+
+            let columns = accepted.keys.sorted()
+            let sets = columns.map { "\($0) = ?" } + ["field_versions = ?", "updated_at = ?"]
+            var arguments = columns.map { databaseValue(accepted[$0]!) }
+            arguments.append(try encodeVersions(versions).databaseValue)
+            arguments.append(encodeDate(Date()).databaseValue)
+            arguments.append(row.id.databaseValue)
+            try database.execute(
+                sql: "UPDATE \(table) SET \(sets.joined(separator: ", ")) WHERE id = ?",
+                arguments: StatementArguments(arguments)
+            )
+        } else {
+            var accepted: [String: SyncJSONValue] = [:]
+            for field in fields {
+                accepted[field] = row.values[field] ?? .null
+            }
+            var versions = row.fieldVersions
+            if table == "bookmarks" {
+                enforcePinInvariant(current: nil, accepted: &accepted, versions: &versions)
+            }
+            let createdAt: String
+            if case .string(let value)? = row.values["created_at"] {
+                createdAt = value
+            } else {
+                createdAt = encodeDate(Date())
+            }
+            let columns = accepted.keys.sorted()
+            let names = ["id"] + columns + ["field_versions", "created_at", "updated_at"]
+            var arguments: [DatabaseValue] = [row.id.databaseValue]
+            arguments.append(contentsOf: columns.map { databaseValue(accepted[$0]!) })
+            arguments.append(try encodeVersions(versions).databaseValue)
+            arguments.append(createdAt.databaseValue)
+            arguments.append(encodeDate(Date()).databaseValue)
+            let placeholders = names.map { _ in "?" }.joined(separator: ", ")
+            try database.execute(
+                sql: """
+                INSERT INTO \(table) (\(names.joined(separator: ", ")))
+                VALUES (\(placeholders))
+                ON CONFLICT (id) DO NOTHING
+                """,
+                arguments: StatementArguments(arguments)
+            )
+        }
+    }
+
+    /// Hidden, archived, or deleted bookmarks cannot stay pinned. Mirrors the
+    /// server rule so every replica converges on the same outcome.
+    private static func enforcePinInvariant(
+        current: Row?,
+        accepted: inout [String: SyncJSONValue],
+        versions: inout [String: LogicalTimestamp]
+    ) {
+        func finalValue(_ field: String) -> SyncJSONValue? {
+            if let value = accepted[field] { return value }
+            guard let current else { return nil }
+            let value: DatabaseValue = current[field]
+            return jsonValue(value)
+        }
+        let hidden = finalValue("is_hidden") == .integer(1) || finalValue("is_hidden") == .boolean(true)
+        let archived = {
+            if let value = finalValue("archived_at"), value != .null { return true }
+            return false
+        }()
+        let deleted = {
+            if let value = finalValue("deleted_at"), value != .null { return true }
+            return false
+        }()
+        let pinned = finalValue("is_pinned") == .integer(1) || finalValue("is_pinned") == .boolean(true)
+        guard pinned, hidden || archived || deleted else { return }
+
+        var maximum = versions["is_pinned"]
+        for field in ["is_hidden", "archived_at", "deleted_at"] {
+            if let candidate = versions[field], maximum.map({ candidate > $0 }) ?? true {
+                maximum = candidate
+            }
+        }
+        if let maximum {
+            versions["is_pinned"] = maximum
+        }
+        accepted["is_pinned"] = .integer(0)
+    }
+
+    private static func databaseValue(_ value: SyncJSONValue) -> DatabaseValue {
+        switch value {
+        case .string(let string): return string.databaseValue
+        case .integer(let integer): return integer.databaseValue
+        case .boolean(let boolean): return (boolean ? 1 : 0).databaseValue
+        case .null: return .null
+        }
+    }
+
+    // MARK: - HLC
 
     private func nextTimestamp(
         _ database: Database,
@@ -882,17 +1219,13 @@ public final class ObeliskDatabase: @unchecked Sendable {
         guard let encoded = String(data: data, encoding: .utf8) else {
             throw ObeliskDatabaseError.invalidRow("sync_state")
         }
-        if raw == nil {
-            try database.execute(
-                sql: "INSERT INTO sync_state(id, value) VALUES ('hlc', ?)",
-                arguments: [encoded]
-            )
-        } else {
-            try database.execute(
-                sql: "UPDATE sync_state SET value = ? WHERE id = 'hlc'",
-                arguments: [encoded]
-            )
-        }
+        try database.execute(
+            sql: """
+            INSERT INTO sync_state (id, value) VALUES ('hlc', ?)
+            ON CONFLICT (id) DO UPDATE SET value = excluded.value
+            """,
+            arguments: [encoded]
+        )
         return timestamp
     }
 
@@ -909,14 +1242,14 @@ public final class ObeliskDatabase: @unchecked Sendable {
         changed = true
     }
 
-    private static func decodeVersions(_ value: String) throws -> [String: LogicalTimestamp] {
+    static func decodeVersions(_ value: String) throws -> [String: LogicalTimestamp] {
         guard let data = value.data(using: .utf8) else {
             throw ObeliskDatabaseError.invalidRow("field_versions")
         }
         return try JSONDecoder().decode([String: LogicalTimestamp].self, from: data)
     }
 
-    private static func encodeVersions(_ versions: [String: LogicalTimestamp]) throws -> String {
+    static func encodeVersions(_ versions: [String: LogicalTimestamp]) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(versions)
@@ -925,6 +1258,8 @@ public final class ObeliskDatabase: @unchecked Sendable {
         }
         return value
     }
+
+    // MARK: - Row mapping
 
     private static func bookmark(_ row: Row) throws -> Bookmark {
         guard
@@ -1005,25 +1340,29 @@ public final class ObeliskDatabase: @unchecked Sendable {
         String(format: "%020d", sortOrder)
     }
 
-    private static func encodeDate(_ date: Date) -> String {
+    static func encodeDate(_ date: Date) -> String {
         date.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: true).timeZone(separator: .colon))
     }
 
-    private static func decodeDate(_ value: String) -> Date? {
+    static func decodeDate(_ value: String) -> Date? {
         try? Date(value, strategy: .iso8601)
+    }
+
+    private func applyPrivatePermissions() throws {
+        for path in [fileURL.path, fileURL.path + "-wal", fileURL.path + "-shm"]
+        where FileManager.default.fileExists(atPath: path) {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        }
     }
 }
 
 public enum ObeliskDatabaseError: LocalizedError {
     case invalidRow(String)
-    case accountMismatch
 
     public var errorDescription: String? {
         switch self {
         case .invalidRow(let table):
             "Invalid row in \(table)"
-        case .accountMismatch:
-            "This local database belongs to another Obelisk account"
         }
     }
 }

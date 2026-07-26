@@ -5,11 +5,10 @@ struct CloudSyncSettingsView: View {
     @Bindable var cloudSync: CloudSyncController
 
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
-    @State private var accountEmail = ""
-    @State private var accountPassword = ""
-    @State private var accountError: String?
-    @State private var isEditingAccount = false
-    @State private var showsSignOutConfirmation = false
+    @State private var serverURL = ""
+    @State private var accessKey = ""
+    @State private var serviceError: String?
+    @State private var serviceSaved = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -27,16 +26,14 @@ struct CloudSyncSettingsView: View {
                     if cloudSync.isEnabled {
                         syncStatus
                         if cloudSync.phase == .failed {
-                            Button(cloudSync.isPerformingAction ? "重试中…" : "重试同步") {
+                            Button("重试同步") {
                                 Task { await cloudSync.retry() }
                             }
-                            .disabled(!cloudSync.isAuthenticated || cloudSync.isPerformingAction)
                         }
                     }
                 }
 
                 if cloudSync.isEnabled {
-                    accountSection
                     serviceSection
                 }
             }
@@ -46,20 +43,7 @@ struct CloudSyncSettingsView: View {
         }
         .navigationTitle("云同步")
         .onAppear {
-            accountEmail = cloudSync.accountEmail ?? ""
-            isEditingAccount = cloudSync.isEnabled && !cloudSync.isAuthenticated
-        }
-        .confirmationDialog(
-            "退出云账户？",
-            isPresented: $showsSignOutConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("退出账户", role: .destructive) {
-                Task { await signOut() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("同步将停止，登录信息会从本机移除，本地书签不会被删除")
+            serverURL = cloudSync.serverURLString
         }
     }
 
@@ -67,11 +51,7 @@ struct CloudSyncSettingsView: View {
         Binding(
             get: { cloudSync.isEnabled },
             set: { enabled in
-                Task {
-                    await cloudSync.setEnabled(enabled)
-                    accountEmail = cloudSync.accountEmail ?? accountEmail
-                    isEditingAccount = enabled && !cloudSync.isAuthenticated
-                }
+                Task { await cloudSync.setEnabled(enabled) }
             }
         )
     }
@@ -95,117 +75,45 @@ struct CloudSyncSettingsView: View {
         }
     }
 
-    private var accountSection: some View {
-        Section("云账户") {
-            if cloudSync.isAuthenticated, !isEditingAccount {
-                authenticatedAccount
-            } else {
-                authenticationForm
-            }
-        }
-    }
+    private var serviceSection: some View {
+        Section("服务") {
+            TextField("服务地址", text: $serverURL, prompt: Text(verbatim: "https://obelisk-sync.example.workers.dev"))
+                .autocorrectionDisabled()
 
-    private var authenticatedAccount: some View {
-        Group {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let email = cloudSync.accountEmail {
-                        Text(email)
-                    } else {
-                        Text("已连接云账户")
-                    }
-                    Text("此账户用于验证云端数据的访问权限")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 12)
-                Button("重新认证") {
-                    accountEmail = cloudSync.accountEmail ?? ""
-                    accountPassword = ""
-                    accountError = nil
-                    isEditingAccount = true
-                }
-            }
+            SecureField(
+                "访问密钥",
+                text: $accessKey,
+                prompt: Text(cloudSync.hasAccessKey ? "已保存，输入新密钥可更换" : "部署 Worker 时设置的密钥")
+            )
 
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("退出云账户")
-                    Text("停止同步并移除本机保存的登录信息，不会删除本地书签")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 12)
-                Button("退出账户", role: .destructive) {
-                    showsSignOutConfirmation = true
-                }
-                .disabled(cloudSync.isPerformingAction)
-            }
-        }
-    }
-
-    private var authenticationForm: some View {
-        Group {
-            TextField("邮箱", text: $accountEmail)
-                .textContentType(.username)
-            SecureField("密码", text: $accountPassword)
-                .textContentType(.password)
-
-            if let accountError {
-                Text(accountError)
+            if let serviceError {
+                Text(serviceError)
                     .font(.footnote)
                     .foregroundStyle(.red)
             }
 
-            HStack {
-                if cloudSync.isAuthenticated {
-                    Button("取消") {
-                        accountPassword = ""
-                        accountError = nil
-                        isEditingAccount = false
-                    }
+            HStack(spacing: 12) {
+                Button(cloudSync.isTestingConnection ? "测试中…" : "测试连接") {
+                    Task { await cloudSync.testConnection() }
                 }
+                .disabled(cloudSync.isTestingConnection || cloudSync.serverURLString.isEmpty)
+
                 Spacer(minLength: 0)
-                Button(cloudSync.isPerformingAction ? "请稍候…" : "登录并开启同步") {
-                    authenticate()
+
+                if serviceSaved {
+                    Text("已保存")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Button(cloudSync.isPerformingAction ? "请稍候…" : "保存并同步") {
+                    saveService()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
                     cloudSync.isPerformingAction
-                        || accountEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || accountPassword.isEmpty
+                        || serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || (accessKey.isEmpty && !cloudSync.hasAccessKey)
                 )
-            }
-        }
-    }
-
-    private var serviceSection: some View {
-        Section("云服务") {
-            LabeledContent {
-                Text(cloudSync.apiStatusTitle.obeliskLocalized)
-                    .foregroundStyle(.secondary)
-            } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("同步服务器")
-                    Text(cloudSync.apiHost)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("实时同步服务")
-                    Text(cloudSync.powerSyncHost)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 12)
-                Text(cloudSync.powerSyncStatusTitle.obeliskLocalized)
-                    .foregroundStyle(.secondary)
-                Button(cloudSync.isTestingConnection ? "测试中…" : "测试连接") {
-                    Task { await cloudSync.testConnection() }
-                }
-                .disabled(cloudSync.isTestingConnection)
             }
         }
     }
@@ -214,11 +122,11 @@ struct CloudSyncSettingsView: View {
         switch cloudSync.phase {
         case .synced:
             return Color(red: 0.13, green: 0.55, blue: 0.22)
-        case .connecting, .uploading, .downloading, .syncing:
+        case .syncing:
             return .accentColor
         case .failed:
             return .red
-        case .off, .authenticationRequired, .offline:
+        case .off, .notConfigured, .waiting:
             return .secondary
         }
     }
@@ -227,33 +135,26 @@ struct CloudSyncSettingsView: View {
         if let error = cloudSync.syncError {
             return error
         }
+        if cloudSync.pendingUploadCount > 0 {
+            return "\(cloudSync.pendingUploadCount) 项更改待上传"
+        }
         guard let date = cloudSync.lastSyncedAt else {
             return "尚未完成同步"
         }
         return "上次同步：\(date.formatted(date: .abbreviated, time: .shortened))"
     }
 
-    private func authenticate() {
-        accountError = nil
+    private func saveService() {
+        serviceError = nil
+        serviceSaved = false
         Task {
             do {
-                try await cloudSync.login(email: accountEmail, password: accountPassword)
-                accountPassword = ""
-                isEditingAccount = false
+                try await cloudSync.saveService(serverURL: serverURL, accessKey: accessKey)
+                accessKey = ""
+                serviceSaved = true
             } catch {
-                accountError = error.localizedDescription
+                serviceError = error.localizedDescription
             }
-        }
-    }
-
-    private func signOut() async {
-        do {
-            try await cloudSync.signOut()
-            accountPassword = ""
-            accountError = nil
-            isEditingAccount = true
-        } catch {
-            accountError = error.localizedDescription
         }
     }
 }

@@ -3,8 +3,6 @@ import ObeliskCore
 import ObeliskData
 import ObeliskSync
 import Observation
-import PowerSync
-
 @MainActor
 @Observable
 final class ObeliskLibraryModel {
@@ -100,7 +98,7 @@ final class ObeliskLibraryModel {
         guard phase == .idle || isFailed else { return }
         phase = .loading
         do {
-            let store = try await BookmarkStore.open(
+            let store = try BookmarkStore.open(
                 deviceID: ObeliskDeviceIdentity.current()
             )
             self.store = store
@@ -108,18 +106,9 @@ final class ObeliskLibraryModel {
             startDatabaseWatch(store.database)
             phase = .ready
 
-            do {
-                let configuration = try ObeliskServerConfiguration.load()
-                let authClient = ObeliskAuthClient(configuration: configuration)
-                let cloudSync = CloudSyncController(
-                    database: store.database,
-                    authClient: authClient
-                )
-                self.cloudSync = cloudSync
-                await cloudSync.start()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
+            let cloudSync = CloudSyncController(database: store.database)
+            self.cloudSync = cloudSync
+            await cloudSync.start()
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -134,11 +123,11 @@ final class ObeliskLibraryModel {
     }
 
     func resumeCloudSync() async {
-        await cloudSync?.resume()
+        cloudSync?.resume()
     }
 
     func finishPendingCloudUploads() async {
-        await cloudSync?.finishPendingUploads()
+        cloudSync?.resume()
     }
 
     func bookmarks(in collectionID: UUID) -> [Bookmark] {

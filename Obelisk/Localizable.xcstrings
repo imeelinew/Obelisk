@@ -4613,22 +4613,6 @@
         }
       }
     },
-    "请在“隐私与安全性 > 自动化”允许 Obelisk 控制默认浏览器" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Allow Obelisk to control the default browser in Privacy & Security > Automation"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请在“隐私与安全性 > 自动化”允许 Obelisk 控制默认浏览器"
-          }
-        }
-      }
-    },
     "请在“隐私与安全性 > 自动化”允许 Obelisk 控制当前浏览器" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4642,6 +4626,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请在“隐私与安全性 > 自动化”允许 Obelisk 控制当前浏览器"
+          }
+        }
+      }
+    },
+    "请在“隐私与安全性 > 自动化”允许 Obelisk 控制默认浏览器" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow Obelisk to control the default browser in Privacy & Security > Automation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在“隐私与安全性 > 自动化”允许 Obelisk 控制默认浏览器"
           }
         }
       }

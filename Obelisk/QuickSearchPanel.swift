@@ -366,7 +366,6 @@ private final class QuickSearchViewController: NSViewController,
     NSSearchFieldDelegate,
     NSTableViewDataSource,
     NSTableViewDelegate,
-    HoverTableViewDelegate,
     BookmarkMenuTableViewDelegate
 {
     var onOpen: ((Bookmark) -> Void)?
@@ -377,10 +376,9 @@ private final class QuickSearchViewController: NSViewController,
     private let showsURLHostOnly: Bool
     private let searchField = NSSearchField()
     private let scrollView = NSScrollView()
-    private let tableView = HoverTableView()
+    private let tableView = BookmarkMenuTableView()
     private let emptyView = NSStackView()
     private var items: [NativeBookmarkListItem] = []
-    private var hoveredRow = -1
 
     init(model: BookmarksModel, faviconLoader: FaviconLoader) {
         self.model = model
@@ -473,7 +471,6 @@ private final class QuickSearchViewController: NSViewController,
             ungroupedSortMode: .storedForUngrouped
         )
         items = sections.flattenedItems
-        hoveredRow = -1
         tableView.reloadData()
         tableView.deselectAll(nil)
 
@@ -515,7 +512,6 @@ private final class QuickSearchViewController: NSViewController,
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.dataSource = self
         tableView.delegate = self
-        tableView.hoverDelegate = self
         tableView.menuDelegate = self
         tableView.target = self
         tableView.doubleAction = #selector(openDoubleClickedRow(_:))
@@ -581,9 +577,7 @@ private final class QuickSearchViewController: NSViewController,
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         guard items.indices.contains(row), items[row].bookmark != nil else { return nil }
-        let rowView = HoverableRowView()
-        rowView.isHovered = row == hoveredRow
-        return rowView
+        return HoverableRowView()
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
@@ -631,22 +625,6 @@ private final class QuickSearchViewController: NSViewController,
                 referenceIndicatorSystemImage: referenceIndicatorSystemImage
             )
             return cell
-        }
-    }
-
-    func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int) {
-        let nextRow = items.indices.contains(row) && items[row].bookmark != nil ? row : -1
-        guard nextRow != hoveredRow else { return }
-        let previousRow = hoveredRow
-        hoveredRow = nextRow
-
-        if previousRow >= 0,
-           let rowView = tableView.rowView(atRow: previousRow, makeIfNecessary: false) as? HoverableRowView {
-            rowView.isHovered = false
-        }
-        if nextRow >= 0,
-           let rowView = tableView.rowView(atRow: nextRow, makeIfNecessary: false) as? HoverableRowView {
-            rowView.isHovered = true
         }
     }
 

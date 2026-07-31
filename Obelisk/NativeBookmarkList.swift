@@ -34,7 +34,6 @@ struct BookmarkListSection: Equatable, Identifiable {
 struct NativeBookmarkList: NSViewRepresentable {
     var sections: [BookmarkListSection]
     @Binding var selection: Set<Bookmark.ID>
-    var focusFirstBookmarkRequest: Int = 0
     var focusSelectedBookmarkRequest: Int = 0
     var onCancel: (() -> Void)?
     var selectedCollectionId: Binding<UUID?>?
@@ -78,7 +77,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
-        let tableView = HoverTableView()
+        let tableView = BookmarkMenuTableView()
         tableView.frame = scrollView.contentView.bounds
         tableView.autoresizingMask = [.width]
         tableView.headerView = nil
@@ -91,7 +90,6 @@ struct NativeBookmarkList: NSViewRepresentable {
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
-        tableView.hoverDelegate = context.coordinator
         tableView.menuDelegate = context.coordinator
         tableView.target = context.coordinator
         tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
@@ -118,31 +116,28 @@ struct NativeBookmarkList: NSViewRepresentable {
             context.coordinator.reloadTable()
         } else if context.coordinator.cachedFaviconVersion != faviconVersion {
             // Rows are unchanged; a favicon finished loading. Refresh only the
-            // prepared rows instead of rebuilding the whole table so selection,
-            // hover, and scroll state stay intact.
+            // prepared rows instead of rebuilding the whole table so selection
+            // and scroll state stay intact.
             context.coordinator.cachedFaviconVersion = faviconVersion
             context.coordinator.reloadPreparedRows()
         } else {
             context.coordinator.syncSelectionToTable()
         }
-        context.coordinator.handleFocusFirstBookmarkRequestIfNeeded()
         context.coordinator.handleFocusSelectedBookmarkRequestIfNeeded()
     }
 
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("BookmarkColumn")
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, BookmarkMenuTableViewDelegate {
         var parent: NativeBookmarkList
         fileprivate var items: [NativeBookmarkListItem] = []
         weak var scrollView: NSScrollView?
-        weak var tableView: HoverTableView?
+        weak var tableView: BookmarkMenuTableView?
         private var isSyncingSelection = false
         private var selectedRowKeys: Set<NativeBookmarkRowSelectionKey> = []
-        private var hoveredRow: Int = -1
         fileprivate var cachedFaviconVersion: Int = -1
         fileprivate var cachedShowsURLHostOnly = false
-        private var handledFocusFirstBookmarkRequest = 0
         private var handledFocusSelectedBookmarkRequest = 0
         private var bookmarkContextMenuController: NativeBookmarkContextMenuController?
         private var collectionContextMenuController: NativeCollectionContextMenuController?
@@ -163,10 +158,6 @@ struct NativeBookmarkList: NSViewRepresentable {
             tableView.reloadData()
             syncTableWidth()
             syncSelectionToTable()
-            // Row indices may have shifted after reload; clear stale hover and
-            // re-derive from the current cursor location.
-            applyHoveredRow(-1)
-            tableView.updateHoverFromCurrentMouse()
         }
 
         /// Reloads only rows that have prepared cell views (visible plus
@@ -208,47 +199,6 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         @objc private func contentBoundsDidChange() {
             syncTableWidth()
-            // Content moved under the cursor: even if the mouse hasn't moved,
-            // the row beneath it has changed. Recompute from real cursor pos
-            // so hovered state has exactly one source of truth.
-            tableView?.updateHoverFromCurrentMouse()
-        }
-
-        // MARK: HoverTableViewDelegate
-
-        func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int) {
-            let resolved: Int
-            if row >= 0,
-               row < items.count,
-               items[row].bookmark != nil || selectedCollectionId(for: row) != nil {
-                resolved = row
-            } else {
-                resolved = -1
-            }
-            applyHoveredRow(resolved)
-        }
-
-        private func applyHoveredRow(_ row: Int) {
-            guard row != hoveredRow else { return }
-            let previous = hoveredRow
-            hoveredRow = row
-
-            guard let tableView else { return }
-            let rowCount = tableView.numberOfRows
-            if previous >= 0,
-               previous < rowCount,
-               let view = tableView.rowView(atRow: previous, makeIfNecessary: false) as? HoverableRowView {
-                view.isHovered = false
-            }
-            if row >= 0,
-               row < rowCount,
-               let view = tableView.rowView(atRow: row, makeIfNecessary: false) as? HoverableRowView {
-                view.isHovered = true
-            }
-        }
-
-        func isRowHovered(_ row: Int) -> Bool {
-            row == hoveredRow
         }
 
         func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
@@ -439,9 +389,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             else {
                 return nil
             }
-            let view = HoverableRowView()
-            view.isHovered = isRowHovered(row)
-            return view
+            return HoverableRowView()
         }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
@@ -582,21 +530,6 @@ struct NativeBookmarkList: NSViewRepresentable {
             isSyncingSelection = false
         }
 
-        func handleFocusFirstBookmarkRequestIfNeeded() {
-            guard parent.focusFirstBookmarkRequest > 0,
-                  parent.focusFirstBookmarkRequest != handledFocusFirstBookmarkRequest,
-                  let tableView,
-                  let row = NativeBookmarkSelectionResolver.firstBookmarkRowIndex(in: items)
-            else {
-                return
-            }
-
-            handledFocusFirstBookmarkRequest = parent.focusFirstBookmarkRequest
-            tableView.window?.makeFirstResponder(tableView)
-            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            tableView.scrollRowToVisible(row)
-        }
-
         func handleFocusSelectedBookmarkRequestIfNeeded() {
             guard parent.focusSelectedBookmarkRequest > 0,
                   parent.focusSelectedBookmarkRequest != handledFocusSelectedBookmarkRequest,
@@ -680,7 +613,7 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.horizontalScrollElasticity = .none
 
-        let tableView = HoverTableView()
+        let tableView = BookmarkMenuTableView()
         tableView.frame = scrollView.contentView.bounds
         tableView.autoresizingMask = [.width]
         tableView.headerView = nil
@@ -693,7 +626,6 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
-        tableView.hoverDelegate = context.coordinator
         tableView.menuDelegate = context.coordinator
         tableView.target = context.coordinator
         tableView.action = #selector(Coordinator.handleClick(_:))
@@ -730,14 +662,13 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("BrowserHistoryColumn")
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, BookmarkMenuTableViewDelegate {
         var parent: NativeBrowserHistoryList
         fileprivate var sections: [BrowserHistorySection]
         weak var scrollView: NSScrollView?
-        weak var tableView: HoverTableView?
+        weak var tableView: BookmarkMenuTableView?
         fileprivate var cachedFaviconVersion = -1
         fileprivate var cachedShowsURLHostOnly = false
-        private var hoveredRow = -1
         private var selectedRecordIDs: Set<UUID> = []
         private var selectedSectionID: String?
         private var expandedSectionIDs: Set<String> = []
@@ -766,8 +697,6 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
             tableView.reloadData()
             syncTableWidth()
             syncSelectionToTable()
-            applyHoveredRow(-1)
-            tableView.updateHoverFromCurrentMouse()
         }
 
         func reloadPreparedRows() {
@@ -791,7 +720,6 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
 
         @objc private func contentBoundsDidChange() {
             syncTableWidth()
-            tableView?.updateHoverFromCurrentMouse()
         }
 
         private func syncTableWidth() {
@@ -827,9 +755,7 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             switch rowInfo(for: row) {
             case .header, .record:
-                let view = HoverableRowView()
-                view.isHovered = isRowHovered(row)
-                return view
+                return HoverableRowView()
             case .none:
                 return nil
             }
@@ -936,14 +862,6 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
             isSyncingSelection = false
         }
 
-        func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int) {
-            if row >= 0, rowInfo(for: row) != nil {
-                applyHoveredRow(row)
-            } else {
-                applyHoveredRow(-1)
-            }
-        }
-
         @objc func handleClick(_ sender: NSTableView) {
             let row = sender.clickedRow
             guard row >= 0,
@@ -963,28 +881,6 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
                 return
             }
             parent.onOpen?(record)
-        }
-
-        private func applyHoveredRow(_ row: Int) {
-            guard row != hoveredRow else { return }
-            let previous = hoveredRow
-            hoveredRow = row
-            guard let tableView else { return }
-            let rowCount = tableView.numberOfRows
-            if previous >= 0,
-               previous < rowCount,
-               let view = tableView.rowView(atRow: previous, makeIfNecessary: false) as? HoverableRowView {
-                view.isHovered = false
-            }
-            if row >= 0,
-               row < rowCount,
-               let view = tableView.rowView(atRow: row, makeIfNecessary: false) as? HoverableRowView {
-                view.isHovered = true
-            }
-        }
-
-        private func isRowHovered(_ row: Int) -> Bool {
-            row == hoveredRow
         }
 
         func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
@@ -1085,11 +981,6 @@ struct NativeBrowserHistoryList: NSViewRepresentable {
 }
 
 @MainActor
-protocol HoverTableViewDelegate: AnyObject {
-    func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int)
-}
-
-@MainActor
 protocol BookmarkMenuTableViewDelegate: AnyObject {
     func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool
     func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu?
@@ -1114,53 +1005,6 @@ extension BookmarkMenuTableViewDelegate {
         nextSelectableRowAfter row: Int
     ) -> Int? {
         nil
-    }
-}
-
-/// Centralized hover tracking. Per-row NSTrackingAreas are unreliable inside
-/// scroll views — during inertial scroll, mouseEntered fires for rows passing
-/// under the cursor while paired mouseExited events are frequently dropped,
-/// leaving multiple rows stuck in the hovered state. We instead derive hover
-/// from a single source: the actual cursor position, computed via
-/// `row(at:)`. Cursor-driven recomputation runs on mouseMoved events and on
-/// scroll-driven content bounds changes (see Coordinator). One row at a time;
-/// no enter/exit pairing to lose.
-final class HoverTableView: BookmarkMenuTableView {
-    weak var hoverDelegate: HoverTableViewDelegate?
-    private var hoverTrackingArea: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        hoverTrackingArea = area
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        let point = convert(event.locationInWindow, from: nil)
-        hoverDelegate?.hoverTableView(self, didHoverRow: row(at: point))
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        hoverDelegate?.hoverTableView(self, didHoverRow: -1)
-    }
-
-    func updateHoverFromCurrentMouse() {
-        guard let window else { return }
-        let mouse = window.mouseLocationOutsideOfEventStream
-        let point = convert(mouse, from: nil)
-        let inside = bounds.contains(point) && visibleRect.contains(point)
-        hoverDelegate?.hoverTableView(self, didHoverRow: inside ? row(at: point) : -1)
     }
 }
 
@@ -1240,32 +1084,16 @@ class BookmarkMenuTableView: NSTableView {
 }
 
 final class HoverableRowView: NSTableRowView {
-    var isHovered = false {
-        didSet {
-            guard isHovered != oldValue else { return }
-            needsDisplay = true
-        }
-    }
-
+    /// Keep list selection blue even when the table is not first responder
+    /// (e.g. on first launch while the sidebar holds focus).
     override var isEmphasized: Bool {
-        didSet {
-            guard isEmphasized != oldValue, isSelected else { return }
-            needsDisplay = true
-        }
-    }
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        super.drawBackground(in: dirtyRect)
-        guard isHovered, !isSelected else { return }
-        drawRoundedBackground(color: NSColor.labelColor.withAlphaComponent(0.08))
+        get { true }
+        set {}
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
-        let color: NSColor = isEmphasized
-            ? .selectedContentBackgroundColor
-            : .unemphasizedSelectedContentBackgroundColor
-        drawRoundedBackground(color: color)
+        drawRoundedBackground(color: .selectedContentBackgroundColor)
     }
 
     private func drawRoundedBackground(color: NSColor) {

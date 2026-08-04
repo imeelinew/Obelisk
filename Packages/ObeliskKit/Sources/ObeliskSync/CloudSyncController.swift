@@ -263,7 +263,10 @@ public final class CloudSyncController {
     }
 
     private func runSyncLoop() async {
-        defer { syncTask = nil }
+        defer {
+            syncTask = nil
+            refreshPhase()
+        }
         repeat {
             wantsAnotherPass = false
             phase = .syncing

@@ -14,6 +14,7 @@
 
 ## Product decisions
 
+- iOS is on hold. Unless the user explicitly asks for iOS work, only consider and change macOS (`Obelisk/`). Do not touch `Obelisk iOS/` or mirror UI changes to iOS by default.
 - Do not invent iOS features, navigation, interaction behavior, or visual design. Implement them only after the user has approved the relevant product decision.
 - Prefer native Apple controls and platform conventions. Do not force the macOS layout onto iOS.
 - A shared feature must have the same domain behavior on both platforms, even when its presentation differs.
@@ -56,12 +57,11 @@ Test every completed step at the narrowest useful level, then run the affected t
 ```sh
 swift test --package-path Packages/ObeliskKit
 xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug -destination 'platform=macOS' build
-xcodebuild -project Obelisk.xcodeproj -scheme 'Obelisk iOS' -configuration Debug -destination 'generic/platform=iOS Simulator' build
 (cd Server/worker && npm test && npm run typecheck)
 ```
 
 - Run shared package tests after changing domain, data, or sync code.
-- Build both app targets after changing shared code.
+- Build the macOS app after UI or shared-code changes. Build the iOS app only when the user explicitly requested iOS work.
 - Run Worker tests after changing endpoints, the D1 schema, or merge behavior.
 - Add focused regression tests for every fixed bug and every non-trivial domain rule.
 - Before finishing, review the complete diff, remove dead code and temporary artifacts, and report exactly what was tested.

@@ -269,6 +269,7 @@
       }
     },
     "Dia 和 Chrome 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1260,6 +1261,7 @@
       }
     },
     "为 Obelisk 窗口启用毛玻璃半透明材质" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2185,6 +2187,7 @@
       }
     },
     "在你的设备之间同步书签、分组和最近浏览，关闭云同步后，Obelisk 仍会将所有数据保存在本机" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2707,6 +2710,7 @@
       }
     },
     "开启后 Obelisk 会自动归档您一段时间没有使用的书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2723,6 +2727,7 @@
       }
     },
     "开启后书签列表会显示完整 URL" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2739,6 +2744,7 @@
       }
     },
     "开启后可手动调整窗口透明度" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2755,6 +2761,7 @@
       }
     },
     "开启后将自动使用配置的模型优化新添加的书签标题" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2771,6 +2778,7 @@
       }
     },
     "开启后将自动使用配置的模型把新添加的可见书签归入合适分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3477,6 +3485,7 @@
       }
     },
     "本地服务通常不校验 Key，填任意非空字符串即可" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3908,6 +3917,7 @@
       }
     },
     "测试模型连接" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4036,6 +4046,7 @@
       }
     },
     "用于访问云端 OpenAI 兼容服务的 API Key" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4817,6 +4828,7 @@
       }
     },
     "远程 API 的 chat completions 地址" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4833,6 +4845,7 @@
       }
     },
     "远程服务的模型名称，如 gpt-4.1-mini" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5264,6 +5277,7 @@
       }
     },
     "须与 LM Studio Local Server 里已加载模型的 id 一致" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5280,6 +5294,7 @@
       }
     },
     "须先在本机启动 LM Studio Local Server（默认端口 1234）" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

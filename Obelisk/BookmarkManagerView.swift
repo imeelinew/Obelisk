@@ -2067,6 +2067,7 @@ struct BookmarkManagerView: View {
             Form {
                 Section("自动归档") {
                     Toggle(
+                        "自动归档闲置书签",
                         isOn: Binding(
                             get: { autoArchiveEnabled },
                             set: { newValue in
@@ -2074,14 +2075,7 @@ struct BookmarkManagerView: View {
                                 syncArchiveSettings()
                             }
                         )
-                    ) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("自动归档闲置书签")
-                            Text("开启后 Obelisk 会自动归档您一段时间没有使用的书签")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    )
 
                     if autoArchiveEnabled {
                         LabeledContent {
@@ -2176,24 +2170,10 @@ struct BookmarkManagerView: View {
             }
 
             Section("窗口") {
-                Toggle(isOn: $windowTransparencyEnabled) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("启用窗口透明效果")
-                        Text("为 Obelisk 窗口启用毛玻璃半透明材质")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Toggle("启用窗口透明效果", isOn: $windowTransparencyEnabled)
 
                 if windowTransparencyEnabled {
-                    Toggle(isOn: customTransparencyBinding) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("自定义透明度")
-                            Text("开启后可手动调整窗口透明度")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    Toggle("自定义透明度", isOn: customTransparencyBinding)
 
                     if customTransparencyEnabled {
                         Slider(value: $windowSeeThrough, in: 0...0.5, step: 0.05) {
@@ -2210,14 +2190,7 @@ struct BookmarkManagerView: View {
             }
 
             Section("域名显示") {
-                Toggle(isOn: showsFullURLBinding) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("显示完整网站域名")
-                        Text("开启后书签列表会显示完整 URL")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Toggle("显示完整网站域名", isOn: showsFullURLBinding)
             }
 
             Section("菜单栏") {
@@ -2474,26 +2447,9 @@ struct BookmarkManagerView: View {
 
             if aiFeaturesEnabled {
                 Section("Intelligence 书签优化") {
-                    Toggle(isOn: $autoOptimizeNewBookmarks) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("自动优化新书签标题")
-                            Text("开启后将自动使用配置的模型优化新添加的书签标题")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Toggle(isOn: $autoGroupNewBookmarks) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("自动分组新书签")
-                            Text("开启后将自动使用配置的模型把新添加的可见书签归入合适分组")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
+                    Toggle("自动优化新书签标题", isOn: $autoOptimizeNewBookmarks)
+                    Toggle("自动分组新书签", isOn: $autoGroupNewBookmarks)
                     Toggle("优化隐藏书签", isOn: $optimizeHiddenBookmarks)
-
                     Toggle("自动翻译非中文标题", isOn: $translateNonChineseTitles)
                 }
 
@@ -2504,63 +2460,36 @@ struct BookmarkManagerView: View {
                         Text("模型来源")
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        SecureField(
-                            text: llmAPIKeyBinding,
-                            prompt: Text(llmProfiles.activeSource == .remote ? "sk-…" : "lm-studio")
-                        ) {
-                            Label("API Key", systemImage: "key")
-                        }
-                        Text(
-                            llmProfiles.activeSource == .remote
-                                ? "用于访问云端 OpenAI 兼容服务的 API Key"
-                                : "本地服务通常不校验 Key，填任意非空字符串即可"
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    SecureField(
+                        text: llmAPIKeyBinding,
+                        prompt: Text(llmProfiles.activeSource == .remote ? "sk-…" : "lm-studio")
+                    ) {
+                        Label("API Key", systemImage: "key")
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        TextField(
-                            text: llmModelBinding,
-                            prompt: Text(llmProfiles.activeSource == .remote ? "gpt-4.1-mini" : "qwen3.5-4b")
-                        ) {
-                            Label("Model", systemImage: "cpu")
-                        }
-                        Text(
-                            llmProfiles.activeSource == .remote
-                                ? "远程服务的模型名称，如 gpt-4.1-mini"
-                                : "须与 LM Studio Local Server 里已加载模型的 id 一致"
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    TextField(
+                        text: llmModelBinding,
+                        prompt: Text(llmProfiles.activeSource == .remote ? "gpt-4.1-mini" : "qwen3.5-4b")
+                    ) {
+                        Label("Model", systemImage: "cpu")
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        TextField(
-                            text: llmBaseURLBinding,
-                            prompt: Text(
-                                llmProfiles.activeSource == .remote
-                                    ? "https://api.openai.com/v1/chat/completions"
-                                    : "http://localhost:1234/v1/chat/completions"
-                            )
-                        ) {
-                            Label("Base URL", systemImage: "link")
-                        }
-                        Text(
+                    TextField(
+                        text: llmBaseURLBinding,
+                        prompt: Text(
                             llmProfiles.activeSource == .remote
-                                ? "远程 API 的 chat completions 地址"
-                                : "须先在本机启动 LM Studio Local Server（默认端口 1234）"
+                                ? "https://api.openai.com/v1/chat/completions"
+                                : "http://localhost:1234/v1/chat/completions"
                         )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    ) {
+                        Label("Base URL", systemImage: "link")
                     }
 
                     HStack(spacing: 12) {
                         Button {
                             testLLMConfig()
                         } label: {
-                            Text(isTestingLLMConfig ? "测试中…" : "测试模型连接")
+                            Text(isTestingLLMConfig ? "测试中…" : "测试连接")
                         }
                         .disabled(isTestingLLMConfig)
 
@@ -2618,14 +2547,7 @@ struct BookmarkManagerView: View {
             Section("隐藏书签") {
                 Toggle("在侧边栏显示隐藏书签", isOn: $showHiddenBookmarksPage)
 
-                Toggle(isOn: $openHiddenBookmarksIncognito) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("使用无痕窗口打开隐藏书签")
-                        Text("Dia 和 Chrome 会复用 Obelisk 创建的无痕窗口；其他 Chromium 浏览器使用启动参数")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Toggle("使用无痕窗口打开隐藏书签", isOn: $openHiddenBookmarksIncognito)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("排除关键词")

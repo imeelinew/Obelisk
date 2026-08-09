@@ -61,9 +61,8 @@ Obelisk 是一个优雅而原生的 macOS 书签管理器，适合那些频繁�
 ## 快速添加
 
 <p align="center">
-  <img alt="Obelisk 添加书签提示" src=".github/assets/notification.png" width="600">
+  <img alt="Obelisk Intelligence 书签优化提示" src=".github/assets/optimize.png" width="600">
 </p>
-<p align="center">  <img alt="Obelisk 添加书签提示" src=".github/assets/optimize.png" width="600"></p>
 
 你只需要在当前标签页面轻轻地按下 `Option + B`，Obelisk 会自动读取最前方浏览器的 URL 和标题，并用一个轻轻的 Popover 提示告诉你书签已经保存。你可以自定义快捷键。如果你还开启并且配置了 Intelligence 功能，Obelisk 会自动优化网页的名字（甚至翻译）并且自动选择合适的分组。
 

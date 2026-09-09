@@ -3081,6 +3081,7 @@
       }
     },
     "提示" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3785,6 +3786,7 @@
       }
     },
     "浏览器" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

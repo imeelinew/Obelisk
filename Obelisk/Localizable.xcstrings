@@ -4,22 +4,6 @@
     "" : {
 
     },
-    "「最近浏览」最多显示的网页数量" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Maximum pages shown under Recent Browsing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「最近浏览」最多显示的网页数量"
-          }
-        }
-      }
-    },
     "「最近添加」最多显示的书签数量" : {
       "localizations" : {
         "en" : {
@@ -656,22 +640,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Obelisk 会自动将超过这个天数没有打开的书签归档"
-          }
-        }
-      }
-    },
-    "Obelisk 只读显示所选浏览器最近访问过的网页" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Obelisk shows recently visited pages from the selected browsers in read-only mode"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Obelisk 只读显示所选浏览器最近访问过的网页"
           }
         }
       }
@@ -1662,38 +1630,6 @@
         }
       }
     },
-    "最近浏览" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "History"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近浏览"
-          }
-        }
-      }
-    },
-    "最近浏览数量" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recent Browsing Limit"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近浏览数量"
-          }
-        }
-      }
-    },
     "最近添加" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2186,19 +2122,19 @@
         }
       }
     },
-    "在你的设备之间同步书签、分组和最近浏览，关闭云同步后，Obelisk 仍会将所有数据保存在本机" : {
+    "在你的设备之间同步书签和分组，关闭云同步后，Obelisk 仍会将所有数据保存在本机" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sync bookmarks, collections, and recent browsing across your devices; with cloud sync off, Obelisk still keeps all data on this Mac"
+            "value" : "Sync bookmarks and collections across your devices; with cloud sync off, Obelisk still keeps all data on this Mac"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在你的设备之间同步书签、分组和最近浏览，关闭云同步后，Obelisk 仍会将所有数据保存在本机"
+            "value" : "在你的设备之间同步书签和分组，关闭云同步后，Obelisk 仍会将所有数据保存在本机"
           }
         }
       }
@@ -2943,9 +2879,6 @@
         }
       }
     },
-    "快速搜索" : {
-
-    },
     "恢复到书签" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3043,39 +2976,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打开"
-          }
-        }
-      }
-    },
-    "打开完整磁盘访问权限设置" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Full Disk Access Settings"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "打开完整磁盘访问权限设置"
-          }
-        }
-      }
-    },
-    "找不到所选浏览器的历史数据库" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn’t Find History Database for Selected Browser"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "找不到所选浏览器的历史数据库"
           }
         }
       }
@@ -3307,39 +3207,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法添加此书签"
-          }
-        }
-      }
-    },
-    "无法读取 Safari 浏览历史，请在“系统设置 > 隐私与安全性 > 完整磁盘访问权限”中允许 Obelisk，然后重新启动 Obelisk" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn’t read Safari browsing history; allow Obelisk in System Settings > Privacy & Security > Full Disk Access, then restart Obelisk"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法读取 Safari 浏览历史，请在“系统设置 > 隐私与安全性 > 完整磁盘访问权限”中允许 Obelisk，然后重新启动 Obelisk"
-          }
-        }
-      }
-    },
-    "无法读取最近浏览" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn’t Read Recent Browsing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法读取最近浏览"
           }
         }
       }
@@ -3668,22 +3535,6 @@
         }
       }
     },
-    "正在读取最近浏览…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reading Recent Browsing…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在读取最近浏览…"
-          }
-        }
-      }
-    },
     "正在连接" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3731,22 +3582,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "没有书签被移动"
-          }
-        }
-      }
-    },
-    "没有最近浏览" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No Recent Browsing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "没有最近浏览"
           }
         }
       }
@@ -4607,23 +4442,6 @@
         }
       }
     },
-    "请先选择一个浏览器" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a Browser First"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请先选择一个浏览器"
-          }
-        }
-      }
-    },
     "请在“隐私与安全性 > 自动化”允许 Obelisk 控制当前浏览器" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4724,9 +4542,6 @@
           }
         }
       }
-    },
-    "过去 %lld 天内没有找到可显示的网页" : {
-
     },
     "还没有书签" : {
       "localizations" : {
@@ -4959,22 +4774,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "退出账户"
-          }
-        }
-      }
-    },
-    "选择浏览器" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose Browsers"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择浏览器"
           }
         }
       }

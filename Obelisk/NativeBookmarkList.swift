@@ -60,7 +60,6 @@ struct NativeBookmarkList: NSViewRepresentable {
     static let contentInset: CGFloat = 18
     static let rowHeight: CGFloat = 50
     static let headerHeight: CGFloat = 24
-    static let historyHeaderHeight: CGFloat = headerHeight + headerBottomSpacing
     static let headerBottomSpacing: CGFloat = 10
     static let headerSortControlHeight: CGFloat = 24
     func makeCoordinator() -> Coordinator {
@@ -592,394 +591,6 @@ struct NativeBookmarkList: NSViewRepresentable {
     }
 }
 
-struct NativeBrowserHistoryList: NSViewRepresentable {
-    var sections: [BrowserHistorySection]
-    @Binding var selection: Set<UUID>
-    var faviconLoader: FaviconLoader
-    var faviconVersion: Int
-    var showsURLHostOnly: Bool = false
-    var onOpen: ((BrowserHistoryRecord) -> Void)?
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.horizontalScrollElasticity = .none
-
-        let tableView = BookmarkMenuTableView()
-        tableView.frame = scrollView.contentView.bounds
-        tableView.autoresizingMask = [.width]
-        tableView.headerView = nil
-        tableView.backgroundColor = .clear
-        tableView.selectionHighlightStyle = .regular
-        tableView.allowsMultipleSelection = true
-        tableView.allowsEmptySelection = true
-        tableView.intercellSpacing = NSSize(width: 0, height: 0)
-        tableView.rowSizeStyle = .custom
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        tableView.dataSource = context.coordinator
-        tableView.delegate = context.coordinator
-        tableView.menuDelegate = context.coordinator
-        tableView.target = context.coordinator
-        tableView.action = #selector(Coordinator.handleClick(_:))
-        tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
-
-        let column = NSTableColumn(identifier: Self.columnIdentifier)
-        column.resizingMask = .autoresizingMask
-        tableView.addTableColumn(column)
-
-        scrollView.documentView = tableView
-        context.coordinator.scrollView = scrollView
-        context.coordinator.tableView = tableView
-        context.coordinator.installScrollObserver()
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.parent = self
-        if context.coordinator.sections != sections ||
-           context.coordinator.cachedShowsURLHostOnly != showsURLHostOnly {
-            context.coordinator.sections = sections
-            context.coordinator.cachedShowsURLHostOnly = showsURLHostOnly
-            context.coordinator.cachedFaviconVersion = faviconVersion
-            context.coordinator.resetCache()
-            context.coordinator.reloadTable()
-        } else if context.coordinator.cachedFaviconVersion != faviconVersion {
-            context.coordinator.cachedFaviconVersion = faviconVersion
-            context.coordinator.reloadPreparedRows()
-        } else {
-            context.coordinator.syncSelectionToTable()
-        }
-    }
-
-    private static let columnIdentifier = NSUserInterfaceItemIdentifier("BrowserHistoryColumn")
-
-    @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, BookmarkMenuTableViewDelegate {
-        var parent: NativeBrowserHistoryList
-        fileprivate var sections: [BrowserHistorySection]
-        weak var scrollView: NSScrollView?
-        weak var tableView: BookmarkMenuTableView?
-        fileprivate var cachedFaviconVersion = -1
-        fileprivate var cachedShowsURLHostOnly = false
-        private var selectedRecordIDs: Set<UUID> = []
-        private var selectedSectionID: String?
-        private var expandedSectionIDs: Set<String> = []
-        private var isSyncingSelection = false
-
-        init(_ parent: NativeBrowserHistoryList) {
-            self.parent = parent
-            self.sections = parent.sections
-            self.cachedShowsURLHostOnly = parent.showsURLHostOnly
-            self.expandedSectionIDs = Self.defaultExpandedSectionIDs(for: parent.sections)
-        }
-
-        deinit {
-            NotificationCenter.default.removeObserver(self)
-        }
-
-        func resetCache() {
-            selectedRecordIDs = []
-            selectedSectionID = nil
-            expandedSectionIDs = Self.defaultExpandedSectionIDs(for: sections)
-        }
-
-        func reloadTable() {
-            guard let tableView else { return }
-            syncTableWidth()
-            tableView.reloadData()
-            syncTableWidth()
-            syncSelectionToTable()
-        }
-
-        func reloadPreparedRows() {
-            guard let tableView, tableView.numberOfRows > 0 else { return }
-            let range = tableView.rows(in: tableView.preparedContentRect)
-            guard range.length > 0 else { return }
-            let rows = IndexSet(integersIn: range.location ..< (range.location + range.length))
-            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
-        }
-
-        func installScrollObserver() {
-            guard let scrollView else { return }
-            scrollView.contentView.postsBoundsChangedNotifications = true
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(contentBoundsDidChange),
-                name: NSView.boundsDidChangeNotification,
-                object: scrollView.contentView
-            )
-        }
-
-        @objc private func contentBoundsDidChange() {
-            syncTableWidth()
-        }
-
-        private func syncTableWidth() {
-            guard let tableView, let scrollView else { return }
-            let width = max(scrollView.contentView.bounds.width, 100)
-            if tableView.frame.width != width {
-                tableView.frame.size.width = width
-            }
-            if let column = tableView.tableColumns.first, column.width != width {
-                column.width = width
-            }
-            let clipView = scrollView.contentView
-            guard clipView.bounds.origin.x != 0 else { return }
-            clipView.scroll(to: NSPoint(x: 0, y: clipView.bounds.origin.y))
-            scrollView.reflectScrolledClipView(clipView)
-        }
-
-        func numberOfRows(in tableView: NSTableView) -> Int {
-            sections.reduce(0) { total, section in
-                total + 1 + (expandedSectionIDs.contains(section.id) ? section.count : 0)
-            }
-        }
-
-        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-            switch rowInfo(for: row) {
-            case .header, .record:
-                return true
-            case .none:
-                return false
-            }
-        }
-
-        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-            switch rowInfo(for: row) {
-            case .header, .record:
-                return HoverableRowView()
-            case .none:
-                return nil
-            }
-        }
-
-        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            switch rowInfo(for: row) {
-            case .header:
-                return NativeBookmarkList.historyHeaderHeight
-            case .record:
-                return NativeBookmarkList.rowHeight
-            case .none:
-                return NativeBookmarkList.rowHeight
-            }
-        }
-
-        func tableView(
-            _ tableView: NSTableView,
-            viewFor tableColumn: NSTableColumn?,
-            row: Int
-        ) -> NSView? {
-            switch rowInfo(for: row) {
-            case .header(let section, _):
-                let view = tableView.makeView(
-                    withIdentifier: BrowserHistoryHeaderCellView.identifier,
-                    owner: self
-                ) as? BrowserHistoryHeaderCellView ?? BrowserHistoryHeaderCellView()
-                view.configure(
-                    title: section.title,
-                    isExpanded: expandedSectionIDs.contains(section.id),
-                    target: nil,
-                    action: #selector(noopHeaderAction(_:))
-                )
-                return view
-
-            case .record(let section, let offset):
-                let view = tableView.makeView(
-                    withIdentifier: BookmarkTableCellView.identifier,
-                    owner: self
-                ) as? BookmarkTableCellView ?? BookmarkTableCellView()
-
-                guard let record = record(in: section, offset: offset) else { return nil }
-                let bookmark = bookmark(from: record)
-                view.configure(
-                    bookmark: bookmark,
-                    showsURLHostOnly: parent.showsURLHostOnly,
-                    favicon: parent.faviconLoader.image(for: record.url),
-                    referenceIndicatorSystemImage: nil,
-                    sourceIcon: BrowserHistoryBrowserIcon.image(for: record.browser)
-                )
-                return view
-
-            case .none:
-                return nil
-            }
-        }
-
-        @objc private func noopHeaderAction(_ sender: Any?) {}
-
-        func tableViewSelectionDidChange(_ notification: Notification) {
-            guard !isSyncingSelection else { return }
-            guard let tableView else { return }
-            var ids = Set<UUID>()
-            var sectionID: String?
-            for row in tableView.selectedRowIndexes {
-                switch rowInfo(for: row) {
-                case .header(let section, _):
-                    if tableView.selectedRowIndexes.count == 1 {
-                        sectionID = section.id
-                    }
-                case .record(let section, let offset):
-                    if let id = record(in: section, offset: offset)?.id {
-                        ids.insert(id)
-                    }
-                case .none:
-                    continue
-                }
-            }
-            selectedRecordIDs = ids
-            selectedSectionID = ids.isEmpty ? sectionID : nil
-            parent.selection = selectedRecordIDs
-        }
-
-        func syncSelectionToTable() {
-            guard let tableView else { return }
-            let targetIDs = parent.selection
-            var rows = IndexSet()
-            for row in 0 ..< tableView.numberOfRows {
-                switch rowInfo(for: row) {
-                case .header(let section, _):
-                    if targetIDs.isEmpty, selectedSectionID == section.id {
-                        rows.insert(row)
-                    }
-                case .record(let section, let offset):
-                    if let record = record(in: section, offset: offset), targetIDs.contains(record.id) {
-                        rows.insert(row)
-                    }
-                case .none:
-                    continue
-                }
-            }
-            isSyncingSelection = true
-            tableView.selectRowIndexes(rows, byExtendingSelection: false)
-            isSyncingSelection = false
-        }
-
-        @objc func handleClick(_ sender: NSTableView) {
-            let row = sender.clickedRow
-            guard row >= 0,
-                  case .header(let section, _) = rowInfo(for: row)
-            else {
-                return
-            }
-            toggleSection(section)
-        }
-
-        @objc func handleDoubleClick(_ sender: NSTableView) {
-            let row = sender.clickedRow
-            guard row >= 0,
-                  case .record(let section, let offset) = rowInfo(for: row),
-                  let record = record(in: section, offset: offset)
-            else {
-                return
-            }
-            parent.onOpen?(record)
-        }
-
-        func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
-            if rowInfo(for: row) != nil {
-                return true
-            }
-            return false
-        }
-
-        func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu? {
-            nil
-        }
-
-        func bookmarkMenuTableViewCopySelection(_ tableView: BookmarkMenuTableView) {}
-        func bookmarkMenuTableViewEditSelection(_ tableView: BookmarkMenuTableView) {}
-        func bookmarkMenuTableViewDeleteSelection(_ tableView: BookmarkMenuTableView) {}
-        func bookmarkMenuTableViewOpenSelection(_ tableView: BookmarkMenuTableView) {
-            guard tableView.selectedRowIndexes.count == 1,
-                  let row = tableView.selectedRowIndexes.first,
-                  case .record(let section, let offset) = rowInfo(for: row),
-                  let record = record(in: section, offset: offset)
-            else {
-                return
-            }
-            parent.onOpen?(record)
-        }
-        func bookmarkMenuTableViewCancel(_ tableView: BookmarkMenuTableView) -> Bool { false }
-
-        func bookmarkMenuTableView(
-            _ tableView: BookmarkMenuTableView,
-            nextSelectableRowAfter row: Int
-        ) -> Int? {
-            let start = max(row + 1, 0)
-            guard start < tableView.numberOfRows else { return nil }
-            return (start ..< tableView.numberOfRows).first { candidate in
-                rowInfo(for: candidate) != nil
-            }
-        }
-
-        private func rowInfo(for row: Int) -> RowInfo? {
-            guard row >= 0 else { return nil }
-            var cursor = 0
-            for (sectionIndex, section) in sections.enumerated() {
-                if row == cursor {
-                    return .header(section, sectionIndex)
-                }
-                guard expandedSectionIDs.contains(section.id) else {
-                    cursor += 1
-                    continue
-                }
-                let firstRecordRow = cursor + 1
-                let lastRecordRow = firstRecordRow + section.count
-                if row >= firstRecordRow, row < lastRecordRow {
-                    return .record(section, offset: row - firstRecordRow)
-                }
-                cursor = lastRecordRow
-            }
-            return nil
-        }
-
-        private func toggleSection(_ section: BrowserHistorySection) {
-            if expandedSectionIDs.contains(section.id) {
-                expandedSectionIDs.remove(section.id)
-            } else {
-                expandedSectionIDs.insert(section.id)
-            }
-            selectedSectionID = section.id
-            selectedRecordIDs = []
-            parent.selection = []
-            reloadTable()
-        }
-
-        private func record(in section: BrowserHistorySection, offset: Int) -> BrowserHistoryRecord? {
-            guard section.records.indices.contains(offset) else { return nil }
-            return section.records[offset]
-        }
-
-        private func bookmark(from record: BrowserHistoryRecord) -> Bookmark {
-            Bookmark(
-                id: record.id,
-                title: record.title,
-                url: record.url,
-                createdAt: record.visitedAt,
-                originalTitle: record.title
-            )
-        }
-
-        private enum RowInfo {
-            case header(BrowserHistorySection, Int)
-            case record(BrowserHistorySection, offset: Int)
-        }
-
-        private static func defaultExpandedSectionIDs(for sections: [BrowserHistorySection]) -> Set<String> {
-            guard let first = sections.first else { return [] }
-            return [first.id]
-        }
-    }
-}
-
 @MainActor
 protocol BookmarkMenuTableViewDelegate: AnyObject {
     func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool
@@ -1186,68 +797,6 @@ final class BookmarkHeaderCellView: NSTableCellView {
     }
 }
 
-private final class BrowserHistoryHeaderCellView: NSTableCellView {
-    static let identifier = NSUserInterfaceItemIdentifier("BrowserHistoryHeaderCell")
-
-    private let disclosureView = DisclosureChevronView()
-    private let titleField = NSTextField(labelWithString: "")
-
-    override var backgroundStyle: NSView.BackgroundStyle {
-        didSet {
-            applyNativeTextColor()
-        }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        identifier = Self.identifier
-
-        disclosureView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(disclosureView)
-
-        titleField.translatesAutoresizingMaskIntoConstraints = false
-        titleField.font = .systemFont(ofSize: 13, weight: .semibold)
-        titleField.textColor = .labelColor
-        titleField.lineBreakMode = .byTruncatingTail
-        titleField.setContentHuggingPriority(.required, for: .horizontal)
-        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        addSubview(titleField)
-
-        NSLayoutConstraint.activate([
-            disclosureView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
-            disclosureView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            disclosureView.widthAnchor.constraint(equalToConstant: 12),
-            disclosureView.heightAnchor.constraint(equalToConstant: 12),
-            titleField.leadingAnchor.constraint(equalTo: disclosureView.trailingAnchor, constant: 6),
-            titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset)
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(
-        title: String,
-        isExpanded: Bool,
-        target: AnyObject?,
-        action: Selector
-    ) {
-        titleField.stringValue = title
-        disclosureView.isExpanded = isExpanded
-        applyNativeTextColor()
-    }
-
-    private func applyNativeTextColor() {
-        let selected = backgroundStyle == .emphasized
-        let color: NSColor = selected ? .alternateSelectedControlTextColor : .labelColor
-        titleField.textColor = color
-        disclosureView.strokeColor = color
-    }
-}
-
 private final class DisclosureChevronView: NSView {
     var strokeColor = NSColor.labelColor {
         didSet {
@@ -1309,14 +858,12 @@ final class BookmarkTableCellView: NSTableCellView {
     private static let faviconLayoutSize = FaviconReferenceBadge.layoutCanvasSize(forFaviconEdge: faviconEdge)
 
     private let faviconContainer = NSView()
-    private let sourceIconView = NSImageView()
     private let faviconView = NSImageView()
     private let referenceBadgeView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let urlField = NSTextField(labelWithString: "")
     private var textTrailingConstraint: NSLayoutConstraint?
     private var faviconLeadingConstraint: NSLayoutConstraint?
-    private var faviconLeadingWithSourceConstraint: NSLayoutConstraint?
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
@@ -1331,10 +878,6 @@ final class BookmarkTableCellView: NSTableCellView {
         clipsToBounds = false
         faviconContainer.translatesAutoresizingMaskIntoConstraints = false
         faviconContainer.clipsToBounds = false
-
-        sourceIconView.translatesAutoresizingMaskIntoConstraints = false
-        sourceIconView.imageScaling = .scaleProportionallyUpOrDown
-        sourceIconView.isHidden = true
 
         faviconView.translatesAutoresizingMaskIntoConstraints = false
         faviconView.imageScaling = .scaleProportionallyUpOrDown
@@ -1360,7 +903,7 @@ final class BookmarkTableCellView: NSTableCellView {
         urlField.usesSingleLineMode = true
         urlField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        [sourceIconView, faviconContainer, titleField, urlField].forEach(addSubview)
+        [faviconContainer, titleField, urlField].forEach(addSubview)
 
         textTrailingConstraint = titleField.trailingAnchor.constraint(
             equalTo: trailingAnchor,
@@ -1373,24 +916,15 @@ final class BookmarkTableCellView: NSTableCellView {
             equalTo: leadingAnchor,
             constant: NativeBookmarkList.contentInset
         )
-        faviconLeadingWithSourceConstraint = faviconContainer.leadingAnchor.constraint(
-            equalTo: sourceIconView.trailingAnchor,
-            constant: 8
-        )
 
         NSLayoutConstraint.activate([
-            sourceIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
-            sourceIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            sourceIconView.widthAnchor.constraint(equalToConstant: 16),
-            sourceIconView.heightAnchor.constraint(equalToConstant: 16),
-
             faviconLeadingConstraint!,
             faviconContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
             faviconContainer.widthAnchor.constraint(equalToConstant: Self.faviconLayoutSize.width),
             faviconContainer.heightAnchor.constraint(equalToConstant: Self.faviconLayoutSize.height),
 
             faviconView.leadingAnchor.constraint(equalTo: faviconContainer.leadingAnchor),
-            faviconView.centerYAnchor.constraint(equalTo: sourceIconView.centerYAnchor),
+            faviconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             faviconView.widthAnchor.constraint(equalToConstant: Self.faviconEdge),
             faviconView.heightAnchor.constraint(equalToConstant: Self.faviconEdge),
 
@@ -1418,19 +952,8 @@ final class BookmarkTableCellView: NSTableCellView {
         bookmark: Bookmark,
         showsURLHostOnly: Bool,
         favicon: NSImage?,
-        referenceIndicatorSystemImage: String?,
-        sourceIcon: NSImage? = nil
+        referenceIndicatorSystemImage: String?
     ) {
-        sourceIconView.image = sourceIcon
-        sourceIconView.isHidden = sourceIcon == nil
-        faviconLeadingConstraint?.isActive = false
-        faviconLeadingWithSourceConstraint?.isActive = false
-        if sourceIcon == nil {
-            faviconLeadingConstraint?.isActive = true
-        } else {
-            faviconLeadingWithSourceConstraint?.isActive = true
-        }
-
         let canvasSize = NSSize(width: Self.faviconEdge, height: Self.faviconEdge)
         faviconView.image = favicon ?? AppIcon.faviconPlaceholder(size: canvasSize)
         faviconView.contentTintColor = nil

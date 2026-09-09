@@ -4,365 +4,6 @@ import ObeliskCore
 import ObeliskData
 import Observation
 
-enum BookmarkMenuSectionID: Hashable, Identifiable, Sendable {
-    case pinned
-    case recent
-    case browserHistory
-    case collection(UUID)
-    case ungrouped
-
-    var id: String { storageValue }
-
-    var storageValue: String {
-        switch self {
-        case .pinned: return "pinned"
-        case .recent: return "recent"
-        case .browserHistory: return "browserHistory"
-        case .collection(let id): return "collection:\(id.uuidString)"
-        case .ungrouped: return "ungrouped"
-        }
-    }
-
-    init?(storageValue: String) {
-        switch storageValue {
-        case "pinned":
-            self = .pinned
-        case "recent":
-            self = .recent
-        case "browserHistory":
-            self = .browserHistory
-        case "ungrouped":
-            self = .ungrouped
-        default:
-            guard
-                storageValue.hasPrefix("collection:"),
-                let id = UUID(uuidString: String(storageValue.dropFirst("collection:".count)))
-            else {
-                return nil
-            }
-            self = .collection(id)
-        }
-    }
-}
-
-struct BookmarkMenuOrderItem: Identifiable {
-    var id: BookmarkMenuSectionID
-    var title: String
-    var systemImage: String
-}
-
-enum BookmarkMenuSectionOrder {
-    static let storageKey = "menuBarSectionOrder"
-
-    static func encoded(_ ids: [BookmarkMenuSectionID]) -> String {
-        ids.map(\.storageValue).joined(separator: "\n")
-    }
-
-    static func order(
-        collections: [BookmarkCollection],
-        rawValue: String? = UserDefaults.standard.string(forKey: storageKey)
-    ) -> [BookmarkMenuSectionID] {
-        let defaultOrder = defaultOrder(collections: collections)
-        guard let rawValue, !rawValue.isEmpty else {
-            return defaultOrder
-        }
-
-        let validCollectionIds = Set(collections.map(\.id))
-        var seen = Set<BookmarkMenuSectionID>()
-        var result: [BookmarkMenuSectionID] = []
-        for id in rawValue.split(separator: "\n").compactMap({ BookmarkMenuSectionID(storageValue: String($0)) }) {
-            guard isValid(id, validCollectionIds: validCollectionIds), !seen.contains(id) else {
-                continue
-            }
-            result.append(id)
-            seen.insert(id)
-        }
-
-        insertMissingStaticItems(into: &result)
-
-        let missingCollections = collections
-            .map { BookmarkMenuSectionID.collection($0.id) }
-            .filter { !seen.contains($0) && !result.contains($0) }
-        let insertionIndex = collectionInsertionIndex(in: result)
-        result.insert(contentsOf: missingCollections, at: insertionIndex)
-
-        return result
-    }
-
-    static func items(
-        collections: [BookmarkCollection],
-        rawValue: String? = UserDefaults.standard.string(forKey: storageKey)
-    ) -> [BookmarkMenuOrderItem] {
-        let collectionNames = Dictionary(uniqueKeysWithValues: collections.map { ($0.id, $0.name) })
-        return order(collections: collections, rawValue: rawValue).map { id in
-            switch id {
-            case .pinned:
-                return BookmarkMenuOrderItem(id: id, title: "置顶".obeliskLocalized, systemImage: "pin.fill")
-            case .recent:
-                return BookmarkMenuOrderItem(id: id, title: "最近添加".obeliskLocalized, systemImage: "clock.arrow.circlepath")
-            case .browserHistory:
-                return BookmarkMenuOrderItem(id: id, title: "最近浏览".obeliskLocalized, systemImage: "clock.fill")
-            case .collection(let collectionId):
-                return BookmarkMenuOrderItem(
-                    id: id,
-                    title: collectionNames[collectionId] ?? "分组".obeliskLocalized,
-                    systemImage: "folder.fill"
-                )
-            case .ungrouped:
-                return BookmarkMenuOrderItem(id: id, title: "未分组".obeliskLocalized, systemImage: "bookmark.fill")
-            }
-        }
-    }
-
-    static func moving(
-        _ sourceIDs: [BookmarkMenuSectionID],
-        before destinationID: BookmarkMenuSectionID?,
-        in order: [BookmarkMenuSectionID]
-    ) -> [BookmarkMenuSectionID] {
-        let sourceSet = Set(sourceIDs)
-        guard !sourceSet.isEmpty else { return order }
-        if let destinationID, sourceSet.contains(destinationID) {
-            return order
-        }
-
-        let movedIDs = order.filter(sourceSet.contains)
-        guard !movedIDs.isEmpty else { return order }
-
-        var result = order.filter { !sourceSet.contains($0) }
-        let insertionIndex: Int
-        if let destinationID {
-            guard let destinationIndex = result.firstIndex(of: destinationID) else {
-                return order
-            }
-            insertionIndex = destinationIndex
-        } else {
-            insertionIndex = result.endIndex
-        }
-
-        result.insert(contentsOf: movedIDs, at: insertionIndex)
-        return result
-    }
-
-    private static func defaultOrder(collections: [BookmarkCollection]) -> [BookmarkMenuSectionID] {
-        [.pinned, .recent, .browserHistory] + collections.map { .collection($0.id) } + [.ungrouped]
-    }
-
-    private static func isValid(_ id: BookmarkMenuSectionID, validCollectionIds: Set<UUID>) -> Bool {
-        switch id {
-        case .pinned, .recent, .browserHistory, .ungrouped:
-            return true
-        case .collection(let collectionId):
-            return validCollectionIds.contains(collectionId)
-        }
-    }
-
-    private static func insertMissingStaticItems(into result: inout [BookmarkMenuSectionID]) {
-        if !result.contains(.pinned) {
-            result.insert(.pinned, at: 0)
-        }
-        if !result.contains(.recent) {
-            let index = result.firstIndex(of: .pinned).map { $0 + 1 } ?? 0
-            result.insert(.recent, at: min(index, result.count))
-        }
-        if !result.contains(.browserHistory) {
-            let index = result.firstIndex(of: .recent).map { $0 + 1 } ?? 0
-            result.insert(.browserHistory, at: min(index, result.count))
-        }
-        if !result.contains(.ungrouped) {
-            result.append(.ungrouped)
-        }
-    }
-
-    private static func collectionInsertionIndex(in result: [BookmarkMenuSectionID]) -> Int {
-        if let recentIndex = result.firstIndex(of: .recent),
-           let ungroupedIndex = result.firstIndex(of: .ungrouped),
-           recentIndex < ungroupedIndex {
-            return ungroupedIndex
-        }
-        if let recentIndex = result.firstIndex(of: .recent) {
-            return min(recentIndex + 1, result.count)
-        }
-        return result.firstIndex(of: .ungrouped) ?? result.count
-    }
-}
-
-struct BookmarkMenuRenderSection: Identifiable {
-    enum Presentation {
-        case inline
-        case reference
-        case submenu
-    }
-
-    var id: BookmarkMenuSectionID
-    var title: String
-    var bookmarks: [Bookmark]
-    var presentation: Presentation
-}
-
-struct BookmarkMenuSections {
-    var pinned: [BookmarkListSection]
-    var recent: [Bookmark]
-    var collections: [BookmarkListSection]
-    var ungrouped: [BookmarkListSection]
-
-    var library: [BookmarkListSection] {
-        collections + ungrouped
-    }
-
-    var isEmpty: Bool {
-        pinned.isEmpty && recent.isEmpty && collections.isEmpty && ungrouped.isEmpty
-    }
-
-    func renderSections(order: [BookmarkMenuSectionID]) -> [BookmarkMenuRenderSection] {
-        let collectionSections = Dictionary(
-            uniqueKeysWithValues: collections.compactMap { section -> (UUID, BookmarkListSection)? in
-                guard let collectionId = section.collectionId else { return nil }
-                return (collectionId, section)
-            }
-        )
-
-        return order.compactMap { id in
-            switch id {
-            case .pinned:
-                guard let section = pinned.first, let title = section.title, !section.bookmarks.isEmpty else {
-                    return nil
-                }
-                return BookmarkMenuRenderSection(
-                    id: id,
-                    title: title,
-                    bookmarks: section.bookmarks,
-                    presentation: .inline
-                )
-            case .recent:
-                guard !recent.isEmpty else { return nil }
-                return BookmarkMenuRenderSection(
-                    id: id,
-                    title: "\("最近添加".obeliskLocalized) (\(recent.count))",
-                    bookmarks: recent,
-                    presentation: .reference
-                )
-            case .browserHistory:
-                return nil
-            case .collection(let collectionId):
-                guard
-                    let section = collectionSections[collectionId],
-                    let title = section.title,
-                    !section.bookmarks.isEmpty
-                else {
-                    return nil
-                }
-                return BookmarkMenuRenderSection(
-                    id: id,
-                    title: title,
-                    bookmarks: section.bookmarks,
-                    presentation: .submenu
-                )
-            case .ungrouped:
-                guard let section = ungrouped.first, let title = section.title, !section.bookmarks.isEmpty else {
-                    return nil
-                }
-                return BookmarkMenuRenderSection(
-                    id: id,
-                    title: title,
-                    bookmarks: section.bookmarks,
-                    presentation: .submenu
-                )
-            }
-        }
-    }
-}
-
-struct TitleOptimizationOutcome: Equatable {
-    enum Status: Equatable {
-        case changed
-        case noChange
-        case failed
-    }
-
-    var message: String
-    var optimizedTitles: [String]
-    var status: Status = .noChange
-}
-
-struct AutoGroupedBookmarkPlacement: Equatable {
-    var bookmarkId: UUID
-    var groupName: String
-}
-
-struct BookmarkAutoGroupingOutcome: Equatable {
-    enum Status: Equatable {
-        case changed
-        case noChange
-        case failed
-    }
-
-    var message: String
-    var groupedCount: Int
-    var placements: [AutoGroupedBookmarkPlacement]
-    var status: Status = .noChange
-
-    var singleBookmarkDescription: String? {
-        guard placements.count == 1, let placement = placements.first else {
-            return nil
-        }
-        return "已归入「\(placement.groupName)」"
-    }
-}
-
-struct BookmarkIntelligenceOptimizationOptions: Equatable {
-    var optimizeTitles: Bool
-    var autoGroup: Bool
-
-    static func automatic(
-        for bookmark: Bookmark,
-        defaults: UserDefaults = .standard
-    ) -> Self {
-        Self(
-            optimizeTitles: TitleOptimizationPreferences.allowsAutoOptimization(
-                for: bookmark,
-                defaults: defaults
-            ),
-            autoGroup: BookmarkAutoGroupingPreferences.autoGroupNewBookmarks(in: defaults)
-                && !bookmark.isHidden
-        )
-    }
-}
-
-struct BookmarkIntelligenceOptimizationOutcome: Equatable {
-    var titleOptimization: TitleOptimizationOutcome?
-    var autoGrouping: BookmarkAutoGroupingOutcome?
-
-    var didChange: Bool {
-        titleOptimization?.status == .changed || autoGrouping?.status == .changed
-    }
-
-    var summary: String {
-        let parts = [
-            titleOptimization.map(Self.titleSummary),
-            autoGrouping.map(Self.groupingSummary)
-        ].compactMap { $0 }
-
-        return parts.isEmpty ? "没有启用书签优化项目" : parts.joined(separator: "；")
-    }
-
-    private static func titleSummary(_ outcome: TitleOptimizationOutcome) -> String {
-        if outcome.status == .changed {
-            if outcome.optimizedTitles.count == 1, let title = outcome.optimizedTitles.first {
-                return "标题「\(title)」"
-            }
-            return "优化标题 \(outcome.optimizedTitles.count) 个"
-        }
-        return outcome.message
-    }
-
-    private static func groupingSummary(_ outcome: BookmarkAutoGroupingOutcome) -> String {
-        if outcome.status == .changed {
-            return outcome.singleBookmarkDescription ?? "自动分组 \(outcome.groupedCount) 个"
-        }
-        return outcome.message
-    }
-}
-
 private struct BookmarkValidationError: LocalizedError {
     var message: String
 
@@ -390,8 +31,6 @@ final class BookmarksModel {
     private(set) var pinned: [Bookmark] = []
     /// Bookmarks not shown in menu spotlight.
     private(set) var others: [Bookmark] = []
-    private(set) var browserHistory: [BrowserHistoryRecord] = []
-    private(set) var browserHistorySettings: BrowserHistorySettings?
     /// User-defined collections, sorted by `sortOrder` then name.
     private(set) var collections: [BookmarkCollection] = []
     private var membershipByBookmarkId: [UUID: UUID] = [:]
@@ -407,12 +46,11 @@ final class BookmarksModel {
     @ObservationIgnored var onChange: (() -> Void)?
 
     private let store: BookmarkStore
-    private let titleOptimizer: any TitleOptimizing
-    private let groupOptimizer: any BookmarkGroupingOptimizing
+    private let intelligence: BookmarkIntelligence
     private var recentGroupLimit: Int
-    private(set) var isOptimizingTitles = false
-    private(set) var isAutoGroupingBookmarks = false
-    private(set) var isOptimizingBookmarks = false
+    var isOptimizingTitles: Bool { intelligence.isOptimizingTitles }
+    var isAutoGroupingBookmarks: Bool { intelligence.isAutoGroupingBookmarks }
+    var isOptimizingBookmarks: Bool { intelligence.isOptimizingBookmarks }
 
     var rootDirectory: URL {
         store.rootDirectory
@@ -446,17 +84,12 @@ final class BookmarksModel {
         groupOptimizer: (any BookmarkGroupingOptimizing)? = nil
     ) {
         self.store = store
-        let defaultOptimizer = TitleOptimizer()
-        self.titleOptimizer = titleOptimizer ?? defaultOptimizer
-        self.groupOptimizer = groupOptimizer ?? defaultOptimizer
+        self.intelligence = BookmarkIntelligence(
+            titleOptimizer: titleOptimizer,
+            groupOptimizer: groupOptimizer
+        )
         self.recentGroupLimit = recentGroupLimit
         reload()
-        migrateBrowserHistorySettingsIfNeeded()
-    }
-
-    var enabledBrowserHistoryBrowsers: Set<BrowserHistoryBrowser> {
-        browserHistorySettings?.enabledBrowsers
-            ?? BrowserHistorySettings.defaultEnabledBrowsers
     }
 
     func reload() {
@@ -466,8 +99,6 @@ final class BookmarksModel {
             let usage = snapshot.usageByBookmarkID
             usageByBookmarkId = usage
             bookmarks = all
-            browserHistory = snapshot.browserHistory
-            browserHistorySettings = snapshot.browserHistorySettings
             searchIndex = BookmarkSearchIndex(bookmarks: all)
             collections = snapshot.collections.sorted {
                 if $0.sortOrder != $1.sortOrder {
@@ -660,56 +291,6 @@ final class BookmarksModel {
         pinned = BookmarkListSortMode.storedForPinned.sorted(visible.filter(\.isPinned), usage: usageByBookmarkId)
         recomputeMenuSpotlight(from: visible, usage: usageByBookmarkId)
         onChange?()
-    }
-
-    func reconcileBrowserHistory(
-        _ records: [BrowserHistoryRecord],
-        for browsers: Set<BrowserHistoryBrowser>
-    ) {
-        do {
-            try store.database.reconcileBrowserHistory(records, for: browsers)
-            reload()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func setEnabledBrowserHistoryBrowsers(_ browsers: Set<BrowserHistoryBrowser>) {
-        do {
-            try store.database.saveBrowserHistorySettings(
-                BrowserHistorySettings(enabledBrowsers: browsers)
-            )
-            reload()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func browserHistorySections(
-        for browsers: Set<BrowserHistoryBrowser>,
-        limit: Int = BrowserHistoryGrouping.recordLimit
-    ) -> [BrowserHistorySection] {
-        let records = browserHistory
-            .filter { browsers.contains($0.browser) }
-            .prefix(max(0, limit))
-        return BrowserHistoryGrouping.sections(for: Array(records))
-    }
-
-    private func migrateBrowserHistorySettingsIfNeeded() {
-        guard browserHistorySettings == nil else { return }
-        let defaults = UserDefaults.standard
-        guard let browsers = BrowserHistoryPreferences.legacyEnabledBrowsers(defaults: defaults) else {
-            return
-        }
-        do {
-            try store.database.saveBrowserHistorySettings(
-                BrowserHistorySettings(enabledBrowsers: browsers)
-            )
-            defaults.removeObject(forKey: BrowserHistoryPreferences.legacyEnabledSourcesStorageKey)
-            reload()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
     }
 
     func sortedBookmarks(_ bookmarks: [Bookmark], sortMode: BookmarkListSortMode) -> [Bookmark] {
@@ -933,61 +514,7 @@ final class BookmarksModel {
         }
     }
 
-    func autoGroupBookmarks(bookmarkIds: Set<UUID> = []) async -> BookmarkAutoGroupingOutcome {
-        guard UserDefaults.standard.object(forKey: Self.aiFeaturesEnabledKey) as? Bool ?? true else {
-            return Self.emptyAutoGroupingOutcome(message: "Intelligence 功能已关闭", status: .failed)
-        }
-
-        guard !isOptimizingBookmarks, !isAutoGroupingBookmarks else {
-            return Self.emptyAutoGroupingOutcome(message: "书签优化正在进行中", status: .failed)
-        }
-
-        return await autoGroupBookmarksStep(bookmarkIds: bookmarkIds)
-    }
-
-    private func autoGroupBookmarksStep(bookmarkIds: Set<UUID>) async -> BookmarkAutoGroupingOutcome {
-        let candidates = autoGroupingCandidates(scopedTo: bookmarkIds)
-        guard !candidates.isEmpty else {
-            return Self.emptyAutoGroupingOutcome(message: "没有需要自动分组的书签")
-        }
-        guard !collections.isEmpty else {
-            return Self.emptyAutoGroupingOutcome(message: "还没有可用分组")
-        }
-
-        isAutoGroupingBookmarks = true
-        defer { isAutoGroupingBookmarks = false }
-
-        do {
-            let suggestions = try await groupOptimizer.suggestGroups(
-                for: candidates.map {
-                    BookmarkGroupingCandidate(
-                        id: $0.id,
-                        title: $0.title,
-                        url: $0.url
-                    )
-                },
-                existingCollections: collections.map {
-                    BookmarkGroupingExistingCollection(id: $0.id, name: $0.name)
-                }
-            )
-            let currentCandidates = autoGroupingCandidates(scopedTo: Set(candidates.map(\.id)))
-            guard !currentCandidates.isEmpty else {
-                return Self.emptyAutoGroupingOutcome(message: "没有需要自动分组的书签")
-            }
-            let result = try applyAutoGroupingSuggestions(suggestions, to: currentCandidates)
-            reload()
-            return BookmarkAutoGroupingOutcome(
-                message: Self.autoGroupingMessage(groupedCount: result.groupedCount),
-                groupedCount: result.groupedCount,
-                placements: result.placements,
-                status: result.groupedCount > 0 ? .changed : .noChange
-            )
-        } catch {
-            return Self.emptyAutoGroupingOutcome(message: error.localizedDescription, status: .failed)
-        }
-    }
-
-    private func autoGroupingCandidates(scopedTo bookmarkIds: Set<UUID>) -> [Bookmark] {
+    func autoGroupingCandidates(scopedTo bookmarkIds: Set<UUID>) -> [Bookmark] {
         let scope = bookmarkIds.isEmpty ? nil : bookmarkIds
         let usage = usageByBookmarkId
         return visibleBookmarks(from: bookmarks, usage: usage)
@@ -1005,7 +532,7 @@ final class BookmarksModel {
             }
     }
 
-    private func applyAutoGroupingSuggestions(
+    func applyAutoGroupingSuggestions(
         _ suggestions: [UUID: String],
         to candidates: [Bookmark]
     ) throws -> (groupedCount: Int, placements: [AutoGroupedBookmarkPlacement]) {
@@ -1032,7 +559,7 @@ final class BookmarksModel {
             else {
                 continue
             }
-            try store.database.setCollection(collectionId, for: [bookmark.id])
+            try store.setCollection(collectionId, for: [bookmark.id])
             groupedCount += 1
             placements.append(
                 AutoGroupedBookmarkPlacement(
@@ -1071,156 +598,28 @@ final class BookmarksModel {
             .lowercased()
     }
 
-    private static func autoGroupingMessage(groupedCount: Int) -> String {
-        guard groupedCount > 0 else {
-            return "没有书签被移动"
-        }
-        return "已自动分组 \(groupedCount) 个书签"
-    }
-
-    private static func emptyAutoGroupingOutcome(
-        message: String,
-        status: BookmarkAutoGroupingOutcome.Status = .noChange
-    ) -> BookmarkAutoGroupingOutcome {
-        BookmarkAutoGroupingOutcome(
-            message: message,
-            groupedCount: 0,
-            placements: [],
-            status: status
-        )
-    }
-
-    func optimizeTitles(bookmarkIds: Set<UUID>) async -> String {
-        await optimizeTitleDetails(bookmarkIds: bookmarkIds).message
+    func autoGroupBookmarks(bookmarkIds: Set<UUID> = []) async -> BookmarkAutoGroupingOutcome {
+        await intelligence.autoGroupBookmarks(in: self, bookmarkIds: bookmarkIds)
     }
 
     func optimizeTitleDetails(bookmarkIds: Set<UUID>) async -> TitleOptimizationOutcome {
-        guard UserDefaults.standard.object(forKey: Self.aiFeaturesEnabledKey) as? Bool ?? true else {
-            return TitleOptimizationOutcome(
-                message: "Intelligence 功能已关闭",
-                optimizedTitles: [],
-                status: .failed
-            )
-        }
-
-        guard !isOptimizingBookmarks, !isOptimizingTitles else {
-            return TitleOptimizationOutcome(
-                message: "书签优化正在进行中",
-                optimizedTitles: [],
-                status: .failed
-            )
-        }
-
-        return await optimizeTitleDetailsStep(bookmarkIds: bookmarkIds)
-    }
-
-    private func optimizeTitleDetailsStep(bookmarkIds: Set<UUID>) async -> TitleOptimizationOutcome {
-        let candidates = bookmarks
-            .filter { bookmark in
-                bookmarkIds.contains(bookmark.id) && !bookmark.titleOptimized
-                    && TitleOptimizationPreferences.allowsOptimization(for: bookmark)
-            }
-            .map {
-                TitleOptimizationCandidate(
-                    id: $0.id,
-                    title: $0.title,
-                    url: $0.url
-                )
-            }
-
-        guard !candidates.isEmpty else {
-            return TitleOptimizationOutcome(message: "没有需要优化的标题", optimizedTitles: [])
-        }
-
-        isOptimizingTitles = true
-        defer { isOptimizingTitles = false }
-
-        do {
-            let candidateIds = Set(candidates.map(\.id))
-            let optimizedTitles = try await titleOptimizer.optimize(candidates)
-                .filter { candidateIds.contains($0.key) }
-            let count = try store.applyTitleOptimizations(optimizedTitles)
-            reload()
-            if count == 0 {
-                return TitleOptimizationOutcome(message: "没有标题被更新", optimizedTitles: [])
-            }
-            return TitleOptimizationOutcome(
-                message: "已优化 \(count) 个标题",
-                optimizedTitles: optimizedDisplayTitles(for: candidates, optimizedTitles: optimizedTitles),
-                status: .changed
-            )
-        } catch {
-            return TitleOptimizationOutcome(
-                message: error.localizedDescription,
-                optimizedTitles: [],
-                status: .failed
-            )
-        }
+        await intelligence.optimizeTitleDetails(in: self, bookmarkIds: bookmarkIds)
     }
 
     func optimizeBookmarks(
         bookmarkIds: Set<UUID> = [],
         options: BookmarkIntelligenceOptimizationOptions
     ) async -> BookmarkIntelligenceOptimizationOutcome {
-        guard UserDefaults.standard.object(forKey: Self.aiFeaturesEnabledKey) as? Bool ?? true else {
-            let failure = "Intelligence 功能已关闭"
-            return BookmarkIntelligenceOptimizationOutcome(
-                titleOptimization: options.optimizeTitles
-                    ? TitleOptimizationOutcome(message: failure, optimizedTitles: [], status: .failed)
-                    : nil,
-                autoGrouping: options.autoGroup
-                    ? Self.emptyAutoGroupingOutcome(message: failure, status: .failed)
-                    : nil
-            )
-        }
-
-        guard !isOptimizingBookmarks, !isOptimizingTitles, !isAutoGroupingBookmarks else {
-            let failure = "书签优化正在进行中"
-            return BookmarkIntelligenceOptimizationOutcome(
-                titleOptimization: options.optimizeTitles
-                    ? TitleOptimizationOutcome(message: failure, optimizedTitles: [], status: .failed)
-                    : nil,
-                autoGrouping: options.autoGroup
-                    ? Self.emptyAutoGroupingOutcome(message: failure, status: .failed)
-                    : nil
-            )
-        }
-
-        isOptimizingBookmarks = true
-        defer { isOptimizingBookmarks = false }
-
-        let scopedBookmarkIds = bookmarkIds.isEmpty
-            ? Set(bookmarks.map(\.id))
-            : bookmarkIds
-        let titleOutcome = options.optimizeTitles
-            ? await optimizeTitleDetailsStep(bookmarkIds: scopedBookmarkIds)
-            : nil
-        let groupingOutcome = options.autoGroup
-            ? await autoGroupBookmarksStep(bookmarkIds: bookmarkIds)
-            : nil
-
-        return BookmarkIntelligenceOptimizationOutcome(
-            titleOptimization: titleOutcome,
-            autoGrouping: groupingOutcome
-        )
+        await intelligence.optimizeBookmarks(in: self, bookmarkIds: bookmarkIds, options: options)
     }
 
-    private func optimizedDisplayTitles(
-        for candidates: [TitleOptimizationCandidate],
-        optimizedTitles: [UUID: String]
-    ) -> [String] {
-        let bookmarksById = Dictionary(uniqueKeysWithValues: bookmarks.map { ($0.id, $0) })
-        return candidates.compactMap { candidate in
-            guard
-                let proposedTitle = optimizedTitles[candidate.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                !proposedTitle.isEmpty,
-                let bookmark = bookmarksById[candidate.id],
-                bookmark.titleOptimized
-            else {
-                return nil
-            }
-            return bookmark.title
-        }
+    /// Intelligence commits through the same local store as manual edits.
+    func applyTitleOptimizations(_ titles: [UUID: String]) throws -> Int {
+        try store.applyTitleOptimizations(titles)
+    }
+
+    func optimizeTitles(bookmarkIds: Set<UUID>) async -> String {
+        await optimizeTitleDetails(bookmarkIds: bookmarkIds).message
     }
 
     func revertTitleOptimizations(bookmarkIds: Set<UUID>) -> String? {

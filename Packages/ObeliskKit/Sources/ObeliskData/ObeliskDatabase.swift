@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import GRDB
 import ObeliskCore
@@ -9,8 +8,6 @@ import ObeliskCore
 /// merges remote rows back with the same per-field HLC rules the server uses.
 public final class ObeliskDatabase: @unchecked Sendable {
     public static let fileName = "obelisk-sync.sqlite"
-    public static let historyOutboxTable = "browser_history"
-    static let historyOutboxRowID = "local-device"
 
     public let rootDirectory: URL
     public let fileURL: URL
@@ -41,12 +38,10 @@ public final class ObeliskDatabase: @unchecked Sendable {
         rootDirectory: URL,
         deviceID: UUID
     ) throws -> ObeliskDatabase {
-        let database = try ObeliskDatabase(
+        try ObeliskDatabase(
             rootDirectory: rootDirectory,
             deviceID: deviceID
         )
-        try database.removeUnsupportedBrowserHistoryData()
-        return database
     }
 
     // MARK: - Snapshot
@@ -80,33 +75,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 GROUP BY bookmark_id
                 """
             )
-            let historyCutoff = Date().addingTimeInterval(
-                -TimeInterval(BrowserHistoryGrouping.dayLimit) * 86_400
-            )
-            let browserHistoryRows = try Row.fetchAll(
-                database,
-                sql: """
-                SELECT id, browser, profile_name, title, url, visited_at
-                FROM browser_history_events
-                WHERE visited_at >= ?
-                ORDER BY visited_at DESC, id DESC
-                LIMIT ?
-                """,
-                arguments: [
-                    Self.encodeDate(historyCutoff),
-                    BrowserHistoryGrouping.recordLimit * 5,
-                ]
-            )
-            let browserHistorySettingsRow = try Row.fetchOne(
-                database,
-                sql: """
-                SELECT enabled_sources
-                FROM browser_history_settings
-                WHERE id = ?
-                """,
-                arguments: [BrowserHistorySettings.sharedID.uuidString.lowercased()]
-            )
-
             let bookmarks = try bookmarkRows.map(Self.bookmark)
             let collections = try collectionRows.enumerated().map { index, row in
                 try Self.collection(row, fallbackOrder: index)
@@ -136,25 +104,11 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     return (bookmarkID, UsageRecord(count: count, lastClickedAt: date))
                 }
             )
-            var seenHistoryURLs = Set<String>()
-            let browserHistory = try browserHistoryRows.compactMap { row -> BrowserHistoryRecord? in
-                let record = try Self.browserHistoryRecord(row)
-                let normalizedURL = BookmarkStore.normalizedURL(record.url)
-                guard seenHistoryURLs.insert(normalizedURL).inserted else { return nil }
-                return record
-            }
-            .prefix(BrowserHistoryGrouping.recordLimit)
-            let browserHistorySettings = browserHistorySettingsRow.map { row in
-                BrowserHistorySettings(encodedEnabledSources: row["enabled_sources"])
-            }
-
             return ObeliskLibrarySnapshot(
                 bookmarks: bookmarks,
                 collections: collections,
                 collectionByBookmarkID: membership,
-                usageByBookmarkID: usage,
-                browserHistory: Array(browserHistory),
-                browserHistorySettings: browserHistorySettings
+                usageByBookmarkID: usage
             )
         }
     }
@@ -168,8 +122,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
             Table("bookmarks"),
             Table("collections"),
             Table("usage_events"),
-            Table("browser_history_events"),
-            Table("browser_history_settings"),
         ])
         let pool = pool
         return AsyncThrowingStream { continuation in
@@ -519,262 +471,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
         }
     }
 
-    public func saveBrowserHistorySettings(_ settings: BrowserHistorySettings) throws {
-        let now = Date()
-        try pool.write { database in
-            let id = BrowserHistorySettings.sharedID.uuidString.lowercased()
-            let current = try Row.fetchOne(
-                database,
-                sql: """
-                SELECT enabled_sources, field_versions
-                FROM browser_history_settings
-                WHERE id = ?
-                """,
-                arguments: [id]
-            )
-            let enabledSources = settings.encodedEnabledSources
-
-            if let current {
-                var versions = try Self.decodeVersions(current["field_versions"])
-                let timestamp = try self.nextTimestamp(
-                    database,
-                    observing: Array(versions.values),
-                    now: now
-                )
-                var changed = false
-                Self.markChange(
-                    "enabled_sources",
-                    current["enabled_sources"] as String,
-                    enabledSources,
-                    timestamp,
-                    &versions,
-                    &changed
-                )
-                guard changed else { return }
-                try database.execute(
-                    sql: """
-                    UPDATE browser_history_settings
-                    SET enabled_sources = ?, field_versions = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    arguments: [
-                        enabledSources,
-                        try Self.encodeVersions(versions),
-                        Self.encodeDate(now),
-                        id,
-                    ]
-                )
-            } else {
-                let timestamp = try self.nextTimestamp(database, now: now)
-                let versions = ["enabled_sources": timestamp]
-                try database.execute(
-                    sql: """
-                    INSERT INTO browser_history_settings (
-                        id, enabled_sources, field_versions, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    arguments: [
-                        id,
-                        enabledSources,
-                        try Self.encodeVersions(versions),
-                        Self.encodeDate(now),
-                        Self.encodeDate(now),
-                    ]
-                )
-            }
-            try Self.enqueueOutbox(database, table: "browser_history_settings", rowID: id, now: now)
-        }
-    }
-
-    // MARK: - Browser history mirror
-
-    public func reconcileBrowserHistory(
-        _ records: [BrowserHistoryRecord],
-        for browsers: Set<BrowserHistoryBrowser>
-    ) throws {
-        guard !browsers.isEmpty else { return }
-
-        let now = Date()
-        let cutoff = now.addingTimeInterval(
-            -TimeInterval(BrowserHistoryGrouping.dayLimit) * 86_400
-        )
-        var desiredIDs = Set<UUID>()
-        let desiredRecords = records
-            .filter { browsers.contains($0.browser) && $0.visitedAt >= cutoff }
-            .prefix(BrowserHistoryGrouping.recordLimit)
-            .compactMap { record -> (id: UUID, record: BrowserHistoryRecord)? in
-                let id = browserHistoryEventID(for: record)
-                guard desiredIDs.insert(id).inserted else { return nil }
-                return (id: id, record: record)
-            }
-        let desiredIDStrings = Set(desiredIDs.map { $0.uuidString.lowercased() })
-        let sourceDeviceID = deviceID.uuidString.lowercased()
-
-        try pool.write { database in
-            try database.execute(
-                sql: "DELETE FROM browser_history_events WHERE visited_at < ?",
-                arguments: [Self.encodeDate(cutoff)]
-            )
-            var changed = database.changesCount > 0
-
-            let rows = try Row.fetchAll(
-                database,
-                sql: """
-                SELECT id, browser, profile_name, title, url, visited_at
-                FROM browser_history_events
-                WHERE source_device_id = ?
-                """,
-                arguments: [sourceDeviceID]
-            )
-            var existing: [String: Row] = [:]
-            for row in rows {
-                existing[row["id"]] = row
-            }
-
-            for (id, row) in existing {
-                let browserValue: String = row["browser"]
-                guard
-                    let browser = BrowserHistoryBrowser(rawValue: browserValue),
-                    browsers.contains(browser),
-                    !desiredIDStrings.contains(id)
-                else { continue }
-                try database.execute(
-                    sql: "DELETE FROM browser_history_events WHERE id = ?",
-                    arguments: [id]
-                )
-                changed = true
-            }
-
-            for desired in desiredRecords {
-                let id = desired.id.uuidString.lowercased()
-                let record = desired.record
-                let visited = Self.encodeDate(record.visitedAt)
-                if let row = existing[id] {
-                    let matches = row["browser"] as String == record.browser.rawValue
-                        && row["profile_name"] as String == record.profileName
-                        && row["title"] as String == record.title
-                        && row["url"] as String == record.url
-                        && row["visited_at"] as String == visited
-                    guard !matches else { continue }
-                    try database.execute(
-                        sql: """
-                        UPDATE browser_history_events
-                        SET browser = ?, profile_name = ?, title = ?, url = ?, visited_at = ?
-                        WHERE id = ? AND source_device_id = ?
-                        """,
-                        arguments: [
-                            record.browser.rawValue,
-                            record.profileName,
-                            record.title,
-                            record.url,
-                            visited,
-                            id,
-                            sourceDeviceID,
-                        ]
-                    )
-                } else {
-                    try database.execute(
-                        sql: """
-                        INSERT INTO browser_history_events (
-                            id, source_device_id, browser, profile_name, title,
-                            url, visited_at, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        arguments: [
-                            id,
-                            sourceDeviceID,
-                            record.browser.rawValue,
-                            record.profileName,
-                            record.title,
-                            record.url,
-                            visited,
-                            Self.encodeDate(Date()),
-                        ]
-                    )
-                }
-                changed = true
-            }
-
-            if changed {
-                try Self.enqueueHistoryPush(database, now: now)
-            }
-        }
-    }
-
-    public func pruneBrowserHistory(before cutoff: Date) throws {
-        try pool.write { database in
-            try database.execute(
-                sql: "DELETE FROM browser_history_events WHERE visited_at < ?",
-                arguments: [Self.encodeDate(cutoff)]
-            )
-            if database.changesCount > 0 {
-                try Self.enqueueHistoryPush(database, now: Date())
-            }
-        }
-    }
-
-    private func removeUnsupportedBrowserHistoryData() throws {
-        try pool.write { database in
-            try database.execute(
-                sql: """
-                DELETE FROM browser_history_events
-                WHERE browser NOT IN (?, ?, ?)
-                """,
-                arguments: [
-                    BrowserHistoryBrowser.dia.rawValue,
-                    BrowserHistoryBrowser.chrome.rawValue,
-                    BrowserHistoryBrowser.safari.rawValue,
-                ]
-            )
-            if database.changesCount > 0 {
-                try Self.enqueueHistoryPush(database, now: Date())
-            }
-        }
-
-        let storedSources: String? = try pool.read { database in
-            try String.fetchOne(
-                database,
-                sql: """
-                SELECT enabled_sources
-                FROM browser_history_settings
-                WHERE id = ?
-                """,
-                arguments: [BrowserHistorySettings.sharedID.uuidString.lowercased()]
-            )
-        }
-        guard let storedSources else { return }
-        let normalizedSettings = BrowserHistorySettings(encodedEnabledSources: storedSources)
-        guard normalizedSettings.encodedEnabledSources != storedSources else { return }
-        try saveBrowserHistorySettings(normalizedSettings)
-    }
-
-    /// Rows this device owns, in the shape the reconcile endpoint expects.
-    public func localHistoryRecords() throws -> [SyncHistoryRecord] {
-        try pool.read { database in
-            let rows = try Row.fetchAll(
-                database,
-                sql: """
-                SELECT id, browser, profile_name, title, url, visited_at, created_at
-                FROM browser_history_events
-                WHERE source_device_id = ?
-                ORDER BY visited_at DESC
-                """,
-                arguments: [deviceID.uuidString.lowercased()]
-            )
-            return rows.map { row in
-                SyncHistoryRecord(
-                    id: row["id"],
-                    browser: row["browser"],
-                    profileName: row["profile_name"],
-                    title: row["title"],
-                    url: row["url"],
-                    visitedAt: row["visited_at"],
-                    createdAt: row["created_at"]
-                )
-            }
-        }
-    }
-
     // MARK: - Outbox
 
     static func enqueueOutbox(_ database: Database, table: String, rowID: String, now: Date) throws {
@@ -789,22 +485,17 @@ public final class ObeliskDatabase: @unchecked Sendable {
         )
     }
 
-    static func enqueueHistoryPush(_ database: Database, now: Date) throws {
-        try enqueueOutbox(database, table: historyOutboxTable, rowID: historyOutboxRowID, now: now)
-    }
-
     /// Registers every current row for upload. Used for the initial push and
     /// for recovery; with state-based merge this is always safe to repeat.
     public func enqueueFullPush() throws {
         let now = Date()
         try pool.write { database in
-            for table in ["bookmarks", "collections", "usage_events", "browser_history_settings"] {
+            for table in ["bookmarks", "collections", "usage_events"] {
                 let ids = try String.fetchAll(database, sql: "SELECT id FROM \(table)")
                 for id in ids {
                     try Self.enqueueOutbox(database, table: table, rowID: id, now: now)
                 }
             }
-            try Self.enqueueHistoryPush(database, now: now)
         }
     }
 
@@ -853,13 +544,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     table: "collections",
                     id: entry.rowID,
                     fields: ["name", "position_key", "show_in_menu", "deleted_at"]
-                )
-            case "browser_history_settings":
-                return try Self.versionedPushRow(
-                    database,
-                    table: "browser_history_settings",
-                    id: entry.rowID,
-                    fields: ["enabled_sources"]
                 )
             case "usage_events":
                 guard let row = try Row.fetchOne(
@@ -983,7 +667,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
     /// versioned rows field-by-field with the same rules the server uses.
     /// These writes never re-enter the outbox.
     public func applyRemoteChanges(_ page: SyncChangesPage) throws {
-        let ownDeviceID = deviceID.uuidString.lowercased()
         try pool.write { database in
             for row in page.collections {
                 try Self.applyRemoteVersionedRow(
@@ -1004,14 +687,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     row: row
                 )
             }
-            for row in page.browserHistorySettings {
-                try Self.applyRemoteVersionedRow(
-                    database,
-                    table: "browser_history_settings",
-                    fields: ["enabled_sources"],
-                    row: row
-                )
-            }
             for event in page.usageEvents {
                 try database.execute(
                     sql: """
@@ -1026,40 +701,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
                         event.occurredAt,
                         event.createdAt,
                     ]
-                )
-            }
-            // The local browser is the source of truth for this device's own
-            // rows; only mirror rows owned by other devices.
-            for event in page.browserHistoryEvents where event.sourceDeviceID.lowercased() != ownDeviceID {
-                try database.execute(
-                    sql: """
-                    INSERT INTO browser_history_events (
-                        id, source_device_id, browser, profile_name, title,
-                        url, visited_at, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (id) DO UPDATE SET
-                        browser = excluded.browser,
-                        profile_name = excluded.profile_name,
-                        title = excluded.title,
-                        url = excluded.url,
-                        visited_at = excluded.visited_at
-                    """,
-                    arguments: [
-                        event.id.lowercased(),
-                        event.sourceDeviceID.lowercased(),
-                        event.browser,
-                        event.profileName,
-                        event.title,
-                        event.url,
-                        event.visitedAt,
-                        event.createdAt,
-                    ]
-                )
-            }
-            for id in page.browserHistoryDeletions {
-                try database.execute(
-                    sql: "DELETE FROM browser_history_events WHERE id = ? AND source_device_id != ?",
-                    arguments: [id.lowercased(), ownDeviceID]
                 )
             }
         }
@@ -1294,42 +935,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
             sortOrder: Int(position) ?? fallbackOrder,
             showInMenu: row["show_in_menu"]
         )
-    }
-
-    private static func browserHistoryRecord(_ row: Row) throws -> BrowserHistoryRecord {
-        guard
-            let id = UUID(uuidString: row["id"]),
-            let browser = BrowserHistoryBrowser(rawValue: row["browser"]),
-            let rawVisitedAt: String = row["visited_at"],
-            let visitedAt = decodeDate(rawVisitedAt)
-        else {
-            throw ObeliskDatabaseError.invalidRow("browser_history_events")
-        }
-        return BrowserHistoryRecord(
-            id: id,
-            title: row["title"],
-            url: row["url"],
-            visitedAt: visitedAt,
-            browser: browser,
-            profileName: row["profile_name"]
-        )
-    }
-
-    private func browserHistoryEventID(for record: BrowserHistoryRecord) -> UUID {
-        let material = [
-            deviceID.uuidString.lowercased(),
-            record.id.uuidString.lowercased(),
-            Self.encodeDate(record.visitedAt),
-        ].joined(separator: "|")
-        var bytes = Array(SHA256.hash(data: Data(material.utf8)).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x40
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (
-            bytes[0], bytes[1], bytes[2], bytes[3],
-            bytes[4], bytes[5], bytes[6], bytes[7],
-            bytes[8], bytes[9], bytes[10], bytes[11],
-            bytes[12], bytes[13], bytes[14], bytes[15]
-        ))
     }
 
     private static func bookmarkPosition(_ bookmark: Bookmark) -> String {

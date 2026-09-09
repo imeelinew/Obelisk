@@ -112,7 +112,6 @@ struct ObeliskTests {
             BookmarkMenuSectionOrder.order(collections: [current], rawValue: rawValue) == [
                 .pinned,
                 .recent,
-                .browserHistory,
                 .collection(current.id),
                 .ungrouped
             ]
@@ -124,31 +123,16 @@ struct ObeliskTests {
         let original: [BookmarkMenuSectionID] = [
             .pinned,
             .recent,
-            .browserHistory,
             .collection(collectionID),
             .ungrouped
         ]
 
         #expect(
             BookmarkMenuSectionOrder.moving(
-                [.browserHistory],
-                before: .pinned,
-                in: original
-            ) == [
-                .browserHistory,
-                .pinned,
-                .recent,
-                .collection(collectionID),
-                .ungrouped
-            ]
-        )
-        #expect(
-            BookmarkMenuSectionOrder.moving(
                 [.recent, .pinned],
                 before: .ungrouped,
                 in: original
             ) == [
-                .browserHistory,
                 .collection(collectionID),
                 .pinned,
                 .recent,
@@ -162,12 +146,19 @@ struct ObeliskTests {
                 in: original
             ) == [
                 .recent,
-                .browserHistory,
                 .collection(collectionID),
                 .ungrouped,
                 .pinned
             ]
         )
+    }
+
+    @Test func menuOrderDiscardsRemovedHistoryAndPreservesCustomOrder() {
+        let collection = BookmarkCollection(name: "Current")
+        let raw = "ungrouped\nbrowserHistory\ncollection:\(collection.id.uuidString)\nrecent\npinned"
+        #expect(BookmarkMenuSectionOrder.order(collections: [collection], rawValue: raw) == [
+            .ungrouped, .collection(collection.id), .recent, .pinned
+        ])
     }
 
     @MainActor

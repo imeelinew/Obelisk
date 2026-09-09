@@ -23,9 +23,7 @@ Identical shape on the client, D1, and the wire (snake_case columns):
 | --- | --- | --- |
 | `bookmarks` | versioned | per-field HLC merge, soft delete (`deleted_at`) |
 | `collections` | versioned | per-field HLC merge, soft delete |
-| `browser_history_settings` | versioned | per-field HLC merge (singleton row) |
 | `usage_events` | append-only | insert-once by id, immutable |
-| `browser_history_events` | device-scoped mirror | full-set replace per source device |
 
 Versioned tables carry `field_versions`: a JSON map from column name to a
 hybrid logical clock timestamp `{milliseconds, counter, deviceID}`. A field
@@ -38,9 +36,6 @@ resurrect old data.
 - Every domain write runs in one SQLite transaction that also upserts an
   entry into `outbox (table_name, row_id, queued_at, attempts, last_error)`.
   Rewriting a row refreshes `queued_at`, coalescing repeated edits.
-- Browser history is not tracked per row: local reconciliation marks a single
-  `browser_history/local-device` outbox entry, and the engine uploads the
-  device's complete current set to the reconcile endpoint.
 - `sync_state` holds the HLC clock and the pull cursor.
 - The sync engine (`CloudSyncController` + `SyncEngine`) performs serialized
   passes: **push** (read outbox → upload full row state → delete entries whose
@@ -63,13 +58,9 @@ resurrect old data.
   Writes allocate a global sequence number (`sync_meta.seq`) in the same
   atomic batch as the row write, so cursors never miss data.
 - `GET /v1/changes?since=N`: returns rows with `seq > N` from every table
-  (1000 per table per page) plus browser-history tombstones, with `cursor`
+  (1000 per table per page), with `cursor`
   and `hasMore` for paging. Rows may be re-sent across pages; clients apply
   idempotently.
-- `PUT /v1/browser-history`: replaces the row set for one source device.
-  Deleted rows get tombstones (45-day retention) so other devices drop their
-  mirrors; rows older than the 30-day retention window are pruned without
-  tombstones because every client filters by the same cutoff.
 - Concurrency: D1 serializes batches; read-merge-write races are guarded by
   compare-and-swap on `field_versions` with bounded retries.
 
@@ -87,7 +78,24 @@ resurrect old data.
 ## Legacy migration
 
 Databases written by the retired PowerSync stack (`ps_data__*` JSON tables,
-views, triggers, and the `ps_crud` queue) are migrated on first open: domain
+views, triggers, and the `ps_crud` queue) are migrated on first open: bookmark, collection, and usage
 rows are copied into plain tables, every `ps_*` object is dropped, and the
 old mutation queue is discarded — the state-based protocol re-uploads current
-rows on the next full push, so nothing is lost.
+rows on the next full push. The HLC is retained; the new protocol starts at
+cursor zero. Retired history rows are discarded without decoding their JSON.
+
+
+## Browser-history removal
+
+Local migration `2026-09-remove-browser-history` drops history tables and
+removes only history outbox entries. Bookmark, collection, usage, remaining
+outbox entries, HLC, and pull cursor are unchanged. New local databases
+never create history tables.
+
+D1 migration `0002_remove_browser_history.sql` drops events, settings, and
+history tombstones. The applied initial migration is retained for upgrades.
+The global `sync_meta.seq` and surviving row sequences must never be reset
+or renumbered: existing cursors can include sequence numbers allocated to
+history. Future writes continue above those cursors. The changes feed and
+push table allowlist now contain only bookmarks, collections, and usage;
+the history reconcile endpoint is removed.

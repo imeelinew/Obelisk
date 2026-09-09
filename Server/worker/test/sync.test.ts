@@ -89,9 +89,6 @@ beforeEach(async () => {
     "collections",
     "bookmarks",
     "usage_events",
-    "browser_history_events",
-    "browser_history_tombstones",
-    "browser_history_settings",
   ];
   for (const table of tables) {
     await env.DB.prepare(`DELETE FROM ${table}`).run();
@@ -298,70 +295,5 @@ describe("push and pull", () => {
     const feed = await changes(before.cursor);
     expect(feed.bookmarks).toHaveLength(1);
     expect(feed.bookmarks[0].deleted_at).toBe("2026-07-03T00:00:00.000Z");
-  });
-});
-
-describe("browser history reconcile", () => {
-  const recordID = "44444444-4444-4444-8444-444444444444";
-
-  const fixedVisitedAt = new Date(Date.now() - 3_600_000).toISOString();
-
-  function record(overrides: Record<string, unknown> = {}) {
-    return {
-      id: recordID,
-      browser: "chrome",
-      profileName: "Default",
-      title: "Example page",
-      url: "https://example.com/page",
-      visitedAt: fixedVisitedAt,
-      ...overrides,
-    };
-  }
-
-  async function reconcile(deviceId: string, records: unknown[]) {
-    const response = await request("/v1/browser-history", {
-      method: "PUT",
-      body: JSON.stringify({ deviceId, records }),
-    });
-    expect(response.status).toBe(200);
-    return response.json() as Promise<{ cursor: number }>;
-  }
-
-  it("inserts, updates, and deletes to converge on the desired set", async () => {
-    await reconcile(deviceA, [record()]);
-    let feed = await changes(0);
-    expect(feed.browserHistoryEvents).toHaveLength(1);
-
-    await reconcile(deviceA, [record({ title: "Updated title" })]);
-    feed = await changes(0);
-    expect(feed.browserHistoryEvents[0].title).toBe("Updated title");
-
-    const cursorBeforeDelete = feed.cursor;
-    await reconcile(deviceA, []);
-    feed = await changes(cursorBeforeDelete);
-    expect(feed.browserHistoryDeletions).toContain(recordID);
-
-    const full = await changes(0);
-    expect(full.browserHistoryEvents).toHaveLength(0);
-  });
-
-  it("replaying the same set changes nothing", async () => {
-    await reconcile(deviceA, [record()]);
-    const first = await changes(0);
-    await reconcile(deviceA, [record()]);
-    const second = await changes(first.cursor);
-    expect(second.browserHistoryEvents).toHaveLength(0);
-    expect(second.browserHistoryDeletions).toHaveLength(0);
-  });
-
-  it("does not touch rows owned by another device", async () => {
-    const otherID = "55555555-5555-4555-8555-555555555555";
-    await reconcile(deviceA, [record()]);
-    await reconcile(deviceB, [record({ id: otherID, profileName: "Work" })]);
-    await reconcile(deviceA, []);
-
-    const feed = await changes(0);
-    expect(feed.browserHistoryEvents).toHaveLength(1);
-    expect(feed.browserHistoryEvents[0].id).toBe(otherID);
   });
 });

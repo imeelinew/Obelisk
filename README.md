@@ -38,7 +38,7 @@
 
 Obelisk 是一个优雅而原生的 macOS 书签管理器，适合那些频繁切换浏览器、并且希望书签随手可用、但又不想把一切都塞回浏览器的人。
 
-它在菜单栏里保留一个很轻的原生菜单，可以快速打开书签；需要整理的时候，再进入完整的应用窗口。Obelisk 使用本地 SQLite 保证离线可用，并通过 PowerSync 与 PostgreSQL 在设备之间同步。macOS 与未来的 iOS 客户端都可以离线增删改查，联网后按字段合并并收敛到同一结果。查看隐藏书签时，仍需要通过 Touch ID 或密码验证。
+它在菜单栏里保留一个很轻的原生菜单，可以快速打开书签；需要整理的时候，再进入完整的应用窗口。Obelisk 使用本地 SQLite 保证离线可用，并通过 Cloudflare Worker 与 D1 在 Mac 之间同步。macOS 客户端可以离线增删改查，联网后按字段合并并收敛到同一结果。查看隐藏书签时，仍需要通过 Touch ID 或密码验证。
 
 ## 为什么开发 Obelisk
 
@@ -79,3 +79,14 @@ Obelisk 是一个优雅而原生的 macOS 书签管理器，适合那些频繁�
 ## 安装
 
 从 [Releases 页面](https://github.com/imeelinew/Obelisk/releases)下载最新版，把 `Obelisk.app` 放到 `/Applications`。
+
+
+## 从源码构建
+
+项目仅支持 macOS
+
+```sh
+script/build_and_run.sh
+```
+
+脚本会构建 Debug 版本并启动，`--debug`、`--logs`、`--telemetry` 提供调试入口

@@ -152,8 +152,7 @@ public final class LLMConfigStore: @unchecked Sendable {
         }
 
         let attributes: [String: Any] = [
-            kSecValueData as String: Data(trimmed.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            kSecValueData as String: Data(trimmed.utf8)
         ]
         if SecItemCopyMatching(keychainQuery as CFDictionary, nil) == errSecSuccess {
             let status = SecItemUpdate(keychainQuery as CFDictionary, attributes as CFDictionary)
@@ -171,8 +170,7 @@ public final class LLMConfigStore: @unchecked Sendable {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.keychainService,
-            kSecAttrAccount as String: Self.remoteKeychainAccount,
-            kSecUseDataProtectionKeychain as String: true
+            kSecAttrAccount as String: Self.remoteKeychainAccount
         ]
     }
 }

@@ -9,6 +9,10 @@ public protocol SyncAccessKeyStoring: Sendable {
 
 /// Keychain storage for the single sync access key. The key is generated
 /// once when the Worker is deployed and pasted into every device.
+///
+/// Uses the login keychain. The data-protection keychain needs a
+/// `keychain-access-groups` entitlement, which forces Xcode to embed a
+/// provisioning profile that expires after seven days on a free team.
 public struct SyncAccessKeyStore: SyncAccessKeyStoring {
     public static let service = "com.eli.Obelisk.sync.credentials"
     public static let account = "primary"
@@ -44,7 +48,6 @@ public struct SyncAccessKeyStore: SyncAccessKeyStoring {
         }
         var query = baseQuery()
         query[kSecValueData as String] = data
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(query as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw SyncAccessKeyStoreError.keychain(addStatus)
@@ -63,7 +66,6 @@ public struct SyncAccessKeyStore: SyncAccessKeyStoring {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: Self.account,
-            kSecUseDataProtectionKeychain as String: true,
         ]
     }
 }

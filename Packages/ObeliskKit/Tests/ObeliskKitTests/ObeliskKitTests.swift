@@ -48,29 +48,15 @@ struct ObeliskKitTests {
         let collection = BookmarkCollection(name: "Reading")
         let bookmark = Bookmark(title: "Example", url: "https://example.com")
         let usage = UsageRecord(count: 2, lastClickedAt: Date(timeIntervalSince1970: 100))
-        let history = BrowserHistoryRecord(
-            id: UUID(),
-            title: "History",
-            url: "https://history.example",
-            visitedAt: Date(timeIntervalSince1970: 200),
-            browser: .safari,
-            profileName: "默认"
-        )
         let snapshot = ObeliskLibrarySnapshot(
             bookmarks: [bookmark],
             collections: [collection],
             collectionByBookmarkID: [bookmark.id: collection.id],
-            usageByBookmarkID: [bookmark.id: usage],
-            browserHistory: [history],
-            browserHistorySettings: BrowserHistorySettings(
-                enabledBrowsers: [.chrome, .safari]
-            )
+            usageByBookmarkID: [bookmark.id: usage]
         )
 
         #expect(snapshot.collectionByBookmarkID[bookmark.id] == collection.id)
         #expect(snapshot.usageByBookmarkID[bookmark.id] == usage)
-        #expect(snapshot.browserHistory == [history])
-        #expect(snapshot.browserHistorySettings?.enabledBrowsers == [.chrome, .safari])
     }
 
     @Test func logicalClockOrdersConcurrentEventsDeterministically() {
@@ -104,22 +90,6 @@ struct ObeliskKitTests {
         #expect(observed > remote)
     }
 
-    @Test func browserHistorySupportsOnlyApprovedBrowsers() {
-        #expect(BrowserHistoryBrowser.allCases == [.dia, .chrome, .safari])
-
-        let settings = BrowserHistorySettings(
-            enabledBrowsers: [.safari, .dia, .chrome]
-        )
-
-        #expect(settings.enabledBrowsers == [.dia, .chrome, .safari])
-        #expect(settings.encodedEnabledSources == "dia,chrome,safari")
-        #expect(
-            BrowserHistorySettings(
-                encodedEnabledSources: "dia,chrome,safari"
-            ).enabledBrowsers == [.dia, .chrome, .safari]
-        )
-    }
-
     @Test func databaseRoundTripsNormalizedDataAndQueuesOutbox() throws {
         let root = temporaryRoot("Roundtrip")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -139,34 +109,17 @@ struct ObeliskKitTests {
             bookmarkID: bookmark.id, at: Date(timeIntervalSince1970: 1_789_000_100))
         try database.recordUsage(
             bookmarkID: bookmark.id, at: Date(timeIntervalSince1970: 1_789_000_200))
-        let history = BrowserHistoryRecord(
-            id: UUID(),
-            title: "History",
-            url: "https://obelisk.example/history",
-            visitedAt: Date(),
-            browser: .chrome,
-            profileName: "默认"
-        )
-        try database.reconcileBrowserHistory([history], for: [.chrome])
-        try database.saveBrowserHistorySettings(
-            BrowserHistorySettings(enabledBrowsers: [.chrome, .safari])
-        )
-
         var snapshot = try database.loadSnapshot()
         #expect(snapshot.bookmarks == [bookmark])
         #expect(snapshot.collections == [collection])
         #expect(snapshot.collectionByBookmarkID[bookmark.id] == collection.id)
         #expect(snapshot.usageByBookmarkID[bookmark.id]?.count == 2)
-        #expect(snapshot.browserHistory.count == 1)
-        #expect(snapshot.browserHistorySettings?.enabledBrowsers == [.chrome, .safari])
 
         let batch = try database.outboxBatch()
         #expect(Set(batch.map(\.tableName)) == [
             "collections",
             "bookmarks",
             "usage_events",
-            ObeliskDatabase.historyOutboxTable,
-            "browser_history_settings",
         ])
 
         let bookmarkEntry = try #require(batch.first { $0.tableName == "bookmarks" })
@@ -211,87 +164,6 @@ struct ObeliskKitTests {
         #expect(try await libraryObserver.next() != nil)
         #expect(try await pendingObserver.next() == 1)
         #expect(try database.loadPendingUploadCount() == 1)
-    }
-
-    @Test func browserHistoryRetentionQueuesHistoryPush() throws {
-        let root = temporaryRoot("HistoryRetention")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let database = try ObeliskDatabase.open(rootDirectory: root, deviceID: UUID())
-        let now = Date()
-        let record = BrowserHistoryRecord(
-            id: UUID(),
-            title: "Private history",
-            url: "https://history.example/private",
-            visitedAt: now,
-            browser: .safari,
-            profileName: "默认"
-        )
-
-        try database.reconcileBrowserHistory([record], for: [.safari])
-        #expect(try database.loadSnapshot().browserHistory.count == 1)
-        try database.completeOutboxEntries(try database.outboxBatch())
-        #expect(try database.loadPendingUploadCount() == 0)
-
-        try database.pruneBrowserHistory(before: now.addingTimeInterval(1))
-        #expect(try database.loadSnapshot().browserHistory.isEmpty)
-        #expect(try database.localHistoryRecords().isEmpty)
-
-        let batch = try database.outboxBatch()
-        #expect(batch.map(\.tableName) == [ObeliskDatabase.historyOutboxTable])
-    }
-
-    @Test func browserHistoryReconciliationMirrorsSourceUpdatesAndDeletions() throws {
-        let root = temporaryRoot("HistoryMirror")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let database = try ObeliskDatabase.open(rootDirectory: root, deviceID: UUID())
-        let now = Date()
-        let retained = BrowserHistoryRecord(
-            id: UUID(),
-            title: "Original title",
-            url: "https://example.com/retained",
-            visitedAt: now,
-            browser: .chrome,
-            profileName: "默认"
-        )
-        let removed = BrowserHistoryRecord(
-            id: UUID(),
-            title: "Removed",
-            url: "https://example.com/removed",
-            visitedAt: now.addingTimeInterval(-1),
-            browser: .chrome,
-            profileName: "默认"
-        )
-        let safari = BrowserHistoryRecord(
-            id: UUID(),
-            title: "Safari",
-            url: "https://example.com/safari",
-            visitedAt: now.addingTimeInterval(-2),
-            browser: .safari,
-            profileName: "Safari"
-        )
-
-        try database.reconcileBrowserHistory([retained, removed], for: [.chrome])
-        try database.reconcileBrowserHistory([safari], for: [.safari])
-
-        let updated = BrowserHistoryRecord(
-            id: retained.id,
-            title: "Updated title",
-            url: retained.url,
-            visitedAt: retained.visitedAt,
-            browser: retained.browser,
-            profileName: retained.profileName
-        )
-        try database.reconcileBrowserHistory([updated], for: [.chrome])
-
-        let snapshot = try database.loadSnapshot()
-        #expect(snapshot.browserHistory.count == 2)
-        #expect(snapshot.browserHistory.contains { $0.title == "Updated title" })
-        #expect(snapshot.browserHistory.contains { $0.title == "Safari" })
-        #expect(!snapshot.browserHistory.contains { $0.url == removed.url })
-
-        let localRecords = try database.localHistoryRecords()
-        #expect(localRecords.count == 2)
-        #expect(localRecords.contains { $0.title == "Updated title" })
     }
 
     @Test func bookmarkStoreSharesBookmarkAndCollectionRulesAcrossPlatforms() throws {
@@ -432,52 +304,6 @@ struct ObeliskKitTests {
         #expect(try database.loadPendingUploadCount() == 0)
     }
 
-    @Test func remoteHistoryMirrorsOtherDevicesOnly() throws {
-        let root = temporaryRoot("RemoteHistory")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let localDevice = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        let otherDevice = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
-        let database = try ObeliskDatabase.open(rootDirectory: root, deviceID: localDevice)
-
-        let ownRecord = BrowserHistoryRecord(
-            id: UUID(),
-            title: "Own row",
-            url: "https://example.com/own",
-            visitedAt: Date(),
-            browser: .safari,
-            profileName: "默认"
-        )
-        try database.reconcileBrowserHistory([ownRecord], for: [.safari])
-        let ownID = try #require(try database.localHistoryRecords().first?.id)
-
-        let remoteID = UUID().uuidString.lowercased()
-        let visited = Date().addingTimeInterval(-60)
-        let page = try changesPage(
-            browserHistoryEvents: [
-                """
-                {
-                  "id": "\(remoteID)",
-                  "source_device_id": "\(otherDevice.uuidString.lowercased())",
-                  "browser": "chrome",
-                  "profile_name": "Work",
-                  "title": "Remote visit",
-                  "url": "https://example.com/remote",
-                  "visited_at": "\(isoString(visited))",
-                  "created_at": "\(isoString(visited))"
-                }
-                """
-            ],
-            browserHistoryDeletions: [ownID]
-        )
-        try database.applyRemoteChanges(page)
-
-        let snapshot = try database.loadSnapshot()
-        // The remote row is mirrored; the deletion must not touch this
-        // device's own row.
-        #expect(snapshot.browserHistory.contains { $0.title == "Remote visit" })
-        #expect(snapshot.browserHistory.contains { $0.title == "Own row" })
-    }
-
     @Test func outboxCompletionRespectsRequeuedEntries() throws {
         let root = temporaryRoot("OutboxRequeue")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -508,6 +334,7 @@ struct ObeliskKitTests {
 
         let deviceID = UUID()
         let bookmarkID = UUID().uuidString.lowercased()
+        let collectionID = UUID().uuidString.lowercased()
         let versions = """
         {"title":{"milliseconds":1000,"counter":0,"deviceID":"\(deviceID.uuidString)"}}
         """
@@ -524,10 +351,16 @@ struct ObeliskKitTests {
             CREATE TABLE ps_data_local__sync_state (id TEXT PRIMARY KEY, data TEXT);
             CREATE TABLE ps_crud (id INTEGER PRIMARY KEY, data TEXT);
             CREATE VIEW bookmarks AS SELECT id, json_extract(data, '$.title') AS title FROM ps_data__bookmarks;
+            CREATE VIEW browser_history_events AS SELECT id, data FROM ps_data__browser_history_events;
+            CREATE VIEW browser_history_settings AS SELECT id, data FROM ps_data__browser_history_settings;
+            INSERT INTO ps_data__browser_history_events VALUES ('discard', 'invalid JSON must not block upgrade');
+            INSERT INTO ps_data__browser_history_settings VALUES ('discard', 'invalid JSON must not block upgrade');
+            INSERT INTO ps_data_local__sync_state VALUES ('hlc', '{"value":"retained-hlc"}');
+
             """)
             let data = """
             {
-              "collection_id": null,
+              "collection_id": "\(collectionID)",
               "title": "Migrated",
               "url": "https://migrated.example",
               "title_optimized": 0,
@@ -547,6 +380,20 @@ struct ObeliskKitTests {
                 arguments: [bookmarkID, data]
             )
             try db.execute(
+                sql: "INSERT INTO ps_data__collections VALUES (?, json(?))",
+                arguments: [collectionID, """
+                    {"name":"Reading","position_key":"1","show_in_menu":1,"field_versions":{},
+                     "created_at":"2026-07-01T00:00:00.000Z","updated_at":"2026-07-01T00:00:00.000Z","deleted_at":null}
+                    """]
+            )
+            try db.execute(
+                sql: "INSERT INTO ps_data__usage_events VALUES (?, json(?))",
+                arguments: [UUID().uuidString.lowercased(), """
+                    {"bookmark_id":"\(bookmarkID)","device_id":"\(deviceID.uuidString.lowercased())",
+                     "occurred_at":"2026-07-01T00:00:00.000Z","created_at":"2026-07-01T00:00:00.000Z"}
+                    """]
+            )
+            try db.execute(
                 sql: "INSERT INTO ps_crud (data) VALUES ('{\"op\":\"PATCH\"}')"
             )
         }
@@ -556,16 +403,26 @@ struct ObeliskKitTests {
         #expect(snapshot.bookmarks.count == 1)
         #expect(snapshot.bookmarks[0].title == "Migrated")
         #expect(snapshot.bookmarks[0].isPinned == true)
+        #expect(snapshot.collections.first?.name == "Reading")
+        #expect(snapshot.collectionByBookmarkID[UUID(uuidString: bookmarkID)!] == UUID(uuidString: collectionID))
+        #expect(snapshot.usageByBookmarkID[UUID(uuidString: bookmarkID)!]?.count == 1)
+        #expect(try database.syncCursor() == 0)
 
         // Every PowerSync artifact is gone, including the poisoned queue.
         let inspector = try DatabaseQueue(path: fileURL.path)
-        let leftovers = try inspector.read { db in
+        let leftovers = try inspector.read { db throws in
             try Int.fetchOne(
                 db,
                 sql: "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'ps\\_%' ESCAPE '\\'"
             ) ?? -1
         }
         #expect(leftovers == 0)
+        try inspector.read { db throws in
+            #expect(try String.fetchOne(db, sql: "SELECT value FROM sync_state WHERE id = 'hlc'") == "retained-hlc")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sqlite_master WHERE name GLOB 'browser_history*'") == 0)
+        }
+        try database.enqueueFullPush()
+        #expect(Set(try database.outboxBatch().map(\.tableName)) == ["bookmarks", "collections", "usage_events"])
     }
 
     @Test func syncEngineDrainsOutboxAndAppliesRemoteChanges() async throws {
@@ -616,15 +473,10 @@ struct ObeliskKitTests {
                   "hasMore": false,
                   "collections": [],
                   "bookmarks": [\(remoteJSON)],
-                  "usageEvents": [],
-                  "browserHistoryEvents": [],
-                  "browserHistoryDeletions": [],
-                  "browserHistorySettings": []
+                  "usageEvents": []
                 }
                 """
                 return (httpResponse(request, 200), Data(payload.utf8))
-            case ("PUT", "/v1/browser-history"):
-                return (httpResponse(request, 200), Data("{\"cursor\":5}".utf8))
             default:
                 throw URLError(.badURL)
             }
@@ -689,8 +541,7 @@ struct ObeliskKitTests {
                 let payload = """
                 {
                   "cursor": 1, "hasMore": false, "collections": [], "bookmarks": [],
-                  "usageEvents": [], "browserHistoryEvents": [],
-                  "browserHistoryDeletions": [], "browserHistorySettings": []
+                  "usageEvents": []
                 }
                 """
                 return (httpResponse(request, 200), Data(payload.utf8))
@@ -769,8 +620,7 @@ struct ObeliskKitTests {
             return
         }
 
-        // Device B pulls it, edits the title, records usage, mirrors browser
-        // history, and syncs back.
+        // Device B pulls it, edits the title, records usage, and syncs back.
         outcome = await engineB.performSync()
         guard case .success(nil) = outcome else {
             Issue.record("device B initial sync failed: \(outcome)")
@@ -786,19 +636,6 @@ struct ObeliskKitTests {
         edited.title = "Edited on B"
         _ = try storeB.update(edited, collectionID: collection.id)
         try databaseB.recordUsage(bookmarkID: bookmark.id)
-        try databaseB.reconcileBrowserHistory(
-            [
-                BrowserHistoryRecord(
-                    id: UUID(),
-                    title: "B visit",
-                    url: "https://e2e.example/visit",
-                    visitedAt: Date(),
-                    browser: .safari,
-                    profileName: "默认"
-                )
-            ],
-            for: [.safari]
-        )
         outcome = await engineB.performSync()
         guard case .success(nil) = outcome else {
             Issue.record("device B upload failed: \(outcome)")
@@ -806,7 +643,7 @@ struct ObeliskKitTests {
         }
         #expect(try databaseB.loadPendingUploadCount() == 0)
 
-        // Device A converges: edited title, usage count, mirrored history.
+        // Device A converges: edited title and usage count.
         outcome = await engineA.performSync()
         guard case .success(nil) = outcome else {
             Issue.record("device A converge failed: \(outcome)")
@@ -815,7 +652,6 @@ struct ObeliskKitTests {
         let snapshotA = try storeA.snapshot()
         #expect(snapshotA.bookmarks.first { $0.id == bookmark.id }?.title == "Edited on B")
         #expect(snapshotA.usageByBookmarkID[bookmark.id]?.count == 1)
-        #expect(snapshotA.browserHistory.contains { $0.title == "B visit" })
 
         // Device A deletes the bookmark; device B converges.
         try storeA.delete(ids: [bookmark.id])
@@ -842,14 +678,6 @@ struct ObeliskKitTests {
 
     private func await0_1() throws {
         Thread.sleep(forTimeInterval: 0.01)
-    }
-
-    private func isoString(_ date: Date) -> String {
-        date.formatted(
-            .iso8601.year().month().day()
-                .time(includingFractionalSeconds: true)
-                .timeZone(separator: .colon)
-        )
     }
 
     private func versionJSON(_ milliseconds: Int64, _ device: UUID, counter: Int = 7) -> String {
@@ -897,21 +725,15 @@ struct ObeliskKitTests {
     }
 
     private func changesPage(
-        bookmarks: [String] = [],
-        browserHistoryEvents: [String] = [],
-        browserHistoryDeletions: [String] = []
+        bookmarks: [String] = []
     ) throws -> SyncChangesPage {
-        let deletions = browserHistoryDeletions.map { "\"\($0)\"" }.joined(separator: ", ")
         let json = """
         {
           "cursor": 100,
           "hasMore": false,
           "collections": [],
           "bookmarks": [\(bookmarks.joined(separator: ", "))],
-          "usageEvents": [],
-          "browserHistoryEvents": [\(browserHistoryEvents.joined(separator: ", "))],
-          "browserHistoryDeletions": [\(deletions)],
-          "browserHistorySettings": []
+          "usageEvents": []
         }
         """
         return try JSONDecoder().decode(SyncChangesPage.self, from: Data(json.utf8))

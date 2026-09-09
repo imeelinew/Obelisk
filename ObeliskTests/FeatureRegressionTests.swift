@@ -176,11 +176,6 @@ struct FeatureRegressionTests {
         ) == nil)
     }
 
-    @Test func quickSearchShortcutTogglesTheVisiblePanel() {
-        #expect(QuickSearchPanelToggleAction.resolve(isVisible: false) == .show)
-        #expect(QuickSearchPanelToggleAction.resolve(isVisible: true) == .hide)
-    }
-
     @Test func bookmarkFeedbackUsesDistinctTransientStates() {
         let kinds: [BookmarkFeedbackKind] = [.success, .hidden, .intelligence, .error]
         #expect(kinds.allSatisfy { $0.dismissalDelay == 5 })
@@ -335,85 +330,6 @@ struct FeatureRegressionTests {
         ) == initialRequest)
     }
 
-    @Test func quickSearchPanelAlignmentSnapsEachAxisIndependently() {
-        let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
-        let centeredOrigin = NSPoint(x: 600, y: 250)
-        let frame = NSRect(
-            x: centeredOrigin.x + 6,
-            y: centeredOrigin.y + 30,
-            width: 400,
-            height: 500
-        )
-
-        let resolution = QuickSearchPanelAlignmentResolver.resolve(
-            frame: frame,
-            visibleFrame: visibleFrame,
-            alignsHorizontally: true,
-            alignsVertically: false
-        )
-
-        #expect(resolution.frame.origin.x == centeredOrigin.x)
-        #expect(resolution.frame.origin.y == frame.origin.y)
-    }
-
-    @Test func quickSearchPanelAlignmentLeavesFrameAloneWithoutNativeTokens() {
-        let visibleFrame = NSRect(x: 0, y: 0, width: 1_400, height: 900)
-        let frame = NSRect(x: 506, y: 217, width: 400, height: 500)
-
-        let resolution = QuickSearchPanelAlignmentResolver.resolve(
-            frame: frame,
-            visibleFrame: visibleFrame,
-            alignsHorizontally: false,
-            alignsVertically: false
-        )
-
-        #expect(resolution.frame == frame)
-    }
-
-    @Test func quickSearchPanelAlignmentAmplifiesNativeCaptureRange() {
-        let guide: CGFloat = 700
-        let actualCoordinate: CGFloat = 720
-        let feedbackCoordinate = QuickSearchPanelAlignmentResolver.feedbackCoordinate(
-            default: actualCoordinate,
-            alignedTo: guide
-        )
-
-        #expect(feedbackCoordinate == 714)
-        #expect(abs(feedbackCoordinate - guide) < abs(actualCoordinate - guide))
-    }
-
-    @MainActor
-    @Test func quickSearchPanelDragStartsOnlyFromNoninteractiveBackground() {
-        let rootView = NSView()
-        let backgroundView = NSView()
-        let searchField = NSSearchField()
-        let scrollView = NSScrollView()
-        let tableView = NSTableView()
-        let button = NSButton()
-        rootView.addSubview(backgroundView)
-        rootView.addSubview(searchField)
-        rootView.addSubview(scrollView)
-        rootView.addSubview(button)
-        scrollView.documentView = tableView
-
-        #expect(QuickSearchPanelDragTargetResolver.allowsWindowDrag(
-            from: backgroundView,
-            within: rootView
-        ))
-        #expect(!QuickSearchPanelDragTargetResolver.allowsWindowDrag(
-            from: searchField,
-            within: rootView
-        ))
-        #expect(!QuickSearchPanelDragTargetResolver.allowsWindowDrag(
-            from: tableView,
-            within: rootView
-        ))
-        #expect(!QuickSearchPanelDragTargetResolver.allowsWindowDrag(
-            from: button,
-            within: rootView
-        ))
-    }
-
     @MainActor
     @Test func nativeSearchFieldCommandsUseCurrentEditorText() {
         var text = ""
@@ -508,34 +424,6 @@ struct FeatureRegressionTests {
             modifierFlags: .numericPad
         ))
         #expect(delegate.openSelectionCount == 2)
-    }
-
-    @MainActor
-    @Test func browserHistoryReturnOpensSelectedRecord() throws {
-        let record = BrowserHistoryRecord(
-            id: UUID(),
-            title: "Safari history",
-            url: "https://history.example",
-            visitedAt: Date(),
-            browser: .safari,
-            profileName: "Safari"
-        )
-        var opened: UUID?
-        let list = NativeBrowserHistoryList(
-            sections: [BrowserHistorySection(id: "today", title: "今天", records: [record])],
-            selection: .constant([]),
-            faviconLoader: FaviconLoader(rootDirectory: try temporaryDirectory()),
-            faviconVersion: 0,
-            onOpen: { opened = $0.id }
-        )
-        let coordinator = NativeBrowserHistoryList.Coordinator(list)
-        let table = BookmarkMenuTableView()
-        table.dataSource = coordinator
-        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("test")))
-        table.reloadData()
-        table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
-        coordinator.bookmarkMenuTableViewOpenSelection(table)
-        #expect(opened == record.id)
     }
 
     @MainActor

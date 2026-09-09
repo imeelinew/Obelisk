@@ -352,12 +352,7 @@ actor SyncEngine {
             var rowEntries: [SyncOutboxEntry] = []
             var payloads: [SyncPushRow] = []
             for entry in batch {
-                if entry.tableName == ObeliskDatabase.historyOutboxTable {
-                    let records = try database.localHistoryRecords()
-                    try await client.reconcileHistory(deviceID: database.deviceID, records: records)
-                    try database.completeOutboxEntries([entry])
-                    progressed = true
-                } else if let payload = try database.pushRow(for: entry) {
+                if let payload = try database.pushRow(for: entry) {
                     rowEntries.append(entry)
                     payloads.append(payload)
                 } else {

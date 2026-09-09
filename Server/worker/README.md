@@ -10,7 +10,6 @@ deployment per user; devices authenticate with a single bearer access key.
 | `GET` | `/healthz` | Health check, no auth |
 | `POST` | `/v1/push` | Upload full row state; per-row HLC field merge |
 | `GET` | `/v1/changes?since=N` | Incremental download with cursor paging |
-| `PUT` | `/v1/browser-history` | Device-scoped full-set reconcile |
 
 Every push row is handled independently: an invalid row is rejected in the
 response but never blocks other rows. Replaying any request is idempotent.

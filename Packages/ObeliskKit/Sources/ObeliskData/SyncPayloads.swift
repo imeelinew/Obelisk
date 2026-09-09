@@ -115,37 +115,12 @@ public struct SyncRemoteUsageEvent: Decodable, Sendable {
     }
 }
 
-public struct SyncRemoteBrowserHistoryEvent: Decodable, Sendable {
-    public var id: String
-    public var sourceDeviceID: String
-    public var browser: String
-    public var profileName: String
-    public var title: String
-    public var url: String
-    public var visitedAt: String
-    public var createdAt: String
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case sourceDeviceID = "source_device_id"
-        case browser
-        case profileName = "profile_name"
-        case title
-        case url
-        case visitedAt = "visited_at"
-        case createdAt = "created_at"
-    }
-}
-
 public struct SyncChangesPage: Decodable, Sendable {
     public var cursor: Int64
     public var hasMore: Bool
     public var collections: [SyncRemoteVersionedRow]
     public var bookmarks: [SyncRemoteVersionedRow]
     public var usageEvents: [SyncRemoteUsageEvent]
-    public var browserHistoryEvents: [SyncRemoteBrowserHistoryEvent]
-    public var browserHistoryDeletions: [String]
-    public var browserHistorySettings: [SyncRemoteVersionedRow]
 }
 
 public struct SyncOutboxEntry: Equatable, Sendable {
@@ -160,16 +135,4 @@ public struct SyncOutboxEntry: Equatable, Sendable {
         self.queuedAt = queuedAt
         self.attempts = attempts
     }
-}
-
-/// Full local state of one browser-history row owned by this device, sent to
-/// the device-scoped reconcile endpoint.
-public struct SyncHistoryRecord: Encodable, Sendable {
-    public var id: String
-    public var browser: String
-    public var profileName: String
-    public var title: String
-    public var url: String
-    public var visitedAt: String
-    public var createdAt: String
 }

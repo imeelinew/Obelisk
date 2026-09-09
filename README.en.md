@@ -38,7 +38,7 @@
 
 Obelisk is an elegant, native macOS bookmark manager for people who switch browsers often, want bookmarks close at hand, and do not want to keep everything inside the browser.
 
-It keeps a lightweight native menu in the menu bar for quick access, and opens a full app window when you need to organize. Obelisk uses local SQLite for offline access and PowerSync with PostgreSQL for multi-device synchronization. macOS and the future iOS client can both create, edit, and delete while offline; changes merge by field and converge after reconnecting. Viewing hidden bookmarks still requires Touch ID or your password.
+It keeps a lightweight native menu in the menu bar for quick access, and opens a full app window when you need to organize. Obelisk uses local SQLite for offline access and Cloudflare Worker with D1 for multi-device synchronization. Mac clients can create, edit, and delete while offline; changes merge by field and converge after reconnecting. Viewing hidden bookmarks still requires Touch ID or your password.
 
 ## Why Obelisk
 
@@ -79,3 +79,14 @@ On the current tab, press `Option + B`. Obelisk reads the frontmost browser's UR
 ## Install
 
 Download the latest release from the [Releases page](https://github.com/imeelinew/Obelisk/releases), then move `Obelisk.app` to `/Applications`.
+
+
+## Build from source
+
+Obelisk supports macOS only.
+
+```sh
+script/build_and_run.sh
+```
+
+The script builds the Debug configuration and launches it. `--debug`, `--logs`, and `--telemetry` provide debugging entry points.

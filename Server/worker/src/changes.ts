@@ -13,12 +13,6 @@ const rowQueries: Record<string, string> = {
        FROM bookmarks WHERE seq > ? ORDER BY seq LIMIT ${pageLimit}`,
   usage_events: `SELECT id, bookmark_id, device_id, occurred_at, created_at, seq
        FROM usage_events WHERE seq > ? ORDER BY seq LIMIT ${pageLimit}`,
-  browser_history_events: `SELECT id, source_device_id, browser, profile_name, title, url, visited_at, created_at, seq
-       FROM browser_history_events WHERE seq > ? ORDER BY seq LIMIT ${pageLimit}`,
-  browser_history_tombstones: `SELECT id, deleted_at, seq
-       FROM browser_history_tombstones WHERE seq > ? ORDER BY seq LIMIT ${pageLimit}`,
-  browser_history_settings: `SELECT id, enabled_sources, field_versions, created_at, updated_at, seq
-       FROM browser_history_settings WHERE seq > ? ORDER BY seq LIMIT ${pageLimit}`,
 };
 
 export async function handleChanges(request: Request, db: D1Database): Promise<Response> {
@@ -53,11 +47,6 @@ export async function handleChanges(request: Request, db: D1Database): Promise<R
     collections: (rowsByTable.get("collections") ?? []).map(decodeVersioned),
     bookmarks: (rowsByTable.get("bookmarks") ?? []).map(decodeVersioned),
     usageEvents: (rowsByTable.get("usage_events") ?? []).map(stripSeq),
-    browserHistoryEvents: (rowsByTable.get("browser_history_events") ?? []).map(stripSeq),
-    browserHistoryDeletions: (rowsByTable.get("browser_history_tombstones") ?? []).map(
-      (row) => row.id as string
-    ),
-    browserHistorySettings: (rowsByTable.get("browser_history_settings") ?? []).map(decodeVersioned),
   });
 }
 

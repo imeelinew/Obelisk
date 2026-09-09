@@ -13,6 +13,18 @@ public enum ObeliskSchema {
             try createTables(database)
             try legacy?.insert(into: database)
         }
+        migrator.registerMigration("2026-09-remove-browser-history") { database in
+            try database.execute(sql: """
+                DELETE FROM outbox
+                WHERE table_name IN (
+                    'browser_history', 'browser_history_events',
+                    'browser_history_settings', 'browser_history_tombstones'
+                );
+                DROP TABLE IF EXISTS browser_history_events;
+                DROP TABLE IF EXISTS browser_history_settings;
+                DROP TABLE IF EXISTS browser_history_tombstones;
+                """)
+        }
         return migrator
     }
 
@@ -76,28 +88,6 @@ public enum ObeliskSchema {
         CREATE INDEX usage_events_bookmark
             ON usage_events (bookmark_id, occurred_at DESC);
 
-        CREATE TABLE browser_history_events (
-            id TEXT PRIMARY KEY NOT NULL,
-            source_device_id TEXT NOT NULL,
-            browser TEXT NOT NULL,
-            profile_name TEXT NOT NULL,
-            title TEXT NOT NULL,
-            url TEXT NOT NULL,
-            visited_at TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-        CREATE INDEX browser_history_events_visited
-            ON browser_history_events (visited_at DESC);
-        CREATE INDEX browser_history_events_device
-            ON browser_history_events (source_device_id);
-
-        CREATE TABLE browser_history_settings (
-            id TEXT PRIMARY KEY NOT NULL,
-            enabled_sources TEXT NOT NULL,
-            field_versions TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
         """)
     }
 }
@@ -111,8 +101,6 @@ struct LegacyPowerSyncData {
     var collections: [[String: DatabaseValue]]
     var bookmarks: [[String: DatabaseValue]]
     var usageEvents: [[String: DatabaseValue]]
-    var browserHistoryEvents: [[String: DatabaseValue]]
-    var browserHistorySettings: [[String: DatabaseValue]]
     var hlcState: String?
 
     static func extract(_ database: Database) throws -> LegacyPowerSyncData? {
@@ -161,13 +149,6 @@ struct LegacyPowerSyncData {
             usageEvents: try rows("ps_data__usage_events", fields: [
                 "bookmark_id", "device_id", "occurred_at", "created_at",
             ]),
-            browserHistoryEvents: try rows("ps_data__browser_history_events", fields: [
-                "source_device_id", "browser", "profile_name", "title",
-                "url", "visited_at", "created_at",
-            ]),
-            browserHistorySettings: try rows("ps_data__browser_history_settings", fields: [
-                "enabled_sources", "field_versions", "created_at", "updated_at",
-            ]),
             hlcState: hlc
         )
     }
@@ -214,8 +195,6 @@ struct LegacyPowerSyncData {
         try insertRows(collections, into: "collections")
         try insertRows(bookmarks, into: "bookmarks")
         try insertRows(usageEvents, into: "usage_events")
-        try insertRows(browserHistoryEvents, into: "browser_history_events")
-        try insertRows(browserHistorySettings, into: "browser_history_settings")
         if let hlcState {
             try database.execute(
                 sql: "INSERT INTO sync_state (id, value) VALUES ('hlc', ?)",

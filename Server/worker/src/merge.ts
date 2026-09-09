@@ -12,7 +12,6 @@ import {
   optionalTime,
   optionalUUIDString,
   requiredBoolean,
-  requiredBrowserSources,
   requiredString,
   requiredTime,
   requiredWebURL,
@@ -52,17 +51,9 @@ export const bookmarksTable: VersionedTable = {
   },
 };
 
-export const browserHistorySettingsTable: VersionedTable = {
-  name: "browser_history_settings",
-  fields: {
-    enabled_sources: requiredBrowserSources,
-  },
-};
-
 export const versionedTables: Record<string, VersionedTable> = {
   collections: collectionsTable,
   bookmarks: bookmarksTable,
-  browser_history_settings: browserHistorySettingsTable,
 };
 
 export interface IncomingRow {

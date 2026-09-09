@@ -6,7 +6,6 @@ let package = Package(
     name: "ObeliskKit",
     platforms: [
         .macOS(.v14),
-        .iOS(.v17),
     ],
     products: [
         .library(name: "ObeliskCore", targets: ["ObeliskCore"]),

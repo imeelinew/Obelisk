@@ -2,7 +2,6 @@
 // identity is one bearer access key held by the owner's devices.
 
 import { handleChanges } from "./changes";
-import { handleHistoryReconcile } from "./history";
 import { handlePush, jsonError } from "./push";
 
 export interface Env {
@@ -29,8 +28,6 @@ export default {
           return await handlePush(request, env.DB);
         case "GET /v1/changes":
           return await handleChanges(request, env.DB);
-        case "PUT /v1/browser-history":
-          return await handleHistoryReconcile(request, env.DB);
         default:
           return jsonError(404, "not found");
       }

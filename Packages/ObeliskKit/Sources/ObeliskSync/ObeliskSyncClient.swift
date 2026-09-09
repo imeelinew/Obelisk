@@ -1,7 +1,7 @@
 import Foundation
 import ObeliskData
 
-/// HTTP client for the Worker sync API. One bearer key, three endpoints.
+/// HTTP client for the Worker sync API. One bearer key, two sync endpoints.
 public struct ObeliskSyncClient: Sendable {
     public struct PushRowResult: Decodable, Sendable {
         public var table: String
@@ -19,11 +19,6 @@ public struct ObeliskSyncClient: Sendable {
 
     private struct PushRequestBody: Encodable {
         var rows: [SyncPushRow]
-    }
-
-    private struct HistoryRequestBody: Encodable {
-        var deviceId: String
-        var records: [SyncHistoryRecord]
     }
 
     private struct ErrorResponse: Decodable {
@@ -69,16 +64,6 @@ public struct ObeliskSyncClient: Sendable {
         request.httpMethod = "GET"
         let data = try await responseData(for: request)
         return try JSONDecoder().decode(SyncChangesPage.self, from: data)
-    }
-
-    public func reconcileHistory(deviceID: UUID, records: [SyncHistoryRecord]) async throws {
-        var request = URLRequest(url: baseURL.appending(path: "v1/browser-history"))
-        request.httpMethod = "PUT"
-        request.httpBody = try JSONEncoder().encode(
-            HistoryRequestBody(deviceId: deviceID.uuidString.lowercased(), records: records)
-        )
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        _ = try await responseData(for: request)
     }
 
     private func responseData(for request: URLRequest, authorized: Bool = true) async throws -> Data {

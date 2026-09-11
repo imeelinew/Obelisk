@@ -44,26 +44,51 @@ struct BookmarkEditor: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    TextField("标题", text: $title, prompt: Text("例如:GitHub"))
-                        .onChange(of: title) { _, _ in
-                            // Distinguish user typing from our own programmatic
-                            // assignment after a fetch.
-                            if !isProgrammaticTitleUpdate {
-                                titleEditedByUser = true
+                HStack(spacing: 16) {
+                    Text("标题")
+                    HStack(spacing: 8) {
+                        TextField("", text: $title, prompt: Text("例如：GitHub"))
+                            .labelsHidden()
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(.primary)
+                            .onChange(of: title) { _, _ in
+                                // Distinguish user typing from our own programmatic
+                                // assignment after a fetch.
+                                if !isProgrammaticTitleUpdate {
+                                    titleEditedByUser = true
+                                }
                             }
+                        if isFetchingTitle {
+                            ProgressView()
+                                .controlSize(.small)
                         }
-                    if isFetchingTitle {
-                        ProgressView()
-                            .controlSize(.small)
                     }
+                    .frame(maxWidth: .infinity)
                 }
-                TextField("网址", text: $url, prompt: Text("https://example.com"))
-                    .textContentType(.URL)
-                    .onChange(of: url) { _, newValue in
-                        scheduleTitleFetch(for: newValue)
+                HStack(spacing: 16) {
+                    Text("网址")
+                    ZStack(alignment: .trailing) {
+                        if url.isEmpty {
+                            Text(verbatim: "https://example.com")
+                                .foregroundStyle(.tertiary)
+                                .allowsHitTesting(false)
+                        }
+                        TextField("", text: $url)
+                            .labelsHidden()
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity)
+                            .foregroundStyle(.primary)
                     }
-                Toggle("隐藏书签", isOn: $isHidden)
+                        .frame(maxWidth: .infinity)
+                        .onChange(of: url) { _, newValue in
+                            scheduleTitleFetch(for: newValue)
+                        }
+                }
+                if isEditing {
+                    Toggle("隐藏书签", isOn: $isHidden)
+                }
             }
         }
         .formStyle(.grouped)
@@ -134,6 +159,11 @@ struct BookmarkEditor: View {
         case .add: return "添加"
         case .edit: return "保存"
         }
+    }
+
+    private var isEditing: Bool {
+        if case .edit = mode { return true }
+        return false
     }
 
     private var isValid: Bool {

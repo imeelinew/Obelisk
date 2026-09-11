@@ -58,7 +58,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
-        let tableView = BookmarkMenuTableView()
+        let tableView = HoverTableView()
         tableView.frame = scrollView.contentView.bounds
         tableView.autoresizingMask = [.width]
         tableView.headerView = nil
@@ -72,6 +72,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         tableView.menuDelegate = context.coordinator
+        tableView.hoverDelegate = context.coordinator
         tableView.target = context.coordinator
         tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
 
@@ -110,12 +111,13 @@ struct NativeBookmarkList: NSViewRepresentable {
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("BookmarkColumn")
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, BookmarkMenuTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, HoverTableViewDelegate, BookmarkMenuTableViewDelegate {
         var parent: NativeBookmarkList
         fileprivate var items: [NativeBookmarkListItem] = []
         weak var scrollView: NSScrollView?
-        weak var tableView: BookmarkMenuTableView?
+        weak var tableView: HoverTableView?
         private var isSyncingSelection = false
+        private var hoveredRow = -1
         fileprivate var cachedFaviconVersion: Int = -1
         fileprivate var cachedShowsURLHostOnly = false
         private var handledFocusSelectedBookmarkRequest = 0
@@ -137,6 +139,8 @@ struct NativeBookmarkList: NSViewRepresentable {
             tableView.reloadData()
             syncTableWidth()
             syncSelectionToTable()
+            applyHoveredRow(-1)
+            tableView.updateHoverFromCurrentMouse()
         }
 
         /// Reloads only rows that have prepared cell views (visible plus
@@ -178,6 +182,30 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         @objc private func contentBoundsDidChange() {
             syncTableWidth()
+            tableView?.updateHoverFromCurrentMouse()
+        }
+
+        func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int) {
+            let resolved = row >= 0 && row < items.count && items[row].bookmark != nil ? row : -1
+            applyHoveredRow(resolved)
+        }
+
+        private func applyHoveredRow(_ row: Int) {
+            guard row != hoveredRow else { return }
+            let previous = hoveredRow
+            hoveredRow = row
+
+            guard let tableView else { return }
+            if previous >= 0,
+               previous < tableView.numberOfRows,
+               let view = tableView.rowView(atRow: previous, makeIfNecessary: false) as? HoverableRowView {
+                view.isHovered = false
+            }
+            if row >= 0,
+               row < tableView.numberOfRows,
+               let view = tableView.rowView(atRow: row, makeIfNecessary: false) as? HoverableRowView {
+                view.isHovered = true
+            }
         }
 
         func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
@@ -342,7 +370,9 @@ struct NativeBookmarkList: NSViewRepresentable {
             else {
                 return nil
             }
-            return HoverableRowView()
+            let view = HoverableRowView()
+            view.isHovered = row == hoveredRow
+            return view
         }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
@@ -497,6 +527,11 @@ struct NativeBookmarkList: NSViewRepresentable {
 }
 
 @MainActor
+protocol HoverTableViewDelegate: AnyObject {
+    func hoverTableView(_ tableView: HoverTableView, didHoverRow row: Int)
+}
+
+@MainActor
 protocol BookmarkMenuTableViewDelegate: AnyObject {
     func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool
     func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu?
@@ -521,6 +556,44 @@ extension BookmarkMenuTableViewDelegate {
         nextSelectableRowAfter row: Int
     ) -> Int? {
         nil
+    }
+}
+
+final class HoverTableView: BookmarkMenuTableView {
+    weak var hoverDelegate: HoverTableViewDelegate?
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let point = convert(event.locationInWindow, from: nil)
+        hoverDelegate?.hoverTableView(self, didHoverRow: row(at: point))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hoverDelegate?.hoverTableView(self, didHoverRow: -1)
+    }
+
+    func updateHoverFromCurrentMouse() {
+        guard let window else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let inside = bounds.contains(point) && visibleRect.contains(point)
+        hoverDelegate?.hoverTableView(self, didHoverRow: inside ? row(at: point) : -1)
     }
 }
 
@@ -617,51 +690,22 @@ class BookmarkMenuTableView: NSTableView {
 }
 
 final class HoverableRowView: NSTableRowView {
-    private var trackingArea: NSTrackingArea?
-    private var isHovered = false {
+    var isHovered = false {
         didSet {
-            guard oldValue != isHovered else { return }
+            guard isHovered != oldValue else { return }
             needsDisplay = true
         }
     }
 
-    /// Keep list selection blue even when the table is not first responder
-    /// (e.g. on first launch while the sidebar holds focus).
-    override var isEmphasized: Bool {
-        get { true }
-        set {}
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard isHovered, !isSelected else { return }
+        drawRoundedBackground(color: NSColor.labelColor.withAlphaComponent(0.08))
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
-        drawRoundedBackground(color: .selectedContentBackgroundColor)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-            owner: self
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-    }
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        guard isHovered, !isSelected else { return }
-        drawRoundedBackground(color: .selectedContentBackgroundColor.withAlphaComponent(0.10))
+        drawRoundedBackground(color: .unemphasizedSelectedContentBackgroundColor)
     }
 
     private func drawRoundedBackground(color: NSColor) {

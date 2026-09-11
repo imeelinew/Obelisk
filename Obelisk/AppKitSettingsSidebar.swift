@@ -13,7 +13,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
     var onCreateCollection: () -> Void
     var onRenameCollection: (UUID) -> Void
     var onDeleteCollection: (UUID) -> Void
-    var onReorderCollections: ([UUID]) -> Void
+    var onReorderSections: ([BookmarkMenuSectionID]) -> Void
     var iconTheme: SidebarIconTheme
     var iconStyle: SidebarIconStyle
     var colorfulIconSize: CGFloat
@@ -40,6 +40,9 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         private weak var tableView: NSTableView?
         private var items: [SettingsSidebarItem]
         private var isSyncingSelection = false
+        private var keepsDisclosureSelection = false
+        private var disclosureContentPage: BookmarkManagerView.SettingsPage?
+        private var disclosureCollectionScope: BookmarkManagerView.CollectionScope?
         private var collectionContextMenuController: NativeCollectionContextMenuController?
 
         init(parent: AppKitSettingsSidebar) {
@@ -80,6 +83,9 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             tableView.sidebarMenuProvider = { [weak self] row in
                 self?.contextMenu(for: row)
             }
+            tableView.sidebarDisclosureHandler = { [weak self] tableView, row in
+                self?.activateCollectionsDisclosure(at: row, in: tableView) ?? false
+            }
             tableView.registerForDraggedTypes([.settingsSidebarCollection])
             // AppKit accounts for source-list insets when fitting the column
             // to the viewport, including during live sidebar resizing
@@ -98,12 +104,50 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         func reloadIfNeeded() {
             let nextItems = parent.items
             let rowsChanged = nextItems != items
-            items = nextItems
 
             guard let tableView else { return }
             if rowsChanged {
-                tableView.reloadData()
+                let previousItems = items
+                if let oldDisclosureRow = previousItems.firstIndex(where: { item in
+                    if case .collectionsDisclosure = item { return true }
+                    return false
+                }),
+                   let newDisclosureRow = nextItems.firstIndex(where: { item in
+                       if case .collectionsDisclosure = item { return true }
+                       return false
+                   }),
+                   oldDisclosureRow == newDisclosureRow,
+                   case .collectionsDisclosure(let wasExpanded) = previousItems[oldDisclosureRow],
+                   case .collectionsDisclosure(let isExpanded) = nextItems[newDisclosureRow],
+                   wasExpanded != isExpanded {
+                    let changedCount = abs(nextItems.count - previousItems.count)
+                    let changedRows = IndexSet(
+                        integersIn: (oldDisclosureRow + 1)..<(oldDisclosureRow + 1 + changedCount)
+                    )
+                    tableView.beginUpdates()
+                    items = nextItems
+                    if isExpanded {
+                        tableView.insertRows(at: changedRows, withAnimation: [.effectFade, .slideDown])
+                    } else {
+                        tableView.removeRows(at: changedRows, withAnimation: [.effectFade, .slideUp])
+                    }
+                    tableView.endUpdates()
+                    reloadVisibleRows(in: tableView)
+                } else {
+                    items = nextItems
+                    tableView.reloadData()
+                }
+                if keepsDisclosureSelection,
+                   let disclosureRow = items.firstIndex(where: {
+                       if case .collectionsDisclosure = $0 { return true }
+                       return false
+                   }) {
+                    isSyncingSelection = true
+                    tableView.selectRowIndexes(IndexSet(integer: disclosureRow), byExtendingSelection: false)
+                    isSyncingSelection = false
+                }
             } else {
+                items = nextItems
                 reloadVisibleRows(in: tableView)
             }
             syncSelection(in: tableView)
@@ -122,11 +166,8 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
             guard items.indices.contains(row) else { return false }
             switch items[row] {
-            case .page, .scope:
+            case .page, .scope, .collectionsDisclosure:
                 return true
-            case .collectionsDisclosure:
-                parent.collectionsExpanded.toggle()
-                return false
             case .header:
                 return false
             }
@@ -173,6 +214,9 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     colorfulSymbolSize: parent.colorfulSymbolSize,
                     colorfulCornerRadius: parent.colorfulCornerRadius,
                     professionalIconSize: parent.professionalIconSize,
+                    showsIcon: true,
+                    iconResourceName: nil,
+                    disclosureExpanded: nil,
                     isSelected: tableView.selectedRow == row
                 )
                 return cell
@@ -181,9 +225,12 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     in: tableView,
                     row: row,
                     page: .collections,
-                    title: "\(expanded ? "⌄" : "›")  \("分组".obeliskLocalized)",
+                    title: "分组".obeliskLocalized,
                     badgeCount: parent.collections.count,
-                    indentation: 0
+                    indentation: 0,
+                    showsIcon: true,
+                    iconResourceName: nil,
+                    disclosureExpanded: expanded
                 )
             case .scope(let scope):
                 return configuredPageCell(
@@ -192,7 +239,10 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     page: .collections,
                     title: scope.title(in: parent.collections),
                     badgeCount: parent.collectionScopeBadgeCount(scope),
-                    indentation: 14
+                    indentation: 14,
+                    showsIcon: scope.showsSidebarIcon,
+                    iconResourceName: scope.sidebarIconResourceName(for: parent.iconStyle),
+                    disclosureExpanded: nil
                 )
             }
         }
@@ -200,10 +250,17 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection,
                   let tableView = notification.object as? NSTableView,
-                  items.indices.contains(tableView.selectedRow),
-                  let destination = items[tableView.selectedRow].navigationDestination else {
+                  items.indices.contains(tableView.selectedRow) else {
                 return
             }
+
+            if case .collectionsDisclosure = items[tableView.selectedRow] {
+                _ = activateCollectionsDisclosure(at: tableView.selectedRow, in: tableView)
+                return
+            }
+
+            guard let destination = items[tableView.selectedRow].navigationDestination else { return }
+            keepsDisclosureSelection = false
 
             parent.selectedPage = destination.page
             if let scope = destination.scope {
@@ -215,7 +272,35 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             applySelectionStyleToVisibleRows(in: tableView)
         }
 
+        private func activateCollectionsDisclosure(at row: Int, in tableView: NSTableView) -> Bool {
+            guard items.indices.contains(row), case .collectionsDisclosure = items[row] else { return false }
+            keepsDisclosureSelection = true
+            disclosureContentPage = parent.selectedPage
+            disclosureCollectionScope = parent.selectedCollectionScope
+            if tableView.selectedRow != row {
+                isSyncingSelection = true
+                tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                isSyncingSelection = false
+            }
+            parent.collectionsExpanded.toggle()
+            applySelectionStyleToVisibleRows(in: tableView)
+            DispatchQueue.main.async { [weak self] in
+                self?.reloadIfNeeded()
+            }
+            return true
+        }
+
         private func syncSelection(in tableView: NSTableView) {
+            if keepsDisclosureSelection,
+               disclosureContentPage == parent.selectedPage,
+               disclosureCollectionScope == parent.selectedCollectionScope,
+               items.indices.contains(tableView.selectedRow),
+               case .collectionsDisclosure = items[tableView.selectedRow] {
+                applySelectionStyleToVisibleRows(in: tableView)
+                return
+            }
+            keepsDisclosureSelection = false
+
             guard let selectedPage = parent.selectedPage else {
                 isSyncingSelection = true
                 tableView.deselectAll(nil)
@@ -262,7 +347,10 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                 }
 
                 let item = items[row]
-                let presentation = item.presentation(collections: parent.collections)
+                let presentation = item.presentation(
+                    collections: parent.collections,
+                    iconStyle: parent.iconStyle
+                )
                 guard let presentation else { continue }
                 cell.configure(
                     page: presentation.page,
@@ -275,6 +363,9 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     colorfulSymbolSize: parent.colorfulSymbolSize,
                     colorfulCornerRadius: parent.colorfulCornerRadius,
                     professionalIconSize: parent.professionalIconSize,
+                    showsIcon: presentation.showsIcon,
+                    iconResourceName: presentation.iconResourceName,
+                    disclosureExpanded: presentation.disclosureExpanded,
                     isSelected: tableView.selectedRow == row
                 )
             }
@@ -286,7 +377,10 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             page: BookmarkManagerView.SettingsPage,
             title: String,
             badgeCount: Int?,
-            indentation: CGFloat
+            indentation: CGFloat,
+            showsIcon: Bool,
+            iconResourceName: String?,
+            disclosureExpanded: Bool?
         ) -> NSView {
             let cell = tableView.makeView(
                 withIdentifier: SettingsSidebarPageCell.reuseIdentifier,
@@ -303,6 +397,9 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                 colorfulSymbolSize: parent.colorfulSymbolSize,
                 colorfulCornerRadius: parent.colorfulCornerRadius,
                 professionalIconSize: parent.professionalIconSize,
+                showsIcon: showsIcon,
+                iconResourceName: iconResourceName,
+                disclosureExpanded: disclosureExpanded,
                 isSelected: tableView.selectedRow == row
             )
             return cell
@@ -352,11 +449,15 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-            guard items.indices.contains(row), case .scope(.collection(let id)) = items[row] else {
-                return nil
+            guard items.indices.contains(row) else { return nil }
+            let sectionID: BookmarkMenuSectionID
+            switch items[row] {
+            case .scope(.recent): sectionID = .recent
+            case .scope(.collection(let id)): sectionID = .collection(id)
+            default: return nil
             }
             let item = NSPasteboardItem()
-            item.setString(id.uuidString, forType: .settingsSidebarCollection)
+            item.setString(sectionID.storageValue, forType: .settingsSidebarCollection)
             return item
         }
 
@@ -382,23 +483,25 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             dropOperation: NSTableView.DropOperation
         ) -> Bool {
             guard let rawID = info.draggingPasteboard.string(forType: .settingsSidebarCollection),
-                  let draggedID = UUID(uuidString: rawID),
+                  let draggedID = BookmarkMenuSectionID(storageValue: rawID),
+                  draggedID != .ungrouped,
                   isValidCollectionDropRow(row) else {
                 return false
             }
 
-            var ids = parent.collections.map(\.id)
-            guard let sourceIndex = ids.firstIndex(of: draggedID) else { return false }
-            let collectionRowsBeforeDrop = items[..<min(row, items.count)].reduce(into: 0) { count, item in
-                if case .scope(.collection) = item { count += 1 }
-            }
-            let movedID = ids.remove(at: sourceIndex)
-            let destination = min(
-                collectionRowsBeforeDrop - (sourceIndex < collectionRowsBeforeDrop ? 1 : 0),
-                ids.count
+            let destinationID: BookmarkMenuSectionID? = {
+                guard items.indices.contains(row) else { return nil }
+                switch items[row] {
+                case .scope(.recent): return .recent
+                case .scope(.collection(let id)): return .collection(id)
+                case .scope(.ungrouped): return .ungrouped
+                default: return nil
+                }
+            }()
+            let order = BookmarkMenuSectionOrder.order(collections: parent.collections)
+            parent.onReorderSections(
+                BookmarkMenuSectionOrder.moving([draggedID], before: destinationID, in: order)
             )
-            ids.insert(movedID, at: max(0, destination))
-            parent.onReorderCollections(ids)
             return true
         }
 
@@ -407,7 +510,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             if row == items.count { return false }
             guard items.indices.contains(row) else { return false }
             switch items[row] {
-            case .scope(.collection), .scope(.ungrouped):
+            case .scope(.recent), .scope(.collection), .scope(.ungrouped):
                 return true
             default:
                 return false
@@ -430,15 +533,29 @@ private enum SettingsSidebarItem: Equatable {
         }
     }
 
-    func presentation(collections: [BookmarkCollection]) -> SidebarItemPresentation? {
+    func presentation(
+        collections: [BookmarkCollection],
+        iconStyle: SidebarIconStyle
+    ) -> SidebarItemPresentation? {
         switch self {
         case .page(let page):
-            SidebarItemPresentation(page: page, title: page.title, indentation: 0, badge: .page(page))
+            SidebarItemPresentation(
+                page: page,
+                title: page.title,
+                indentation: 0,
+                showsIcon: true,
+                iconResourceName: nil,
+                disclosureExpanded: nil,
+                badge: .page(page)
+            )
         case .collectionsDisclosure(let expanded):
             SidebarItemPresentation(
                 page: .collections,
-                title: "\(expanded ? "⌄" : "›")  \("分组".obeliskLocalized)",
+                title: "分组".obeliskLocalized,
                 indentation: 0,
+                showsIcon: true,
+                iconResourceName: nil,
+                disclosureExpanded: expanded,
                 badge: .collections
             )
         case .scope(let scope):
@@ -446,6 +563,9 @@ private enum SettingsSidebarItem: Equatable {
                 page: .collections,
                 title: scope.title(in: collections),
                 indentation: 14,
+                showsIcon: scope.showsSidebarIcon,
+                iconResourceName: scope.sidebarIconResourceName(for: iconStyle),
+                disclosureExpanded: nil,
                 badge: .scope(scope)
             )
         case .header:
@@ -464,6 +584,9 @@ private struct SidebarItemPresentation {
     var page: BookmarkManagerView.SettingsPage
     var title: String
     var indentation: CGFloat
+    var showsIcon: Bool
+    var iconResourceName: String?
+    var disclosureExpanded: Bool?
     var badge: Badge
 
     @MainActor
@@ -484,6 +607,20 @@ private extension BookmarkManagerView.CollectionScope {
         case .ungrouped: "未分组".obeliskLocalized
         }
     }
+
+    func sidebarIconResourceName(for style: SidebarIconStyle) -> String? {
+        switch (self, style) {
+        case (.recent, .lucide): "history"
+        case (.recent, .tabler): "clock-filled"
+        case (.collection, _): nil
+        case (.ungrouped, .lucide): "bookmark-minus"
+        case (.ungrouped, .tabler): "folder-open-filled"
+        }
+    }
+
+    var showsSidebarIcon: Bool {
+        if case .collection = self { false } else { true }
+    }
 }
 
 private extension AppKitSettingsSidebar {
@@ -493,9 +630,13 @@ private extension AppKitSettingsSidebar {
             if page == .collections {
                 result.append(.collectionsDisclosure(collectionsExpanded))
                 if collectionsExpanded {
-                    result.append(.scope(.recent))
-                    result.append(contentsOf: collections.map { .scope(.collection($0.id)) })
-                    result.append(.scope(.ungrouped))
+                    result.append(contentsOf: BookmarkMenuSectionOrder.order(collections: collections).map { id in
+                        switch id {
+                        case .recent: .scope(.recent)
+                        case .collection(let collectionID): .scope(.collection(collectionID))
+                        case .ungrouped: .scope(.ungrouped)
+                        }
+                    })
                 }
             } else {
                 result.append(.page(page))
@@ -519,6 +660,13 @@ private extension NSPasteboard.PasteboardType {
 
 private final class SettingsSidebarTableView: NSTableView {
     var sidebarMenuProvider: ((Int) -> NSMenu?)?
+    var sidebarDisclosureHandler: ((NSTableView, Int) -> Bool)?
+
+    override func mouseDown(with event: NSEvent) {
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        if row >= 0, sidebarDisclosureHandler?(self, row) == true { return }
+        super.mouseDown(with: event)
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = row(at: convert(event.locationInWindow, from: nil))
@@ -582,6 +730,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
     private static let leadingInset: CGFloat = 3
     private static let trailingInset: CGFloat = 14
 
+    private let disclosureImageView = NSImageView()
     private let colorfulIconView = SettingsSidebarColorIconView()
     private let professionalIconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
@@ -592,6 +741,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
     private var professionalIconHeight: NSLayoutConstraint!
     private var titleToColorfulIcon: NSLayoutConstraint!
     private var titleToProfessionalIcon: NSLayoutConstraint!
+    private var titleWithoutIcon: NSLayoutConstraint!
     private var colorfulIconLeading: NSLayoutConstraint!
     private var professionalIconLeading: NSLayoutConstraint!
     private var isSelected = false
@@ -599,6 +749,10 @@ private final class SettingsSidebarPageCell: NSTableCellView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         identifier = Self.reuseIdentifier
+
+        disclosureImageView.imageScaling = .scaleProportionallyDown
+        disclosureImageView.contentTintColor = .secondaryLabelColor
+        disclosureImageView.translatesAutoresizingMaskIntoConstraints = false
 
         colorfulIconView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -615,6 +769,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         badgeField.lineBreakMode = .byTruncatingTail
         badgeField.translatesAutoresizingMaskIntoConstraints = false
 
+        addSubview(disclosureImageView)
         addSubview(colorfulIconView)
         addSubview(professionalIconView)
         addSubview(titleField)
@@ -632,11 +787,20 @@ private final class SettingsSidebarPageCell: NSTableCellView {
             equalTo: professionalIconView.trailingAnchor,
             constant: 8
         )
+        titleWithoutIcon = titleField.leadingAnchor.constraint(
+            equalTo: leadingAnchor,
+            constant: Self.leadingInset
+        )
 
         colorfulIconLeading = colorfulIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.leadingInset)
         professionalIconLeading = professionalIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.leadingInset)
 
         NSLayoutConstraint.activate([
+            disclosureImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
+            disclosureImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            disclosureImageView.widthAnchor.constraint(equalToConstant: 18),
+            disclosureImageView.heightAnchor.constraint(equalToConstant: 18),
+
             colorfulIconLeading,
             colorfulIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             colorfulIconWidth,
@@ -674,12 +838,17 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         colorfulSymbolSize: CGFloat,
         colorfulCornerRadius: CGFloat,
         professionalIconSize: CGFloat,
+        showsIcon: Bool,
+        iconResourceName: String?,
+        disclosureExpanded: Bool?,
         isSelected: Bool
     ) {
         titleField.stringValue = title
-        colorfulIconLeading.constant = Self.leadingInset + indentation
-        professionalIconLeading.constant = Self.leadingInset + indentation
+        let disclosureOffset: CGFloat = disclosureExpanded == nil ? 0 : 20
+        colorfulIconLeading.constant = Self.leadingInset + indentation + disclosureOffset
+        professionalIconLeading.constant = Self.leadingInset + indentation + disclosureOffset
         applySelectionStyle(isSelected: isSelected)
+        configureDisclosure(expanded: disclosureExpanded)
 
         if let badgeCount {
             badgeField.stringValue = "\(badgeCount)"
@@ -689,6 +858,24 @@ private final class SettingsSidebarPageCell: NSTableCellView {
             badgeField.isHidden = true
         }
 
+        if !showsIcon {
+            colorfulIconView.isHidden = true
+            professionalIconView.isHidden = true
+            titleToColorfulIcon.isActive = false
+            titleToProfessionalIcon.isActive = false
+            let reservedIconWidth: CGFloat
+            switch theme {
+            case .colorful:
+                reservedIconWidth = colorfulIconSize + 12
+            case .professional:
+                reservedIconWidth = professionalIconSize + 3 + 8
+            }
+            titleWithoutIcon.constant = Self.leadingInset + indentation + reservedIconWidth
+            titleWithoutIcon.isActive = true
+            return
+        }
+
+        titleWithoutIcon.isActive = false
         switch theme {
         case .colorful:
             colorfulIconWidth.constant = colorfulIconSize
@@ -698,7 +885,8 @@ private final class SettingsSidebarPageCell: NSTableCellView {
                 iconStyle: iconStyle,
                 size: colorfulIconSize,
                 symbolSize: colorfulSymbolSize,
-                cornerRadius: colorfulCornerRadius
+                cornerRadius: colorfulCornerRadius,
+                iconResourceName: iconResourceName
             )
             colorfulIconView.isHidden = false
             professionalIconView.isHidden = true
@@ -709,13 +897,29 @@ private final class SettingsSidebarPageCell: NSTableCellView {
             let iconSize = professionalIconSize + 3
             professionalIconWidth.constant = iconSize
             professionalIconHeight.constant = iconSize
-            professionalIconView.image = page.professionalAppKitGradientIcon(style: iconStyle)
+            professionalIconView.image = page.professionalAppKitGradientIcon(
+                style: iconStyle,
+                resourceName: iconResourceName
+            )
             professionalIconView.contentTintColor = nil
             colorfulIconView.isHidden = true
             professionalIconView.isHidden = false
             titleToColorfulIcon.isActive = false
             titleToProfessionalIcon.isActive = true
         }
+    }
+
+    private func configureDisclosure(expanded: Bool?) {
+        guard let expanded else {
+            disclosureImageView.isHidden = true
+            return
+        }
+
+        disclosureImageView.isHidden = false
+        disclosureImageView.image = NSImage(
+            systemSymbolName: expanded ? "chevron.down" : "chevron.right",
+            accessibilityDescription: expanded ? "收起".obeliskLocalized : "展开".obeliskLocalized
+        )?.withSymbolConfiguration(.init(pointSize: 14, weight: .bold))
     }
 
     func applySelectionStyle(isSelected: Bool) {
@@ -753,13 +957,17 @@ private final class SettingsSidebarColorIconView: NSView {
         iconStyle: SidebarIconStyle,
         size: CGFloat,
         symbolSize: CGFloat,
-        cornerRadius: CGFloat
+        cornerRadius: CGFloat,
+        iconResourceName: String?
     ) {
         self.page = page
         self.iconSize = size
         self.symbolSize = symbolSize
         self.cornerRadius = cornerRadius
-        iconImageView.image = page.professionalAppKitIcon(style: iconStyle)
+        iconImageView.image = page.professionalAppKitIcon(
+            style: iconStyle,
+            resourceName: iconResourceName
+        )
         iconImageView.contentTintColor = .white
         needsDisplay = true
         needsLayout = true
@@ -832,8 +1040,8 @@ private extension BookmarkManagerView.SettingsPage {
         }
     }
 
-    func professionalAppKitIcon(style: SidebarIconStyle) -> NSImage? {
-        if let image = Self.resourceImage(named: professionalIconResourceName, style: style) {
+    func professionalAppKitIcon(style: SidebarIconStyle, resourceName: String? = nil) -> NSImage? {
+        if let image = Self.resourceImage(named: resourceName ?? professionalIconResourceName, style: style) {
             return image
         }
 
@@ -842,10 +1050,10 @@ private extension BookmarkManagerView.SettingsPage {
         return image
     }
 
-    func professionalAppKitGradientIcon(style: SidebarIconStyle) -> NSImage? {
-        guard let maskImage = professionalAppKitIcon(style: style),
+    func professionalAppKitGradientIcon(style: SidebarIconStyle, resourceName: String? = nil) -> NSImage? {
+        guard let maskImage = professionalAppKitIcon(style: style, resourceName: resourceName),
               let gradient = NSGradient(colors: appKitGradientColors) else {
-            return professionalAppKitIcon(style: style)
+            return professionalAppKitIcon(style: style, resourceName: resourceName)
         }
 
         let canvasSize = NSSize(width: 64, height: 64)

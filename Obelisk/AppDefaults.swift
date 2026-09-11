@@ -21,11 +21,9 @@ enum ObeliskAppDefaults {
             "autoGroupNewBookmarks",
             "bookmarkListSortMode",
             "pinnedBookmarkListSortMode",
-            "collectionBookmarkListSortMode",
             "hiddenBookmarkListSortMode",
             "hiddenBookmarkDisplayMode",
-            "collectionBookmarkDisplayMode",
-            "menuBarSectionOrder"
+            "collectionBookmarkDisplayMode"
         ] {
             defaults.removeObject(forKey: obsoleteKey)
         }

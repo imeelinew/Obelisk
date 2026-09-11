@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct GeneralSettingsView: View {
+    @Binding var autoArchiveEnabled: Bool
+    @Binding var archiveAfterDays: Int
+    let onArchiveSettingsChanged: () -> Void
     let onMessage: (String, Bool) -> Void
     @State private var launchAtLoginEnabled = LoginItemController.isEnabled
     @State private var showLanguageRestartAlert = false
@@ -20,6 +23,39 @@ struct GeneralSettingsView: View {
                         selection: appLanguagePreferenceBinding,
                         title: { $0.pickerLabel }
                     )
+                }
+            }
+
+            Section("自动归档") {
+                Toggle("自动归档闲置书签", isOn: Binding(
+                    get: { autoArchiveEnabled },
+                    set: { newValue in
+                        autoArchiveEnabled = newValue
+                        onArchiveSettingsChanged()
+                    }
+                ))
+
+                if autoArchiveEnabled {
+                    LabeledContent("闲置天数") {
+                        HStack(spacing: 10) {
+                            Text("\(archiveAfterDays)")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(minWidth: 24, alignment: .trailing)
+                            Stepper(
+                                "闲置天数",
+                                value: Binding(
+                                    get: { archiveAfterDays },
+                                    set: { newValue in
+                                        archiveAfterDays = BookmarksModel.clampedArchiveAfterDays(newValue)
+                                        onArchiveSettingsChanged()
+                                    }
+                                ),
+                                in: BookmarksModel.minArchiveAfterDays...BookmarksModel.maxArchiveAfterDays
+                            )
+                            .labelsHidden()
+                        }
+                    }
                 }
             }
         }

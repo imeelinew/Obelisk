@@ -48,16 +48,15 @@
 
 ## Verification
 
-Test every completed step at the narrowest useful level, then run the affected target's build before handing it off.
+The repository does not maintain test targets or test source files. Do not add,
+restore, or run tests. Verify changes with the affected target's build and
+static checks only.
 
 ```sh
-swift test --package-path Packages/ObeliskKit
 xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug -destination 'platform=macOS' build
-(cd Server/worker && npm test && npm run typecheck)
+(cd Server/worker && npm run typecheck)
 ```
 
-- Run shared package tests after changing domain, data, or sync code.
 - Build the macOS app after UI or shared-code changes.
-- Run Worker tests after changing endpoints, the D1 schema, or merge behavior.
-- Add focused regression tests for every fixed bug and every non-trivial domain rule.
+- Run the Worker type checker after changing endpoints, the D1 schema, or merge behavior.
 - Before finishing, review the complete diff, remove dead code and temporary artifacts, and report exactly what was tested.

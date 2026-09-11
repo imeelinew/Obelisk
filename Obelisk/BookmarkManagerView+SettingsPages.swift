@@ -16,6 +16,8 @@ extension BookmarkManagerView {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
+
+                menuLimitStepper("最近添加数量", value: $menuRecentGroupLimit)
             }
 
             Section("侧边栏") {
@@ -71,7 +73,6 @@ extension BookmarkManagerView {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
-                menuLimitStepper("最近添加数量", desc: "「最近添加」最多显示的书签数量", value: $menuRecentGroupLimit)
             }
         }
         .formStyle(.grouped)
@@ -81,53 +82,192 @@ extension BookmarkManagerView {
     }
 
     var menuBarPage: some View {
-        Form {
-            Section("展开方式") {
-                Toggle("最近添加", isOn: menuBarExpansionBinding(for: .recent))
-
-                ForEach(model.collections) { collection in
-                    Toggle(
-                        collection.name,
-                        isOn: menuBarExpansionBinding(for: .collection(collection.id))
-                    )
-                }
-                .onMove(perform: reorderMenuBarCollections)
-
-                Toggle("未分组", isOn: menuBarExpansionBinding(for: .ungrouped))
-
-                Text("勾选后直接显示书签，未勾选时收起为子菜单，拖动分组会同步侧边栏与菜单栏顺序")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("菜单栏排序")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                menuBarOrderCard
             }
+            .padding(.top, 20)
+            .padding(.horizontal, 32)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .formStyle(.grouped)
         .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
         .settingsContentMargins()
+        .onDisappear(perform: resetMenuBarOrderDrag)
         .navigationTitle("菜单栏")
+    }
+
+    @ViewBuilder
+    var menuBarOrderCard: some View {
+        if #available(macOS 27.0, *) {
+            nativeMenuBarOrderCard
+        } else {
+            legacyMenuBarOrderCard
+        }
+    }
+
+    @available(macOS 27.0, *)
+    var nativeMenuBarOrderCard: some View {
+        let items = menuBarOrderItems
+        return VStack(spacing: 0) {
+            ForEach(items) { item in
+                menuBarOrderRow(for: item, isPlaceholder: false, isDropTarget: false)
+                    .overlay(alignment: .bottom) {
+                        if item.id != items.last?.id { Divider().padding(.leading, 14) }
+                    }
+            }
+            .reorderable()
+        }
+        .reorderContainer(for: BookmarkMenuOrderItem.self, itemID: \.id) { difference in
+            moveMenuBarSections(using: difference)
+        }
+        .frame(height: CGFloat(items.count) * menuBarOrderRowHeight)
+        .background { menuBarOrderBackground(cornerRadius: 10) }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    var legacyMenuBarOrderCard: some View {
+        let items = menuBarOrderItems
+        return ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    menuBarOrderRow(
+                        for: item,
+                        isPlaceholder: draggingMenuBarSectionID == item.id,
+                        isDropTarget: menuBarDragTargetIndex == index && draggingMenuBarSectionID != item.id
+                    )
+                    .overlay(alignment: .bottom) {
+                        if index < items.count - 1 { Divider().padding(.leading, 14) }
+                    }
+                    .offset(y: menuBarOrderRowOffset(for: index, itemID: item.id))
+                    .animation(.easeInOut(duration: 0.12), value: menuBarDragTargetIndex)
+                    .gesture(menuBarOrderDragGesture(for: item, at: index, itemCount: items.count))
+                }
+            }
+
+            if let draggingMenuBarSectionID,
+               let startIndex = menuBarDragStartIndex,
+               let item = items.first(where: { $0.id == draggingMenuBarSectionID }) {
+                menuBarOrderRow(for: item, isPlaceholder: false, isDropTarget: false)
+                    .background { menuBarOrderBackground(cornerRadius: 9) }
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                    .offset(y: CGFloat(startIndex) * menuBarOrderRowHeight + menuBarDragOffsetY)
+                    .zIndex(2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(height: CGFloat(items.count) * menuBarOrderRowHeight)
+        .background { menuBarOrderBackground(cornerRadius: 10) }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .animation(.easeInOut(duration: 0.12), value: items.map(\.id))
+    }
+
+    @ViewBuilder
+    func menuBarOrderBackground(cornerRadius: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if windowTransparencyEnabled {
+            shape.fill(menuBarOrderTransparentBackgroundColor)
+        } else {
+            shape.fill(menuBarOrderBackgroundColor)
+        }
+    }
+
+    func menuBarOrderRow(
+        for item: BookmarkMenuOrderItem,
+        isPlaceholder: Bool,
+        isDropTarget: Bool
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(item.title)
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 16)
+            Toggle("展开", isOn: menuBarExpansionBinding(for: item.id))
+                .toggleStyle(.checkbox)
+                .fixedSize()
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: menuBarOrderRowHeight)
+        .contentShape(Rectangle())
+        .opacity(isPlaceholder ? 0 : 1)
+        .background {
+            if isDropTarget { Color.accentColor.opacity(0.08) }
+        }
+        .accessibilityLabel(item.title)
+    }
+
+    func menuBarOrderDragGesture(
+        for item: BookmarkMenuOrderItem,
+        at index: Int,
+        itemCount: Int
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { value in
+                if draggingMenuBarSectionID != item.id {
+                    draggingMenuBarSectionID = item.id
+                    menuBarDragStartIndex = index
+                    menuBarDragTargetIndex = index
+                    menuBarDragOffsetY = 0
+                }
+                guard draggingMenuBarSectionID == item.id else { return }
+                menuBarDragOffsetY = value.translation.height
+                menuBarDragTargetIndex = stableMenuBarOrderTargetIndex(
+                    startIndex: menuBarDragStartIndex ?? index,
+                    translationY: value.translation.height,
+                    itemCount: itemCount
+                )
+            }
+            .onEnded { value in
+                defer { resetMenuBarOrderDrag() }
+                guard draggingMenuBarSectionID == item.id else { return }
+                let target = menuBarDragTargetIndex ?? menuBarOrderTargetIndex(
+                    startIndex: menuBarDragStartIndex ?? index,
+                    translationY: value.translation.height,
+                    itemCount: itemCount
+                )
+                moveMenuBarSection(draggedID: item.id, toIndex: target)
+            }
     }
 
     func menuBarExpansionBinding(for id: BookmarkMenuSectionID) -> Binding<Bool> {
         Binding(
             get: {
-                BookmarkMenuExpansionPreferences.expandedIDs(collections: model.collections).contains(id)
+                BookmarkMenuExpansionPreferences.expandedIDs(
+                    collections: model.collections,
+                    rawValue: menuBarExpandedSectionsRaw == "\u{0}"
+                        ? nil
+                        : menuBarExpandedSectionsRaw
+                ).contains(id)
             },
             set: { isExpanded in
-                BookmarkMenuExpansionPreferences.setExpanded(
-                    isExpanded,
-                    id: id,
-                    collections: model.collections
+                var expanded = BookmarkMenuExpansionPreferences.expandedIDs(
+                    collections: model.collections,
+                    rawValue: menuBarExpandedSectionsRaw == "\u{0}"
+                        ? nil
+                        : menuBarExpandedSectionsRaw
                 )
+                if isExpanded {
+                    expanded.insert(id)
+                } else {
+                    expanded.remove(id)
+                }
+                menuBarExpandedSectionsRaw = BookmarkMenuExpansionPreferences.encoded(expanded)
                 model.notifyMenuPresentationChanged()
             }
         )
-    }
-
-    func reorderMenuBarCollections(from source: IndexSet, to destination: Int) {
-        var collections = model.collections
-        collections.move(fromOffsets: source, toOffset: destination)
-        if let error = model.reorderCollections(collections.map(\.id)) {
-            showToast(error, kind: .error)
-        }
     }
 
     var shortcutsPage: some View {
@@ -146,21 +286,15 @@ extension BookmarkManagerView {
 
     func menuLimitStepper(
         _ title: LocalizedStringKey,
-        desc: LocalizedStringKey? = nil,
         value: Binding<Int>
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(title) {
-                HStack(spacing: 10) {
-                    Text("\(value.wrappedValue)")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 24, alignment: .trailing)
-                    Stepper(title, value: value, in: 0...20).labelsHidden()
-                }
-            }
-            if let desc {
-                Text(desc).font(.footnote).foregroundStyle(.secondary)
+        LabeledContent(title) {
+            HStack(spacing: 10) {
+                Text("\(value.wrappedValue)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 24, alignment: .trailing)
+                Stepper(title, value: value, in: 0...20).labelsHidden()
             }
         }
     }

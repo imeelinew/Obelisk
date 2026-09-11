@@ -63,6 +63,9 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) var aiFeaturesEnabled = true
     @AppStorage("bookmarkDisplayMode") var bookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
     @AppStorage("sidebarCollectionsExpanded") var sidebarCollectionsExpanded = true
+    @AppStorage(BookmarkMenuSectionOrder.storageKey) var menuBarSectionOrderRaw = ""
+    @AppStorage(BookmarkMenuExpansionPreferences.storageKey) var menuBarExpandedSectionsRaw = "\u{0}"
+    @AppStorage(BookmarkListSortMode.storageKey) var collectionBookmarkSortModeRaw = BookmarkListSortMode.recentlyAdded.rawValue
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") var windowSeeThrough: Double = 0.0
     @AppStorage("customTransparencyEnabled") var customTransparencyEnabled = false
@@ -73,6 +76,11 @@ struct BookmarkManagerView: View {
     @State var renameCollectionName = ""
     @State var collectionToDelete: BookmarkCollection?
     @State var newHiddenBookmarkExcludedURLKeyword = ""
+    @State var draggingMenuBarSectionID: BookmarkMenuSectionID?
+    @State var menuBarDragStartIndex: Int?
+    @State var menuBarDragTargetIndex: Int?
+    @State var menuBarDragOffsetY: CGFloat = 0
+    let menuBarOrderRowHeight: CGFloat = 50
     var menuBarOrderBackgroundColor: Color {
         switch colorScheme {
         case .dark:
@@ -349,14 +357,113 @@ struct BookmarkManagerView: View {
     }
 
     var currentCollectionScopeBookmarks: [Bookmark] {
-        switch collectionScope {
+        let bookmarks = switch collectionScope {
         case .recent:
-            return model.recent
+            model.recent
         case .collection(let id):
-            return model.bookmarks(in: id)
+            model.bookmarks(in: id)
         case .ungrouped:
-            return model.visibleUngroupedBookmarks
+            model.visibleUngroupedBookmarks
         }
+        return model.sortedBookmarks(bookmarks, by: collectionBookmarkSortMode)
+    }
+
+    var collectionBookmarkSortMode: BookmarkListSortMode {
+        get { BookmarkListSortMode(rawValue: collectionBookmarkSortModeRaw) ?? .recentlyAdded }
+        nonmutating set {
+            collectionBookmarkSortModeRaw = newValue.rawValue
+            model.notifyMenuPresentationChanged()
+        }
+    }
+
+    var collectionBookmarkSortModeBinding: Binding<BookmarkListSortMode> {
+        Binding(
+            get: { collectionBookmarkSortMode },
+            set: { collectionBookmarkSortMode = $0 }
+        )
+    }
+
+    var menuBarOrderItems: [BookmarkMenuOrderItem] {
+        BookmarkMenuSectionOrder.items(collections: model.collections, rawValue: menuBarSectionOrderRaw)
+    }
+
+    func saveMenuBarSectionOrder(_ ids: [BookmarkMenuSectionID]) {
+        let encodedOrder = BookmarkMenuSectionOrder.encoded(ids)
+        guard encodedOrder != menuBarSectionOrderRaw else { return }
+        menuBarSectionOrderRaw = encodedOrder
+        let collectionIDs = ids.compactMap { id -> UUID? in
+            guard case .collection(let collectionID) = id else { return nil }
+            return collectionID
+        }
+        if let error = model.reorderCollections(collectionIDs) {
+            showToast(error, kind: .error)
+        }
+        model.notifyMenuPresentationChanged()
+    }
+
+    @available(macOS 27.0, *)
+    func moveMenuBarSections(
+        using difference: ReorderDifference<BookmarkMenuSectionID, ReorderableSingleCollectionIdentifier>
+    ) {
+        let destinationID: BookmarkMenuSectionID?
+        switch difference.destination.position {
+        case .before(let id): destinationID = id
+        case .end: destinationID = nil
+        }
+        saveMenuBarSectionOrder(BookmarkMenuSectionOrder.moving(
+            difference.sources,
+            before: destinationID,
+            in: menuBarOrderItems.map(\.id)
+        ))
+    }
+
+    func moveMenuBarSection(draggedID: BookmarkMenuSectionID, toIndex targetIndex: Int) {
+        var ids = menuBarOrderItems.map(\.id)
+        guard let sourceIndex = ids.firstIndex(of: draggedID), !ids.isEmpty else { return }
+        let destinationIndex = min(max(targetIndex, 0), ids.count - 1)
+        guard sourceIndex != destinationIndex else { return }
+        let movedID = ids.remove(at: sourceIndex)
+        ids.insert(movedID, at: destinationIndex)
+        saveMenuBarSectionOrder(ids)
+    }
+
+    func menuBarOrderTargetIndex(startIndex: Int, translationY: CGFloat, itemCount: Int) -> Int {
+        guard itemCount > 0 else { return 0 }
+        let proposedIndex = CGFloat(startIndex) + translationY / menuBarOrderRowHeight
+        return min(max(Int(proposedIndex.rounded()), 0), itemCount - 1)
+    }
+
+    func stableMenuBarOrderTargetIndex(startIndex: Int, translationY: CGFloat, itemCount: Int) -> Int {
+        let proposed = menuBarOrderTargetIndex(
+            startIndex: startIndex,
+            translationY: translationY,
+            itemCount: itemCount
+        )
+        let current = menuBarDragTargetIndex ?? startIndex
+        guard proposed != current else { return proposed }
+        let currentTranslation = CGFloat(current - startIndex) * menuBarOrderRowHeight
+        return abs(translationY - currentTranslation) >= menuBarOrderRowHeight * 0.62 ? proposed : current
+    }
+
+    func resetMenuBarOrderDrag() {
+        draggingMenuBarSectionID = nil
+        menuBarDragStartIndex = nil
+        menuBarDragTargetIndex = nil
+        menuBarDragOffsetY = 0
+    }
+
+    func menuBarOrderRowOffset(for index: Int, itemID: BookmarkMenuSectionID) -> CGFloat {
+        guard let draggingMenuBarSectionID,
+              let targetIndex = menuBarDragTargetIndex,
+              let sourceIndex = menuBarDragStartIndex,
+              draggingMenuBarSectionID != itemID else { return 0 }
+        if sourceIndex < targetIndex, index > sourceIndex, index <= targetIndex {
+            return -menuBarOrderRowHeight
+        }
+        if targetIndex < sourceIndex, index >= targetIndex, index < sourceIndex {
+            return menuBarOrderRowHeight
+        }
+        return 0
     }
 
     var currentCollectionScopeTitle: String {
@@ -1057,11 +1164,7 @@ struct BookmarkManagerView: View {
             },
             onRenameCollection: beginRenameCollection,
             onDeleteCollection: beginDeleteCollection,
-            onReorderCollections: { ids in
-                if let error = model.reorderCollections(ids) {
-                    showToast(error, kind: .error)
-                }
-            },
+            onReorderSections: saveMenuBarSectionOrder,
             iconTheme: sidebarIconTheme,
             iconStyle: sidebarIconStyle,
             colorfulIconSize: sidebarIconTileSize,
@@ -1136,7 +1239,11 @@ struct BookmarkManagerView: View {
             case .privacy:
                 privacyPage
             case .settings:
-                GeneralSettingsView { message, isError in
+                GeneralSettingsView(
+                    autoArchiveEnabled: $autoArchiveEnabled,
+                    archiveAfterDays: $archiveAfterDays,
+                    onArchiveSettingsChanged: syncArchiveSettings
+                ) { message, isError in
                     showToast(message, kind: isError ? .error : .success)
                 }
             }

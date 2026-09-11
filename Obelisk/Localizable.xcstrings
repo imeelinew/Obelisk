@@ -4,22 +4,6 @@
     "" : {
 
     },
-    "「最近添加」最多显示的书签数量" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Maximum bookmarks shown under Recently Added"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「最近添加」最多显示的书签数量"
-          }
-        }
-      }
-    },
     "%lld" : {
 
     },
@@ -448,9 +432,6 @@
     "https://api.openai.com/v1/chat/completions" : {
 
     },
-    "https://example.com" : {
-
-    },
     "Intelligence" : {
 
     },
@@ -607,22 +588,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Obelisk 帮助"
-          }
-        }
-      }
-    },
-    "Obelisk 会自动将超过这个天数没有打开的书签归档" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Obelisk automatically archives bookmarks that haven’t been opened for this many days"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Obelisk 会自动将超过这个天数没有打开的书签归档"
           }
         }
       }
@@ -1248,6 +1213,7 @@
       }
     },
     "书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1296,6 +1262,9 @@
           }
         }
       }
+    },
+    "书签显示" : {
+
     },
     "云同步" : {
       "localizations" : {
@@ -1382,6 +1351,7 @@
       }
     },
     "优化全部可用书签的标题与分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1398,6 +1368,7 @@
       }
     },
     "优化选中书签的标题与分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1414,6 +1385,7 @@
       }
     },
     "优化选中隐藏书签的标题" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1478,6 +1450,7 @@
       }
     },
     "例如:GitHub" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1492,6 +1465,9 @@
           }
         }
       }
+    },
+    "例如：GitHub" : {
+
     },
     "侧边栏" : {
       "localizations" : {
@@ -1563,7 +1539,6 @@
       }
     },
     "全部" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1666,6 +1641,7 @@
       }
     },
     "分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1799,6 +1775,7 @@
       }
     },
     "删除选中的书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1815,6 +1792,7 @@
       }
     },
     "删除选中的分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1831,6 +1809,7 @@
       }
     },
     "删除选中的隐藏书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2242,6 +2221,7 @@
       }
     },
     "将选中的书签移到其他分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2258,6 +2238,7 @@
       }
     },
     "将选中的书签移到分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2289,6 +2270,9 @@
           }
         }
       }
+    },
+    "展开" : {
+
     },
     "已保存" : {
 
@@ -2450,6 +2434,7 @@
       }
     },
     "已放入分组的书签在「分组」页查看" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2834,6 +2819,7 @@
       }
     },
     "您手动归档的书签会显示在这里" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2901,6 +2887,7 @@
       }
     },
     "按 ⌥H 可以把当前浏览器标签添加为隐藏书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2983,6 +2970,7 @@
       }
     },
     "新建" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3147,6 +3135,12 @@
         }
       }
     },
+    "显示或隐藏隐藏书签" : {
+
+    },
+    "显示方式" : {
+
+    },
     "服务" : {
 
     },
@@ -3154,6 +3148,7 @@
 
     },
     "未分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3473,6 +3468,7 @@
       }
     },
     "没有可见书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3506,6 +3502,7 @@
       }
     },
     "没有归档书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3522,6 +3519,7 @@
       }
     },
     "没有未分组的书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3555,6 +3553,7 @@
       }
     },
     "没有结果" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3719,6 +3718,7 @@
       }
     },
     "点击工具栏 + 创建分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3735,6 +3735,7 @@
       }
     },
     "点击工具栏的 + 添加你的第一个书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3835,6 +3836,7 @@
       }
     },
     "移到分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3985,6 +3987,7 @@
       }
     },
     "编辑" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4163,6 +4166,9 @@
         }
       }
     },
+    "菜单栏排序" : {
+
+    },
     "设置" : {
       "localizations" : {
         "en" : {
@@ -4333,6 +4339,7 @@
       }
     },
     "还没有书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4349,6 +4356,7 @@
       }
     },
     "还没有分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4399,6 +4407,7 @@
       }
     },
     "还没有隐藏书签" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4638,6 +4647,7 @@
 
     },
     "重命名" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4670,6 +4680,7 @@
       }
     },
     "重命名选中的分组" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4768,6 +4779,7 @@
       }
     },
     "闲置书签会在达到设定天数后自动归档" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4832,6 +4844,7 @@
       }
     },
     "隐藏书签和归档书签不会显示在这里" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

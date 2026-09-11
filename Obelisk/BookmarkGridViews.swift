@@ -47,6 +47,11 @@ struct BookmarkGridSection: Identifiable, Equatable {
         ]
     }
 
+    static func orderedSection(from bookmarks: [Bookmark]) -> [BookmarkGridSection] {
+        guard !bookmarks.isEmpty else { return [] }
+        return [BookmarkGridSection(id: "ordered", title: "", subtitle: "", bookmarks: bookmarks)]
+    }
+
     private static func title(for day: Date, calendar: Calendar) -> String {
         let now = Date()
         if calendar.isDateInToday(day) {
@@ -153,7 +158,9 @@ struct BookmarkSectionGridView: View {
     }
 
     private func sectionHeader(_ section: BookmarkGridSection) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Group {
+            if !section.title.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(section.title)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -161,6 +168,8 @@ struct BookmarkSectionGridView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
+                }
+            }
         }
     }
 

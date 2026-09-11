@@ -241,17 +241,32 @@ final class BookmarksModel {
         visibleBookmarksByCollectionID[collectionID] ?? []
     }
 
+    func sortedBookmarks(_ bookmarks: [Bookmark], by mode: BookmarkListSortMode) -> [Bookmark] {
+        switch mode {
+        case .recentlyAdded:
+            bookmarks.sorted(by: Self.bookmarkTimeOrder)
+        case .frequency:
+            BookmarkUsageRanking.frecencySorted(among: bookmarks, usage: usageByBookmarkID)
+        }
+    }
+
     func menuSections() -> BookmarkMenuSections {
-        BookmarkMenuSections(
-            recent: recent,
+        let sortMode = BookmarkListSortMode(
+            rawValue: UserDefaults.standard.string(forKey: BookmarkListSortMode.storageKey) ?? ""
+        ) ?? .recentlyAdded
+        return BookmarkMenuSections(
+            recent: sortedBookmarks(recent, by: sortMode),
             collections: collections.map { collection in
                 BookmarkMenuSection(
                     id: .collection(collection.id),
                     title: collection.name,
-                    bookmarks: visibleBookmarksByCollectionID[collection.id] ?? []
+                    bookmarks: sortedBookmarks(
+                        visibleBookmarksByCollectionID[collection.id] ?? [],
+                        by: sortMode
+                    )
                 )
             },
-            ungrouped: visibleUngroupedBookmarks
+            ungrouped: sortedBookmarks(visibleUngroupedBookmarks, by: sortMode)
         )
     }
 

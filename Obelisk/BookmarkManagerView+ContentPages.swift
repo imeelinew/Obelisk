@@ -59,17 +59,31 @@ extension BookmarkManagerView {
     }
 
     var collectionsManagementPage: some View {
-        bookmarkResults(
-            bookmarks: currentCollectionScopeBookmarks,
-            emptyTitle: currentCollectionScopeEmptyTitle,
-            emptyDescription: "点击工具栏的 + 添加书签",
-            emptySystemImage: "folder",
-            onOpen: openBookmarks,
-            hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-            onSetHidden: { requestHiddenFromContextMenu(ids: $0, isHidden: true) },
-            archiveStateActionTitle: "归档".obeliskLocalized,
-            onSetArchived: { requestArchivedFromContextMenu(ids: $0, isArchived: true) }
-        )
+        VStack(spacing: 0) {
+            HStack {
+                CompactBorderedMenuPicker(
+                    options: BookmarkListSortMode.allCases,
+                    selection: collectionBookmarkSortModeBinding,
+                    title: { $0.title }
+                )
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+
+            bookmarkResults(
+                bookmarks: currentCollectionScopeBookmarks,
+                emptyTitle: currentCollectionScopeEmptyTitle,
+                emptyDescription: "点击工具栏的 + 添加书签",
+                emptySystemImage: "folder",
+                preservesInputOrder: collectionBookmarkSortMode == .frequency,
+                onOpen: openBookmarks,
+                hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
+                onSetHidden: { requestHiddenFromContextMenu(ids: $0, isHidden: true) },
+                archiveStateActionTitle: "归档".obeliskLocalized,
+                onSetArchived: { requestArchivedFromContextMenu(ids: $0, isArchived: true) }
+            )
+        }
         .navigationTitle(currentCollectionScopeTitle)
     }
 
@@ -89,69 +103,15 @@ extension BookmarkManagerView {
     }
 
     var archivePage: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section("自动归档") {
-                    Toggle(
-                        "自动归档闲置书签",
-                        isOn: Binding(
-                            get: { autoArchiveEnabled },
-                            set: { newValue in
-                                autoArchiveEnabled = newValue
-                                syncArchiveSettings()
-                            }
-                        )
-                    )
-
-                    if autoArchiveEnabled {
-                        LabeledContent {
-                            HStack(spacing: 10) {
-                                Text("\(archiveAfterDays)")
-                                    .monospacedDigit()
-                                    .foregroundStyle(.secondary)
-                                    .frame(minWidth: 24, alignment: .trailing)
-                                Stepper(
-                                    "闲置天数",
-                                    value: Binding(
-                                        get: { archiveAfterDays },
-                                        set: { newValue in
-                                            archiveAfterDays = BookmarksModel.clampedArchiveAfterDays(newValue)
-                                            syncArchiveSettings()
-                                        }
-                                    ),
-                                    in: BookmarksModel.minArchiveAfterDays...BookmarksModel.maxArchiveAfterDays
-                                )
-                                .labelsHidden()
-                            }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("闲置天数")
-                                Text("Obelisk 会自动将超过这个天数没有打开的书签归档")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(windowTransparencyEnabled ? .hidden : .automatic)
-            .settingsContentMargins()
-            .frame(height: 190)
-
-            bookmarkResults(
-                bookmarks: archivedBookmarks,
-                emptyTitle: "没有归档书签",
-                emptyDescription: autoArchiveEnabled
-                    ? "闲置书签会在达到设定天数后自动归档"
-                    : "您手动归档的书签会显示在这里",
-                emptySystemImage: "archivebox",
-                onOpen: openArchivedBookmarks,
-                archiveStateActionTitle: "恢复到书签".obeliskLocalized,
-                onSetArchived: { requestArchivedFromContextMenu(ids: $0, isArchived: false) }
-            )
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        bookmarkResults(
+            bookmarks: archivedBookmarks,
+            emptyTitle: "没有归档书签",
+            emptyDescription: nil,
+            emptySystemImage: "archivebox",
+            onOpen: openArchivedBookmarks,
+            archiveStateActionTitle: "恢复到书签".obeliskLocalized,
+            onSetArchived: { requestArchivedFromContextMenu(ids: $0, isArchived: false) }
+        )
         .navigationTitle("归档")
     }
 
@@ -161,6 +121,7 @@ extension BookmarkManagerView {
         emptyTitle: String,
         emptyDescription: String?,
         emptySystemImage: String,
+        preservesInputOrder: Bool = false,
         onOpen: @escaping ([Bookmark]) -> Void,
         hiddenStateActionTitle: String? = nil,
         onSetHidden: ((Set<Bookmark.ID>) -> Void)? = nil,
@@ -178,7 +139,9 @@ extension BookmarkManagerView {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            let sections = BookmarkGridSection.dateSections(from: bookmarks)
+            let sections = preservesInputOrder
+                ? BookmarkGridSection.orderedSection(from: bookmarks)
+                : BookmarkGridSection.dateSections(from: bookmarks)
             if bookmarkDisplayMode == .dateGrid {
                 BookmarkSectionGridView(
                     sections: sections,
@@ -226,6 +189,6 @@ extension BookmarkManagerView {
 
 extension Array where Element == BookmarkGridSection {
     var listSections: [BookmarkListSection] {
-        map { BookmarkListSection(title: $0.title, bookmarks: $0.bookmarks) }
+        map { BookmarkListSection(title: $0.title.isEmpty ? nil : $0.title, bookmarks: $0.bookmarks) }
     }
 }

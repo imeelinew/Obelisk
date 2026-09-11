@@ -792,6 +792,61 @@ struct FeatureRegressionTests {
     }
 
     @MainActor
+    @Test func sidebarResizeAndSelectionKeepRowsInsideViewport() throws {
+        var selection: BookmarkManagerView.SettingsPage? = .bookmarks
+        let sidebar = AppKitSettingsSidebar(
+            pages: [.bookmarks, .collections],
+            selectedPage: Binding(get: { selection }, set: { selection = $0 }),
+            badgeCount: { $0 == .bookmarks ? 176 : 5 },
+            iconTheme: .colorful,
+            iconStyle: .lucide,
+            colorfulIconSize: 22,
+            colorfulSymbolSize: 11,
+            colorfulCornerRadius: 6,
+            professionalIconSize: 15
+        )
+        let coordinator = sidebar.makeCoordinator()
+        let scrollView = coordinator.makeScrollView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 180, height: 400),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = scrollView
+        let table = try #require(scrollView.documentView as? NSTableView)
+        table.reloadData()
+
+        for width: CGFloat in [180, 280, 150, 340, 180] {
+            window.setContentSize(NSSize(width: width, height: 400))
+            scrollView.layoutSubtreeIfNeeded()
+            table.layoutSubtreeIfNeeded()
+            let columnWidthBeforeSelection = table.tableColumns[0].width
+
+            for selectedRow in [1, 0] {
+                table.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+                coordinator.reloadIfNeeded()
+                scrollView.layoutSubtreeIfNeeded()
+                table.layoutSubtreeIfNeeded()
+                #expect(abs(table.tableColumns[0].width - columnWidthBeforeSelection) < 1)
+                #expect(abs(table.frame.width - scrollView.contentView.bounds.width) < 1)
+
+                let row = try #require(table.rowView(atRow: selectedRow, makeIfNecessary: true))
+                let rowRect = row.convert(row.bounds, to: scrollView.contentView)
+                #expect(rowRect.maxX <= scrollView.contentView.bounds.maxX + 1)
+                let cell = try #require(table.view(atColumn: 0, row: selectedRow, makeIfNecessary: true))
+                cell.layoutSubtreeIfNeeded()
+                let badge = try #require(cell.subviews.compactMap { $0 as? NSTextField }
+                    .first { $0.stringValue == (selectedRow == 0 ? "176" : "5") })
+                #expect(abs(cell.bounds.maxX - badge.alignmentRect(forFrame: badge.frame).maxX - 14) < 1)
+                let badgeRect = badge.convert(badge.bounds, to: scrollView.contentView)
+                #expect(badgeRect.maxX <= scrollView.contentView.bounds.maxX)
+                #expect(scrollView.contentView.bounds.maxX - badgeRect.maxX < 40)
+            }
+        }
+    }
+
+    @MainActor
     @Test func intelligenceSidebarUsesSharedSymbol() {
         #expect(IntelligenceSymbolIcon.symbolName == "siri")
         #expect(BookmarkManagerView.SettingsPage.ai.symbolName == IntelligenceSymbolIcon.symbolName)

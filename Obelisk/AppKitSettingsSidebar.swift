@@ -67,6 +67,8 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             tableView.allowsMultipleSelection = false
             tableView.allowsEmptySelection = true
             tableView.floatsGroupRows = false
+            // AppKit accounts for source-list insets when fitting the column
+            // to the viewport, including during live sidebar resizing
             tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
 
             let column = NSTableColumn(identifier: .settingsSidebarColumn)
@@ -85,7 +87,6 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             items = nextItems
 
             guard let tableView else { return }
-            syncTableWidth()
             if rowsChanged {
                 tableView.reloadData()
             } else {
@@ -234,17 +235,6 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                 cell.applySelectionStyle(isSelected: tableView.selectedRow == row)
             }
         }
-
-        private func syncTableWidth() {
-            guard let tableView, let scrollView = tableView.enclosingScrollView else { return }
-            let width = max(scrollView.contentView.bounds.width, 100)
-            if tableView.frame.width != width {
-                tableView.frame.size.width = width
-            }
-            if let column = tableView.tableColumns.first, column.width != width {
-                column.width = width
-            }
-        }
     }
 }
 
@@ -324,7 +314,6 @@ private final class SettingsSidebarPageCell: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SettingsSidebarPageCell")
     private static let leadingInset: CGFloat = 3
     private static let trailingInset: CGFloat = 14
-    private static let sourceListSelectionRightInset: CGFloat = 24
 
     private let colorfulIconView = SettingsSidebarColorIconView()
     private let professionalIconView = NSImageView()
@@ -391,7 +380,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
 
             badgeField.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
-                constant: -(Self.sourceListSelectionRightInset + Self.trailingInset)
+                constant: -Self.trailingInset
             ),
             badgeField.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])

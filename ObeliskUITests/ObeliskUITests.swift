@@ -15,6 +15,30 @@ final class ObeliskUITests: XCTestCase {
     }
 
     @MainActor
+    func testSidebarToggleCollapsesAndRestoresSidebar() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTesting"]
+        app.launch()
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 8))
+        let toggle = window.toolbars.buttons.matching(
+            NSPredicate(format: "identifier CONTAINS[c] %@", "sidebar")
+        ).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), window.debugDescription)
+        let sidebar = window.tables.firstMatch
+        XCTAssertTrue(sidebar.exists)
+        toggle.click()
+        let collapsed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false OR hittable == false"), object: sidebar
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [collapsed], timeout: 5), .completed)
+        toggle.click()
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+        XCTAssertTrue(sidebar.isHittable)
+    }
+
+    @MainActor
     func testClosingManagerWindowKeepsMenuBarAppRunning() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uiTesting"]

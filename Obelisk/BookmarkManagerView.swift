@@ -37,6 +37,7 @@ struct BookmarkManagerView: View {
     @State var deleteConfirmation: DeleteConfirmation?
     @State var contextMenuConfirmation: ContextMenuConfirmation?
     @State var toast: Toast?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State var settingsPage: SettingsPage = .bookmarks
     @State var selectedCollectionId: UUID?
     @State var searchText = ""
@@ -1253,12 +1254,22 @@ struct BookmarkManagerView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             settingsSidebar
         } detail: {
             settingsDetail
         }
+        .toolbar(removing: .sidebarToggle)
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button("侧边栏", systemImage: "sidebar.left") {
+                    withAnimation {
+                        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                    }
+                }
+                .help("显示或隐藏侧边栏")
+                .accessibilityIdentifier("sidebarToggle")
+            }
             ToolbarSpacer(.flexible)
             settingsToolbar
         }

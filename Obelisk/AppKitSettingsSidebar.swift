@@ -184,7 +184,9 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-            SettingsSidebarRowView()
+            let view = SettingsSidebarRowView()
+            view.showsHover = self.tableView(tableView, shouldSelectRow: row)
+            return view
         }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -676,6 +678,69 @@ private final class SettingsSidebarTableView: NSTableView {
 }
 
 private final class SettingsSidebarRowView: NSTableRowView {
+    var showsHover = false
+    private var hoverTrackingArea: NSTrackingArea?
+    private var isHovered = false {
+        didSet {
+            guard isHovered != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+            self.hoverTrackingArea = nil
+        }
+        guard showsHover else {
+            isHovered = false
+            return
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+        if let window {
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            isHovered = NSApp.isActive && visibleRect.contains(point)
+        } else {
+            isHovered = false
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovered = false
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard showsHover, isHovered, !isSelected else { return }
+        drawHighlight(color: NSColor.labelColor.withAlphaComponent(0.08))
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard selectionHighlightStyle != .none else { return }
+        drawHighlight(color: .unemphasizedSelectedContentBackgroundColor)
+    }
+
+    private func drawHighlight(color: NSColor) {
+        // Both states use the same source-list margins and rounded outline.
+        let rect = bounds.insetBy(dx: 10, dy: 0)
+        color.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+    }
+
     override var isSelected: Bool {
         didSet {
             applySelectionStyleToCell()

@@ -38,7 +38,7 @@ struct BookmarkManagerView: View {
     @State var toast: Toast?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State var settingsPage: SettingsPage = .bookmarks
-    @State var selectedCollectionId: UUID?
+    @State var collectionScope: CollectionScope = .recent
     @State var searchText = ""
     @State var searchFilter: SearchFilter = .all
     @State var searchFocusRequest = 0
@@ -61,14 +61,8 @@ struct BookmarkManagerView: View {
     @AppStorage(HiddenBookmarkKeywordExclusion.storageKey) var hiddenBookmarkExcludedURLKeywordsRaw = ""
     @AppStorage(TitleOptimizationPreferences.optimizeHiddenBookmarksKey) var optimizeHiddenBookmarks = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) var aiFeaturesEnabled = true
-    @AppStorage(BookmarkListSortMode.bookmarksStorageKey) var bookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
-    @AppStorage(BookmarkListSortMode.pinnedStorageKey) var pinnedBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
-    @AppStorage(BookmarkListSortMode.collectionsStorageKey) var collectionListSortModeRaw = BookmarkListSortMode.name.rawValue
-    @AppStorage(BookmarkListSortMode.hiddenStorageKey) var hiddenBookmarkListSortModeRaw = BookmarkListSortMode.name.rawValue
     @AppStorage("bookmarkDisplayMode") var bookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
-    @AppStorage("hiddenBookmarkDisplayMode") var hiddenBookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
-    @AppStorage("collectionBookmarkDisplayMode") var collectionBookmarkDisplayModeRaw = BookmarkDisplayMode.list.rawValue
-    @AppStorage(BookmarkMenuSectionOrder.storageKey) var menuBarSectionOrderRaw = ""
+    @AppStorage("sidebarCollectionsExpanded") var sidebarCollectionsExpanded = true
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") var windowSeeThrough: Double = 0.0
     @AppStorage("customTransparencyEnabled") var customTransparencyEnabled = false
@@ -79,12 +73,6 @@ struct BookmarkManagerView: View {
     @State var renameCollectionName = ""
     @State var collectionToDelete: BookmarkCollection?
     @State var newHiddenBookmarkExcludedURLKeyword = ""
-    @State var pendingAutoIntelligenceTask: Task<Void, Never>?
-    @State var draggingMenuBarSectionID: BookmarkMenuSectionID?
-    @State var menuBarDragStartIndex: Int?
-    @State var menuBarDragTargetIndex: Int?
-    @State var menuBarDragOffsetY: CGFloat = 0
-    let menuBarOrderRowHeight: CGFloat = 50
     var menuBarOrderBackgroundColor: Color {
         switch colorScheme {
         case .dark:
@@ -136,12 +124,19 @@ struct BookmarkManagerView: View {
     enum Presentation: Identifiable {
         // `seq` is part of identity so re-issuing an add request with new
         // prefill while a stale sheet is somehow alive forces a fresh sheet.
-        case add(seq: Int, prefilledURL: String?, prefilledTitle: String?, prefilledIsHidden: Bool)
+        case add(
+            seq: Int,
+            prefilledURL: String?,
+            prefilledTitle: String?,
+            prefilledIsHidden: Bool,
+            collectionID: UUID?
+        )
         case edit(Bookmark)
 
         var id: String {
             switch self {
-            case .add(let seq, _, _, _): return "add-\(seq)"
+            case .add(let seq, _, _, _, let collectionID):
+                return "add-\(seq)-\(collectionID?.uuidString ?? "ungrouped")"
             case .edit(let bookmark): return "edit-\(bookmark.id.uuidString)"
             }
         }
@@ -150,6 +145,12 @@ struct BookmarkManagerView: View {
     enum SearchFilter: Hashable {
         case all
         case collection(UUID)
+    }
+
+    enum CollectionScope: Hashable {
+        case recent
+        case collection(UUID)
+        case ungrouped
     }
 
     enum SettingsPage: String, CaseIterable, Hashable, Identifiable {
@@ -194,7 +195,7 @@ struct BookmarkManagerView: View {
 
         var title: String {
             switch self {
-            case .bookmarks:       return "书签".obeliskLocalized
+            case .bookmarks:       return "全部".obeliskLocalized
             case .search:          return "搜索".obeliskLocalized
             case .collections:     return "分组".obeliskLocalized
             case .hiddenBookmarks: return "隐藏书签".obeliskLocalized
@@ -266,7 +267,6 @@ struct BookmarkManagerView: View {
 
     struct ContextMenuConfirmation: Identifiable {
         enum Kind {
-            case pin(isPinned: Bool)
             case hide(isHidden: Bool)
             case archive(isArchived: Bool)
             case assign(collectionId: UUID?, collectionName: String?)
@@ -278,8 +278,6 @@ struct BookmarkManagerView: View {
         var id: String {
             let idsKey = ids.map(\.uuidString).sorted().joined(separator: ",")
             switch kind {
-            case .pin(let isPinned):
-                return "pin-\(isPinned)-\(idsKey)"
             case .hide(let isHidden):
                 return "hide-\(isHidden)-\(idsKey)"
             case .archive(let isArchived):
@@ -293,8 +291,6 @@ struct BookmarkManagerView: View {
 
         var title: String {
             switch kind {
-            case .pin(let isPinned):
-                return (isPinned ? "置顶书签?" : "取消置顶?").obeliskLocalized
             case .hide(let isHidden):
                 return (isHidden ? "移到隐藏书签?" : "恢复到书签?").obeliskLocalized
             case .archive(let isArchived):
@@ -309,10 +305,6 @@ struct BookmarkManagerView: View {
 
         var confirmButtonTitle: String {
             switch kind {
-            case .pin(let isPinned):
-                return isPinned
-                    ? String(localized: "bookmark.action.pin", defaultValue: "置顶")
-                    : "取消置顶".obeliskLocalized
             case .hide(let isHidden):
                 return (isHidden ? "移到隐藏书签" : "恢复到书签").obeliskLocalized
             case .archive(let isArchived):
@@ -332,40 +324,12 @@ struct BookmarkManagerView: View {
         }
     }
 
-    var visibleBookmarks: [Bookmark] {
-        model.bookmarks.filter { !$0.isHidden && !isEffectivelyArchived($0) }
-    }
-
     var hiddenBookmarks: [Bookmark] {
-        model.bookmarks.filter { $0.isHidden && !isEffectivelyArchived($0) }
-    }
-
-    var filteredHiddenBookmarks: [Bookmark] {
-        model.sortedBookmarks(hiddenBookmarks, sortMode: hiddenBookmarkListSortMode)
+        model.hiddenBookmarksSnapshot
     }
 
     var archivedBookmarks: [Bookmark] {
-        return model.bookmarks.filter { !$0.isHidden && model.isEffectivelyArchived($0) }
-    }
-
-    var bookmarkSections: [BookmarkListSection] {
-        let pinnedSections = model.pinnedSections(
-            sortMode: pinnedBookmarkListSortMode,
-            showsSortControl: true
-        )
-        let recentBookmarks = model.recent
-        let recentSections = recentBookmarks.isEmpty ? [] : [
-            BookmarkListSection(
-                title: "最近添加 (\(recentBookmarks.count))",
-                bookmarks: recentBookmarks,
-                referenceIndicatorSystemImage: FaviconReferenceBadge.systemImageName
-            )
-        ]
-        let ungroupedSections = model.visibleUngroupedSections(
-            sortMode: bookmarkListSortMode,
-            showsSortControl: true
-        )
-        return pinnedSections + recentSections + ungroupedSections
+        model.archivedBookmarksSnapshot
     }
 
     var bookmarkDisplayMode: BookmarkDisplayMode {
@@ -384,63 +348,36 @@ struct BookmarkManagerView: View {
         )
     }
 
-    var dateGridBookmarkSections: [BookmarkGridSection] {
-        BookmarkGridSection.dateSections(from: visibleBookmarks)
-    }
-
-    var hiddenBookmarkDisplayMode: BookmarkDisplayMode {
-        get {
-            BookmarkDisplayMode(rawValue: hiddenBookmarkDisplayModeRaw) ?? .list
-        }
-        nonmutating set {
-            hiddenBookmarkDisplayModeRaw = newValue.rawValue
+    var currentCollectionScopeBookmarks: [Bookmark] {
+        switch collectionScope {
+        case .recent:
+            return model.recent
+        case .collection(let id):
+            return model.bookmarks(in: id)
+        case .ungrouped:
+            return model.visibleUngroupedBookmarks
         }
     }
 
-    var hiddenBookmarkDisplayModeBinding: Binding<BookmarkDisplayMode> {
-        Binding(
-            get: { hiddenBookmarkDisplayMode },
-            set: { hiddenBookmarkDisplayMode = $0 }
-        )
-    }
-
-    var hiddenBookmarkDateGridSections: [BookmarkGridSection] {
-        BookmarkGridSection.dateSections(from: hiddenBookmarks)
-    }
-
-    var collectionBookmarkSections: [BookmarkListSection] {
-        model.visibleCollectionSections(
-            sortMode: collectionListSortMode,
-            includeEmptyCollections: true,
-            showsSortControlOnFirstSection: true
-        )
-    }
-
-    var collectionBookmarkDisplayMode: BookmarkDisplayMode {
-        get {
-            BookmarkDisplayMode(rawValue: collectionBookmarkDisplayModeRaw) ?? .list
-        }
-        nonmutating set {
-            collectionBookmarkDisplayModeRaw = newValue.rawValue
+    var currentCollectionScopeTitle: String {
+        switch collectionScope {
+        case .recent:
+            return "最近添加".obeliskLocalized
+        case .collection(let id):
+            return model.collections.first(where: { $0.id == id })?.name ?? "分组".obeliskLocalized
+        case .ungrouped:
+            return "未分组".obeliskLocalized
         }
     }
 
-    var collectionBookmarkDisplayModeBinding: Binding<BookmarkDisplayMode> {
-        Binding(
-            get: { collectionBookmarkDisplayMode },
-            set: { collectionBookmarkDisplayMode = $0 }
-        )
-    }
-
-    var collectionGridSections: [BookmarkGridSection] {
-        collectionBookmarkSections.map { section in
-            BookmarkGridSection(
-                id: section.id,
-                title: section.title ?? "分组".obeliskLocalized,
-                subtitle: bookmarkCountSubtitle(section.bookmarks.count),
-                bookmarks: section.bookmarks,
-                collectionId: section.collectionId
-            )
+    var currentCollectionScopeEmptyTitle: String {
+        switch collectionScope {
+        case .recent:
+            return "还没有最近添加的书签".obeliskLocalized
+        case .collection:
+            return "这个分组还没有书签".obeliskLocalized
+        case .ungrouped:
+            return "没有未分组的书签".obeliskLocalized
         }
     }
 
@@ -484,15 +421,6 @@ struct BookmarkManagerView: View {
         model.searchBookmarks(matching: searchText, inCollection: effectiveSearchCollectionId)
     }
 
-    var searchBookmarkSections: [BookmarkListSection] {
-        model.bookmarkLibrarySections(
-            for: searchableBookmarks,
-            pinnedSortMode: pinnedBookmarkListSortMode,
-            collectionSortMode: collectionListSortMode,
-            ungroupedSortMode: bookmarkListSortMode
-        )
-    }
-
     var collectionAssignOptions: [BookmarkCollectionAssignOption] {
         var options = model.collections.map {
             BookmarkCollectionAssignOption(title: $0.name, collectionId: $0.id)
@@ -501,197 +429,8 @@ struct BookmarkManagerView: View {
         return options
     }
 
-    var menuBarOrderItems: [BookmarkMenuOrderItem] {
-        BookmarkMenuSectionOrder.items(
-            collections: model.collections,
-            rawValue: menuBarSectionOrderRaw
-        )
-    }
-
-    func saveMenuBarSectionOrder(_ ids: [BookmarkMenuSectionID]) {
-        let encodedOrder = BookmarkMenuSectionOrder.encoded(ids)
-        guard encodedOrder != menuBarSectionOrderRaw else { return }
-        menuBarSectionOrderRaw = encodedOrder
-        model.notifyMenuPresentationChanged()
-    }
-
-    @available(macOS 27.0, *)
-    func moveMenuBarSections(
-        using difference: ReorderDifference<BookmarkMenuSectionID, ReorderableSingleCollectionIdentifier>
-    ) {
-        let destinationID: BookmarkMenuSectionID?
-        switch difference.destination.position {
-        case .before(let id):
-            destinationID = id
-        case .end:
-            destinationID = nil
-        }
-
-        let currentOrder = menuBarOrderItems.map(\.id)
-        let updatedOrder = BookmarkMenuSectionOrder.moving(
-            difference.sources,
-            before: destinationID,
-            in: currentOrder
-        )
-        saveMenuBarSectionOrder(updatedOrder)
-    }
-
-    func moveMenuBarSection(draggedID: BookmarkMenuSectionID, toIndex targetIndex: Int) {
-        var ids = menuBarOrderItems.map(\.id)
-        guard
-            let sourceIndex = ids.firstIndex(of: draggedID),
-            !ids.isEmpty
-        else {
-            return
-        }
-
-        let destinationIndex = min(max(targetIndex, 0), ids.count - 1)
-        guard sourceIndex != destinationIndex else { return }
-
-        let movedID = ids.remove(at: sourceIndex)
-        ids.insert(movedID, at: destinationIndex)
-        saveMenuBarSectionOrder(ids)
-    }
-
-    func menuBarOrderTargetIndex(
-        startIndex: Int,
-        translationY: CGFloat,
-        itemCount: Int
-    ) -> Int {
-        guard itemCount > 0 else { return 0 }
-        let proposedIndex = CGFloat(startIndex) + translationY / menuBarOrderRowHeight
-        return min(max(Int(proposedIndex.rounded()), 0), itemCount - 1)
-    }
-
-    func stableMenuBarOrderTargetIndex(
-        startIndex: Int,
-        translationY: CGFloat,
-        itemCount: Int
-    ) -> Int {
-        let proposedTargetIndex = menuBarOrderTargetIndex(
-            startIndex: startIndex,
-            translationY: translationY,
-            itemCount: itemCount
-        )
-        let currentTargetIndex = menuBarDragTargetIndex ?? startIndex
-        guard proposedTargetIndex != currentTargetIndex else {
-            return proposedTargetIndex
-        }
-
-        let currentTargetTranslation = CGFloat(currentTargetIndex - startIndex) * menuBarOrderRowHeight
-        let distanceFromCurrentTarget = abs(translationY - currentTargetTranslation)
-        guard distanceFromCurrentTarget >= menuBarOrderRowHeight * 0.62 else {
-            return currentTargetIndex
-        }
-        return proposedTargetIndex
-    }
-
-    func resetMenuBarOrderDrag() {
-        draggingMenuBarSectionID = nil
-        menuBarDragStartIndex = nil
-        menuBarDragTargetIndex = nil
-        menuBarDragOffsetY = 0
-    }
-
-    func menuBarOrderRowOffset(for index: Int, itemID: BookmarkMenuSectionID) -> CGFloat {
-        guard
-            let draggingMenuBarSectionID,
-            let targetIndex = menuBarDragTargetIndex,
-            let sourceIndex = menuBarDragStartIndex,
-            draggingMenuBarSectionID != itemID
-        else {
-            return 0
-        }
-
-        if sourceIndex < targetIndex,
-           index > sourceIndex,
-           index <= targetIndex {
-            return -menuBarOrderRowHeight
-        }
-        if targetIndex < sourceIndex,
-           index >= targetIndex,
-           index < sourceIndex {
-            return menuBarOrderRowHeight
-        }
-        return 0
-    }
-
-    var hiddenBookmarkSections: [BookmarkListSection] {
-        let bookmarks = filteredHiddenBookmarks
-        return bookmarks.isEmpty ? [] : [BookmarkListSection(title: nil, bookmarks: bookmarks)]
-    }
-
-    var archivedBookmarkSections: [BookmarkListSection] {
-        let bookmarks = archivedBookmarks
-        return bookmarks.isEmpty ? [] : [BookmarkListSection(title: "归档书签", bookmarks: bookmarks)]
-    }
-
     func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
         model.isEffectivelyArchived(bookmark)
-    }
-
-    var bookmarkListSortMode: BookmarkListSortMode {
-        get {
-            BookmarkListSortMode(rawValue: bookmarkListSortModeRaw) ?? .name
-        }
-        nonmutating set {
-            bookmarkListSortModeRaw = newValue.rawValue
-            model.notifyMenuPresentationChanged()
-        }
-    }
-
-    var pinnedBookmarkListSortMode: BookmarkListSortMode {
-        get {
-            BookmarkListSortMode(rawValue: pinnedBookmarkListSortModeRaw) ?? .name
-        }
-        nonmutating set {
-            pinnedBookmarkListSortModeRaw = newValue.rawValue
-            model.notifyMenuPresentationChanged()
-        }
-    }
-
-    func updateBookmarkListSortMode(_ sortMode: BookmarkListSortMode, scope: BookmarkListSortScope?) {
-        switch scope {
-        case .pinned:
-            pinnedBookmarkListSortMode = sortMode
-        case .ungrouped:
-            bookmarkListSortMode = sortMode
-        case nil:
-            bookmarkListSortMode = sortMode
-        }
-    }
-
-    var bookmarkListSortModeBinding: Binding<BookmarkListSortMode> {
-        Binding(
-            get: { bookmarkListSortMode },
-            set: { bookmarkListSortMode = $0 }
-        )
-    }
-
-    var collectionListSortMode: BookmarkListSortMode {
-        get {
-            BookmarkListSortMode(rawValue: collectionListSortModeRaw) ?? .name
-        }
-        nonmutating set {
-            collectionListSortModeRaw = newValue.rawValue
-            model.notifyMenuPresentationChanged()
-        }
-    }
-
-    var hiddenBookmarkListSortMode: BookmarkListSortMode {
-        get {
-            BookmarkListSortMode(rawValue: hiddenBookmarkListSortModeRaw) ?? .name
-        }
-        nonmutating set {
-            hiddenBookmarkListSortModeRaw = newValue.rawValue
-        }
-    }
-
-    var hiddenBookmarkListSortModeBinding: Binding<BookmarkListSortMode> {
-        Binding(
-            get: { hiddenBookmarkListSortMode },
-            set: { hiddenBookmarkListSortMode = $0 }
-        )
     }
 
     func consumePendingAddRequestIfNeeded() {
@@ -700,7 +439,8 @@ struct BookmarkManagerView: View {
             seq: request.seq,
             prefilledURL: request.url,
             prefilledTitle: request.title,
-            prefilledIsHidden: request.isHidden
+            prefilledIsHidden: request.isHidden,
+            collectionID: nil
         )
     }
 
@@ -709,11 +449,6 @@ struct BookmarkManagerView: View {
             return nil
         }
         return model.bookmarks.first { $0.id == id }
-    }
-
-    var selectedCollection: BookmarkCollection? {
-        guard let selectedCollectionId, selection.isEmpty else { return nil }
-        return model.collections.first { $0.id == selectedCollectionId }
     }
 
     var canDeleteSelection: Bool {
@@ -728,28 +463,8 @@ struct BookmarkManagerView: View {
         model.bookmarks.filter { selection.contains($0.id) }
     }
 
-    var canTogglePinnedSelection: Bool {
-        !selectedBookmarks.isEmpty
-    }
-
-    var selectedPinnedTargetState: Bool {
-        selectedBookmarks.isEmpty || !selectedBookmarks.allSatisfy(\.isPinned)
-    }
-
-    var selectedPinnedSystemImage: String {
-        selectedPinnedTargetState ? "pin" : "pin.slash"
-    }
-
     var hiddenBookmarkExcludedURLKeywords: [String] {
         HiddenBookmarkKeywordExclusion.keywords(from: hiddenBookmarkExcludedURLKeywordsRaw)
-    }
-
-    var canDeleteCollectionPageSelection: Bool {
-        !selection.isEmpty || selectedCollection != nil
-    }
-
-    var canEditCollectionPageSelection: Bool {
-        selectedBookmark != nil || selectedCollection != nil
     }
 
     func requestDelete(ids: Set<Bookmark.ID>) {
@@ -760,13 +475,6 @@ struct BookmarkManagerView: View {
     func confirmDelete(_ confirmation: DeleteConfirmation) {
         model.delete(ids: confirmation.ids)
         selection.subtract(confirmation.ids)
-    }
-
-    func requestPinFromContextMenu(ids: Set<Bookmark.ID>) {
-        let bookmarks = model.bookmarks.filter { ids.contains($0.id) }
-        guard !bookmarks.isEmpty else { return }
-        let isPinned = !bookmarks.allSatisfy(\.isPinned)
-        contextMenuConfirmation = ContextMenuConfirmation(ids: ids, kind: .pin(isPinned: isPinned))
     }
 
     func requestHiddenFromContextMenu(ids: Set<Bookmark.ID>, isHidden: Bool) {
@@ -792,40 +500,12 @@ struct BookmarkManagerView: View {
 
     func confirmContextMenuAction(_ confirmation: ContextMenuConfirmation) {
         switch confirmation.kind {
-        case .pin(let isPinned):
-            setPinned(isPinned, for: confirmation.ids)
         case .hide(let isHidden):
             setHidden(isHidden, for: confirmation.ids, showsToast: true)
         case .archive(let isArchived):
             setArchived(isArchived, for: confirmation.ids, showsToast: true)
         case .assign(let collectionId, _):
             assignCollection(bookmarkIds: confirmation.ids, collectionId: collectionId)
-        }
-    }
-
-    func requestDeleteSelectedCollection() {
-        guard let selectedCollection else { return }
-        beginDeleteCollection(id: selectedCollection.id)
-    }
-
-    func requestRenameSelectedCollection() {
-        guard let selectedCollection else { return }
-        beginRenameCollection(id: selectedCollection.id)
-    }
-
-    func requestDeleteCollectionPageSelection() {
-        if !selection.isEmpty {
-            requestDelete(ids: selection)
-        } else {
-            requestDeleteSelectedCollection()
-        }
-    }
-
-    func requestEditCollectionPageSelection() {
-        if let bookmark = selectedBookmark {
-            presentation = .edit(bookmark)
-        } else {
-            requestRenameSelectedCollection()
         }
     }
 
@@ -878,32 +558,6 @@ struct BookmarkManagerView: View {
                 }
             }
         }
-    }
-
-    func setPinned(_ isPinned: Bool, for bookmark: Bookmark) {
-        setPinned(isPinned, for: [bookmark.id])
-    }
-
-    func setPinned(_ isPinned: Bool, for ids: Set<Bookmark.ID>) {
-        guard !ids.isEmpty else { return }
-        if let errorMessage = model.setPinned(isPinned, for: ids) {
-            model.errorMessage = errorMessage
-        } else if isPinned {
-            showToast(ids.count > 1 ? "已置顶 \(ids.count) 个书签" : "已置顶")
-        } else {
-            showToast(ids.count > 1 ? "已取消置顶 \(ids.count) 个书签" : "已取消置顶")
-        }
-    }
-
-    func setPinned(for ids: Set<Bookmark.ID>) {
-        let bookmarks = model.bookmarks.filter { ids.contains($0.id) }
-        guard !bookmarks.isEmpty else { return }
-        setPinned(!bookmarks.allSatisfy(\.isPinned), for: ids)
-    }
-
-    func togglePinnedSelection() {
-        guard canTogglePinnedSelection else { return }
-        setPinned(for: selection)
     }
 
     func openArchivedBookmark(_ bookmark: Bookmark) {
@@ -1028,7 +682,9 @@ struct BookmarkManagerView: View {
             showToast(error, kind: .error)
         } else {
             collectionToDelete = nil
-            selectedCollectionId = nil
+            if collectionScope == .collection(collection.id) {
+                collectionScope = .recent
+            }
             showToast("已删除分组")
         }
     }
@@ -1119,53 +775,22 @@ struct BookmarkManagerView: View {
         )
     }
 
-    var optimizableTitleCountInScope: Int {
-        let scope = selection.isEmpty ? nil : selection
-        return model.bookmarks.filter { bookmark in
-            (scope?.contains(bookmark.id) ?? true)
-                && !bookmark.titleOptimized
-                && TitleOptimizationPreferences.allowsOptimization(for: bookmark)
-        }.count
-    }
-
-    var autoGroupableBookmarkCountInScope: Int {
-        let scope = selection.isEmpty ? nil : selection
-        return model.bookmarks.filter { bookmark in
-            if let scope, !scope.contains(bookmark.id) {
-                return false
-            }
-            return !bookmark.isHidden
-                && !bookmark.isPinned
-                && !model.isEffectivelyArchived(bookmark)
-                && model.collectionId(for: bookmark.id) == nil
-        }.count
-    }
-
-    func optimizeBookmarks(includeAutoGrouping: Bool) {
+    func runAutoIntelligenceForNewBookmark(_ bookmark: Bookmark) {
+        guard aiFeaturesEnabled,
+              TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark) else { return }
         Task {
-            let outcome = await model.optimizeBookmarks(
-                bookmarkIds: selection,
-                options: BookmarkIntelligenceOptimizationOptions(
-                    optimizeTitles: true,
-                    autoGroup: includeAutoGrouping
-                )
-            )
+            let outcome = await model.enqueueTitleOptimization(bookmarkIds: [bookmark.id])
             showToast(outcome.summary, kind: outcome.didChange ? .success : .error)
         }
     }
 
-    func runAutoIntelligenceForNewBookmark(_ bookmark: Bookmark) {
-        guard aiFeaturesEnabled else { return }
-
-        let options = BookmarkIntelligenceOptimizationOptions.automatic(for: bookmark)
-        guard options.optimizeTitles || options.autoGroup else { return }
-
-        pendingAutoIntelligenceTask?.cancel()
-        pendingAutoIntelligenceTask = Task {
-            let outcome = await model.optimizeBookmarks(
-                bookmarkIds: [bookmark.id],
-                options: options
-            )
+    func retryTitleOptimization(bookmarkIds: Set<Bookmark.ID>) {
+        let failedIDs = Set(model.bookmarks.lazy.filter {
+            bookmarkIds.contains($0.id) && $0.titleOptimizationState == .failed
+        }.map(\.id))
+        guard !failedIDs.isEmpty else { return }
+        Task {
+            let outcome = await model.enqueueTitleOptimization(bookmarkIds: failedIDs)
             showToast(outcome.summary, kind: outcome.didChange ? .success : .error)
         }
     }
@@ -1285,13 +910,14 @@ struct BookmarkManagerView: View {
         }
         .sheet(item: $presentation) { kind in
             switch kind {
-            case .add(_, let prefilledURL, let prefilledTitle, let prefilledIsHidden):
+            case .add(_, let prefilledURL, let prefilledTitle, let prefilledIsHidden, let collectionID):
                 BookmarkEditor(
                     mode: .add,
                     model: model,
                     prefilledURL: prefilledURL,
                     prefilledTitle: prefilledTitle,
                     prefilledIsHidden: prefilledIsHidden,
+                    initialCollectionID: collectionID,
                     onBookmarkAdded: { bookmark in
                         runAutoIntelligenceForNewBookmark(bookmark)
                     }
@@ -1316,7 +942,6 @@ struct BookmarkManagerView: View {
             consumePendingAddRequestIfNeeded()
         }
         .onChange(of: settingsPage) { _, selectedPage in
-            selectedCollectionId = nil
             searchFocusRequest = SearchFocusRequestResolver.resolve(
                 current: searchFocusRequest,
                 selectedPage: selectedPage
@@ -1421,7 +1046,22 @@ struct BookmarkManagerView: View {
         AppKitSettingsSidebar(
             pages: visibleSettingsPages,
             selectedPage: settingsPageBinding,
+            collections: model.collections,
+            selectedCollectionScope: $collectionScope,
+            collectionsExpanded: $sidebarCollectionsExpanded,
             badgeCount: sidebarBadgeCount(for:),
+            collectionScopeBadgeCount: sidebarBadgeCount(for:),
+            onCreateCollection: {
+                newCollectionName = ""
+                showNewCollectionDialog = true
+            },
+            onRenameCollection: beginRenameCollection,
+            onDeleteCollection: beginDeleteCollection,
+            onReorderCollections: { ids in
+                if let error = model.reorderCollections(ids) {
+                    showToast(error, kind: .error)
+                }
+            },
             iconTheme: sidebarIconTheme,
             iconStyle: sidebarIconStyle,
             colorfulIconSize: sidebarIconTileSize,
@@ -1430,6 +1070,17 @@ struct BookmarkManagerView: View {
             professionalIconSize: professionalSidebarIconSize
         )
         .navigationSplitViewColumnWidth(min: 150, ideal: 180)
+    }
+
+    func sidebarBadgeCount(for scope: CollectionScope) -> Int? {
+        switch scope {
+        case .recent:
+            return model.recent.count
+        case .collection(let id):
+            return model.bookmarks(in: id).count
+        case .ungrouped:
+            return model.visibleUngroupedBookmarks.count
+        }
     }
 
     var visibleSettingsPages: [SettingsPage] {
@@ -1441,7 +1092,7 @@ struct BookmarkManagerView: View {
     func sidebarBadgeCount(for page: SettingsPage) -> Int? {
         switch page {
         case .bookmarks:
-            return visibleBookmarks.count
+            return model.visibleBookmarksSnapshot.count
         case .search:
             return nil
         case .collections:
@@ -1454,18 +1105,6 @@ struct BookmarkManagerView: View {
         default:
             return nil
         }
-    }
-
-    var hiddenBookmarkSortMenu: some View {
-        sortMenu(selection: hiddenBookmarkListSortModeBinding)
-    }
-
-    func sortMenu(selection: Binding<BookmarkListSortMode>) -> some View {
-        CompactBorderedMenuPicker(
-            options: Array(BookmarkListSortMode.allCases),
-            selection: selection,
-            title: { $0.title }
-        )
     }
 
     @ViewBuilder

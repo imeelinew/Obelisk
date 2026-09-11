@@ -14,12 +14,19 @@ it("removes populated history while preserving rows and cursor continuity", asyn
     env.DB.prepare("INSERT INTO browser_history_tombstones VALUES ('removed', 'deleted', 100)"),
     env.DB.prepare("UPDATE sync_meta SET seq = 100 WHERE id = 1"),
   ]);
-  const tables = ["bookmarks", "collections", "usage_events", "sync_meta"];
-  const before = await env.DB.batch(tables.map((table) => env.DB.prepare(`SELECT * FROM ${table}`)));
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
-  const after = await env.DB.batch(tables.map((table) => env.DB.prepare(`SELECT * FROM ${table}`)));
-  expect(after.map((result) => result.results)).toEqual(before.map((result) => result.results));
+  const bookmark = await env.DB.prepare("SELECT * FROM bookmarks").first<Record<string, unknown>>();
+  expect(bookmark?.title).toBe("Kept");
+  expect(bookmark?.title_optimization_state).toBe("not_attempted");
+  expect(bookmark).not.toHaveProperty("is_pinned");
+  expect(bookmark).not.toHaveProperty("title_optimized");
+  const collection = await env.DB.prepare("SELECT * FROM collections").first<Record<string, unknown>>();
+  expect(collection?.name).toBe("Reading");
+  expect(collection).not.toHaveProperty("show_in_menu");
+  expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM usage_events").first<{ count: number }>())?.count).toBe(1);
+  const migratedCursor = (await env.DB.prepare("SELECT seq FROM sync_meta WHERE id = 1").first<{ seq: number }>())?.seq ?? 0;
+  expect(migratedCursor).toBeGreaterThan(100);
   const leftovers = await env.DB.prepare("SELECT name FROM sqlite_master WHERE name GLOB 'browser_history*'").all();
   expect(leftovers.results).toEqual([]);
 
@@ -27,8 +34,8 @@ it("removes populated history while preserving rows and cursor continuity", asyn
     const response = await handleChanges(new Request(`https://test/v1/changes?since=${since}`), env.DB);
     return response.json() as Promise<Record<string, any>>;
   };
-  const empty = await feed(100);
-  expect(empty).toEqual({ cursor: 100, hasMore: false, bookmarks: [], collections: [], usageEvents: [] });
+  const empty = await feed(migratedCursor);
+  expect(empty).toEqual({ cursor: migratedCursor, hasMore: false, bookmarks: [], collections: [], usageEvents: [] });
   expect((await feed(0)).bookmarks).toHaveLength(1);
 
   const response = await handlePush(new Request("https://test/v1/push", {
@@ -52,20 +59,22 @@ it("removes populated history while preserving rows and cursor continuity", asyn
   await env.DB.batch([
     env.DB.prepare(`
       WITH RECURSIVE numbers(n) AS (
-        SELECT 102 UNION ALL SELECT n + 1 FROM numbers WHERE n < 1102
+        SELECT 103 UNION ALL SELECT n + 1 FROM numbers WHERE n < 1103
       )
-      INSERT INTO collections
-      SELECT 'page-' || n, 'Reading', CAST(n AS TEXT), 1, '{}', 'created', 'updated', NULL, n
+      INSERT INTO collections (
+        id, name, position_key, field_versions, created_at, updated_at, deleted_at, seq
+      )
+      SELECT 'page-' || n, 'Reading', CAST(n AS TEXT), '{}', 'created', 'updated', NULL, n
       FROM numbers
     `),
-    env.DB.prepare("UPDATE sync_meta SET seq = 1102 WHERE id = 1"),
+    env.DB.prepare("UPDATE sync_meta SET seq = 1103 WHERE id = 1"),
   ]);
-  const firstPage = await feed(100);
+  const firstPage = await feed(migratedCursor);
   expect(firstPage.hasMore).toBe(true);
-  expect(firstPage.cursor).toBe(1101);
+  expect(firstPage.cursor).toBe(1102);
   expect(firstPage.collections).toHaveLength(1000);
   const lastPage = await feed(firstPage.cursor);
   expect(lastPage.hasMore).toBe(false);
-  expect(lastPage.cursor).toBe(1102);
-  expect(lastPage.collections.map((row: { id: string }) => row.id)).toEqual(["page-1102"]);
+  expect(lastPage.cursor).toBe(1103);
+  expect(lastPage.collections.map((row: { id: string }) => row.id)).toEqual(["page-1103"]);
 });

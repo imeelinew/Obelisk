@@ -23,6 +23,7 @@ final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
     private var statusBarButton: NSStatusBarButton? {
         (statusItem.view as? NSStatusBarButton) ?? statusItem.button
     }
+    var feedbackAnchorView: NSView? { statusBarButton }
     private let bookmarksModel: BookmarksModel
     private let faviconLoader: FaviconLoader
     private var statusMenu: NSMenu?
@@ -63,8 +64,7 @@ final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
         menu.delegate = self
 
-        let sectionOrder = BookmarkMenuSectionOrder.order(collections: bookmarksModel.collections)
-        let renderSections = bookmarksModel.menuSections().renderSections(order: sectionOrder)
+        let renderSections = bookmarksModel.menuRenderSections()
 
         if let error = bookmarksModel.loadErrorMessage {
             let errorItem = NSMenuItem(title: "读取失败: \(error)", action: nil, keyEquivalent: "")
@@ -83,7 +83,7 @@ final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
         } else {
             for section in renderSections {
                 switch section.presentation {
-                case .inline, .reference:
+                case .inline:
                     appendSection(title: section.title, bookmarks: section.bookmarks, to: menu)
                 case .submenu:
                     appendBookmarkSubmenu(title: section.title, bookmarks: section.bookmarks, to: menu)

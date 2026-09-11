@@ -51,8 +51,8 @@ public final class ObeliskDatabase: @unchecked Sendable {
             let bookmarkRows = try Row.fetchAll(
                 database,
                 sql: """
-                SELECT id, collection_id, title, url, title_optimized, is_hidden,
-                       archived_at, is_pinned, original_title, created_at
+                SELECT id, collection_id, title, url, title_optimization_state, is_hidden,
+                       archived_at, original_title, created_at
                 FROM bookmarks
                 WHERE deleted_at IS NULL
                 ORDER BY position_key, id
@@ -61,7 +61,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
             let collectionRows = try Row.fetchAll(
                 database,
                 sql: """
-                SELECT id, name, position_key, show_in_menu
+                SELECT id, name, position_key
                 FROM collections
                 WHERE deleted_at IS NULL
                 ORDER BY position_key, id
@@ -175,8 +175,8 @@ public final class ObeliskDatabase: @unchecked Sendable {
             let current = try Row.fetchOne(
                 database,
                 sql: """
-                SELECT collection_id, title, url, title_optimized, is_hidden,
-                       archived_at, is_pinned, original_title, position_key,
+                SELECT collection_id, title, url, title_optimization_state, is_hidden,
+                       archived_at, original_title, position_key,
                        field_versions, deleted_at
                 FROM bookmarks
                 WHERE id = ?
@@ -192,18 +192,24 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 Self.markChange("collection_id", current["collection_id"] as String?, collection, timestamp, &versions, &changed)
                 Self.markChange("title", current["title"] as String, bookmark.title, timestamp, &versions, &changed)
                 Self.markChange("url", current["url"] as String, bookmark.url, timestamp, &versions, &changed)
-                Self.markChange("title_optimized", current["title_optimized"] as Bool, bookmark.titleOptimized, timestamp, &versions, &changed)
+                Self.markChange(
+                    "title_optimization_state",
+                    current["title_optimization_state"] as String,
+                    bookmark.titleOptimizationState.rawValue,
+                    timestamp,
+                    &versions,
+                    &changed
+                )
                 Self.markChange("is_hidden", current["is_hidden"] as Bool, bookmark.isHidden, timestamp, &versions, &changed)
                 Self.markChange("archived_at", current["archived_at"] as String?, archived, timestamp, &versions, &changed)
-                Self.markChange("is_pinned", current["is_pinned"] as Bool, bookmark.isPinned, timestamp, &versions, &changed)
                 Self.markChange("original_title", current["original_title"] as String?, bookmark.originalTitle, timestamp, &versions, &changed)
                 Self.markChange("deleted_at", current["deleted_at"] as String?, nil as String?, timestamp, &versions, &changed)
                 guard changed else { return }
                 try database.execute(
                     sql: """
                     UPDATE bookmarks SET
-                        collection_id = ?, title = ?, url = ?, title_optimized = ?,
-                        is_hidden = ?, archived_at = ?, is_pinned = ?, original_title = ?,
+                        collection_id = ?, title = ?, url = ?, title_optimization_state = ?,
+                        is_hidden = ?, archived_at = ?, original_title = ?,
                         field_versions = ?, updated_at = ?, deleted_at = NULL
                     WHERE id = ?
                     """,
@@ -211,10 +217,9 @@ public final class ObeliskDatabase: @unchecked Sendable {
                         collection,
                         bookmark.title,
                         bookmark.url,
-                        bookmark.titleOptimized,
+                        bookmark.titleOptimizationState.rawValue,
                         bookmark.isHidden,
                         archived,
-                        bookmark.isPinned,
                         bookmark.originalTitle,
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
@@ -225,27 +230,26 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 let timestamp = try self.nextTimestamp(database, now: now)
                 let position = Self.bookmarkPosition(bookmark)
                 let versionedFields = [
-                    "collection_id", "title", "url", "title_optimized", "is_hidden",
-                    "archived_at", "is_pinned", "original_title", "position_key", "deleted_at",
+                    "collection_id", "title", "url", "title_optimization_state", "is_hidden",
+                    "archived_at", "original_title", "position_key", "deleted_at",
                 ]
                 let versions = Dictionary(uniqueKeysWithValues: versionedFields.map { ($0, timestamp) })
                 try database.execute(
                     sql: """
                     INSERT INTO bookmarks (
-                        id, collection_id, title, url, title_optimized,
-                        is_hidden, archived_at, is_pinned, original_title,
+                        id, collection_id, title, url, title_optimization_state,
+                        is_hidden, archived_at, original_title,
                         position_key, field_versions, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     arguments: [
                         id,
                         collectionID?.uuidString.lowercased(),
                         bookmark.title,
                         bookmark.url,
-                        bookmark.titleOptimized,
+                        bookmark.titleOptimizationState.rawValue,
                         bookmark.isHidden,
                         bookmark.archivedAt.map(Self.encodeDate),
-                        bookmark.isPinned,
                         bookmark.originalTitle,
                         position,
                         try Self.encodeVersions(versions),
@@ -265,7 +269,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
             let current = try Row.fetchOne(
                 database,
                 sql: """
-                SELECT name, position_key, show_in_menu, field_versions, deleted_at
+                SELECT name, position_key, field_versions, deleted_at
                 FROM collections
                 WHERE id = ?
                 """,
@@ -278,20 +282,18 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 var changed = false
                 Self.markChange("name", current["name"] as String, collection.name, timestamp, &versions, &changed)
                 Self.markChange("position_key", current["position_key"] as String, position, timestamp, &versions, &changed)
-                Self.markChange("show_in_menu", current["show_in_menu"] as Bool, collection.showInMenu, timestamp, &versions, &changed)
                 Self.markChange("deleted_at", current["deleted_at"] as String?, nil as String?, timestamp, &versions, &changed)
                 guard changed else { return }
                 try database.execute(
                     sql: """
                     UPDATE collections SET
-                        name = ?, position_key = ?, show_in_menu = ?,
+                        name = ?, position_key = ?,
                         field_versions = ?, updated_at = ?, deleted_at = NULL
                     WHERE id = ?
                     """,
                     arguments: [
                         collection.name,
                         position,
-                        collection.showInMenu,
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
                         id,
@@ -299,20 +301,19 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 )
             } else {
                 let timestamp = try self.nextTimestamp(database, now: now)
-                let versionedFields = ["name", "position_key", "show_in_menu", "deleted_at"]
+                let versionedFields = ["name", "position_key", "deleted_at"]
                 let versions = Dictionary(uniqueKeysWithValues: versionedFields.map { ($0, timestamp) })
                 try database.execute(
                     sql: """
                     INSERT INTO collections (
-                        id, name, position_key, show_in_menu,
+                        id, name, position_key,
                         field_versions, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                    ) VALUES (?, ?, ?, ?, ?, ?, NULL)
                     """,
                     arguments: [
                         id,
                         collection.name,
                         position,
-                        collection.showInMenu,
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
                         Self.encodeDate(now),
@@ -320,6 +321,42 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 )
             }
             try Self.enqueueOutbox(database, table: "collections", rowID: id, now: now)
+        }
+    }
+
+    public func reorderCollections(_ orderedIDs: [UUID]) throws {
+        let now = Date()
+        try pool.write { database in
+            let activeIDs = try String.fetchAll(
+                database,
+                sql: "SELECT id FROM collections WHERE deleted_at IS NULL ORDER BY position_key, id"
+            )
+            let normalizedIDs = orderedIDs.map { $0.uuidString.lowercased() }
+            guard Set(activeIDs) == Set(normalizedIDs), activeIDs.count == normalizedIDs.count else {
+                throw ObeliskDatabaseError.invalidRow("collections")
+            }
+            for (index, id) in normalizedIDs.enumerated() {
+                guard let row = try Row.fetchOne(
+                    database,
+                    sql: "SELECT position_key, field_versions FROM collections WHERE id = ?",
+                    arguments: [id]
+                ) else { continue }
+                let position = Self.collectionPosition(index)
+                let currentPosition: String = row["position_key"]
+                guard currentPosition != position else { continue }
+                var versions = try Self.decodeVersions(row["field_versions"])
+                let timestamp = try self.nextTimestamp(database, observing: Array(versions.values), now: now)
+                versions["position_key"] = timestamp
+                try database.execute(
+                    sql: """
+                    UPDATE collections
+                    SET position_key = ?, field_versions = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    arguments: [position, try Self.encodeVersions(versions), Self.encodeDate(now), id]
+                )
+                try Self.enqueueOutbox(database, table: "collections", rowID: id, now: now)
+            }
         }
     }
 
@@ -334,11 +371,10 @@ public final class ObeliskDatabase: @unchecked Sendable {
             var versions = try Self.decodeVersions(rawVersions)
             let timestamp = try self.nextTimestamp(database, observing: Array(versions.values), now: date)
             versions["deleted_at"] = timestamp
-            versions["is_pinned"] = timestamp
             try database.execute(
                 sql: """
                 UPDATE bookmarks
-                SET deleted_at = ?, updated_at = ?, is_pinned = 0, field_versions = ?
+                SET deleted_at = ?, updated_at = ?, field_versions = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 arguments: [
@@ -534,8 +570,8 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     table: "bookmarks",
                     id: entry.rowID,
                     fields: [
-                        "collection_id", "title", "url", "title_optimized", "is_hidden",
-                        "archived_at", "is_pinned", "original_title", "position_key", "deleted_at",
+                        "collection_id", "title", "url", "title_optimization_state", "is_hidden",
+                        "archived_at", "original_title", "position_key", "deleted_at",
                     ]
                 )
             case "collections":
@@ -543,7 +579,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     database,
                     table: "collections",
                     id: entry.rowID,
-                    fields: ["name", "position_key", "show_in_menu", "deleted_at"]
+                    fields: ["name", "position_key", "deleted_at"]
                 )
             case "usage_events":
                 guard let row = try Row.fetchOne(
@@ -672,7 +708,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 try Self.applyRemoteVersionedRow(
                     database,
                     table: "collections",
-                    fields: ["name", "position_key", "show_in_menu", "deleted_at"],
+                    fields: ["name", "position_key", "deleted_at"],
                     row: row
                 )
             }
@@ -681,8 +717,8 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     database,
                     table: "bookmarks",
                     fields: [
-                        "collection_id", "title", "url", "title_optimized", "is_hidden",
-                        "archived_at", "is_pinned", "original_title", "position_key", "deleted_at",
+                        "collection_id", "title", "url", "title_optimization_state", "is_hidden",
+                        "archived_at", "original_title", "position_key", "deleted_at",
                     ],
                     row: row
                 )
@@ -734,10 +770,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
             }
             guard !accepted.isEmpty else { return }
 
-            if table == "bookmarks" {
-                enforcePinInvariant(current: current, accepted: &accepted, versions: &versions)
-            }
-
             let columns = accepted.keys.sorted()
             let sets = columns.map { "\($0) = ?" } + ["field_versions = ?", "updated_at = ?"]
             var arguments = columns.map { databaseValue(accepted[$0]!) }
@@ -753,10 +785,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
             for field in fields {
                 accepted[field] = row.values[field] ?? .null
             }
-            var versions = row.fieldVersions
-            if table == "bookmarks" {
-                enforcePinInvariant(current: nil, accepted: &accepted, versions: &versions)
-            }
+            let versions = row.fieldVersions
             let createdAt: String
             if case .string(let value)? = row.values["created_at"] {
                 createdAt = value
@@ -780,43 +809,6 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 arguments: StatementArguments(arguments)
             )
         }
-    }
-
-    /// Hidden, archived, or deleted bookmarks cannot stay pinned. Mirrors the
-    /// server rule so every replica converges on the same outcome.
-    private static func enforcePinInvariant(
-        current: Row?,
-        accepted: inout [String: SyncJSONValue],
-        versions: inout [String: LogicalTimestamp]
-    ) {
-        func finalValue(_ field: String) -> SyncJSONValue? {
-            if let value = accepted[field] { return value }
-            guard let current else { return nil }
-            let value: DatabaseValue = current[field]
-            return jsonValue(value)
-        }
-        let hidden = finalValue("is_hidden") == .integer(1) || finalValue("is_hidden") == .boolean(true)
-        let archived = {
-            if let value = finalValue("archived_at"), value != .null { return true }
-            return false
-        }()
-        let deleted = {
-            if let value = finalValue("deleted_at"), value != .null { return true }
-            return false
-        }()
-        let pinned = finalValue("is_pinned") == .integer(1) || finalValue("is_pinned") == .boolean(true)
-        guard pinned, hidden || archived || deleted else { return }
-
-        var maximum = versions["is_pinned"]
-        for field in ["is_hidden", "archived_at", "deleted_at"] {
-            if let candidate = versions[field], maximum.map({ candidate > $0 }) ?? true {
-                maximum = candidate
-            }
-        }
-        if let maximum {
-            versions["is_pinned"] = maximum
-        }
-        accepted["is_pinned"] = .integer(0)
     }
 
     private static func databaseValue(_ value: SyncJSONValue) -> DatabaseValue {
@@ -911,15 +903,18 @@ public final class ObeliskDatabase: @unchecked Sendable {
             throw ObeliskDatabaseError.invalidRow("bookmarks")
         }
         let rawArchivedAt: String? = row["archived_at"]
+        let rawOptimizationState: String = row["title_optimization_state"]
+        guard let optimizationState = TitleOptimizationState(rawValue: rawOptimizationState) else {
+            throw ObeliskDatabaseError.invalidRow("bookmarks")
+        }
         return Bookmark(
             id: id,
             title: row["title"],
             url: row["url"],
             createdAt: createdAt,
-            titleOptimized: row["title_optimized"],
+            titleOptimizationState: optimizationState,
             isHidden: row["is_hidden"],
             archivedAt: rawArchivedAt.flatMap(decodeDate),
-            isPinned: row["is_pinned"],
             originalTitle: row["original_title"]
         )
     }
@@ -932,8 +927,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
         return BookmarkCollection(
             id: id,
             name: row["name"],
-            sortOrder: Int(position) ?? fallbackOrder,
-            showInMenu: row["show_in_menu"]
+            sortOrder: Int(position) ?? fallbackOrder
         )
     }
 

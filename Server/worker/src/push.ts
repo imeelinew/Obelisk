@@ -3,7 +3,6 @@
 
 import { parseStoredVersions } from "./hlc";
 import {
-  enforceBookmarkInvariants,
   insertRow,
   mergeRow,
   parseIncomingRow,
@@ -135,18 +134,7 @@ async function insertVersionedRow(
   id: string,
   incoming: IncomingRow
 ): Promise<boolean> {
-  let { columns, encodedVersions } = insertRow(table, incoming);
-  if (table.name === "bookmarks") {
-    const adjusted = enforceBookmarkInvariants(
-      columns,
-      { is_hidden: 0, archived_at: null, deleted_at: null, is_pinned: 0 },
-      incoming.versions
-    );
-    if (adjusted !== null) {
-      columns = adjusted.columns;
-      encodedVersions = adjusted.encodedVersions;
-    }
-  }
+  const { columns, encodedVersions } = insertRow(table, incoming);
 
   const createdAt =
     typeof incoming.values.created_at === "string" ? incoming.values.created_at : isoNow();
@@ -176,25 +164,8 @@ async function updateVersionedRow(
   if (!merged.changed) {
     return true;
   }
-  let columns = merged.columns;
-  let encodedVersions = merged.encodedVersions;
-
-  if (table.name === "bookmarks") {
-    const adjusted = enforceBookmarkInvariants(
-      columns,
-      {
-        is_hidden: stored.is_hidden as number,
-        archived_at: stored.archived_at as string | null,
-        deleted_at: stored.deleted_at as string | null,
-        is_pinned: stored.is_pinned as number,
-      },
-      parseStoredVersions(encodedVersions)
-    );
-    if (adjusted !== null) {
-      columns = adjusted.columns;
-      encodedVersions = adjusted.encodedVersions;
-    }
-  }
+  const columns = merged.columns;
+  const encodedVersions = merged.encodedVersions;
 
   const names = [...columns.keys()];
   const sets = [

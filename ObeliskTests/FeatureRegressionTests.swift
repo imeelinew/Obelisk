@@ -119,43 +119,20 @@ struct FeatureRegressionTests {
         #expect(BookmarkSearchMatcher.matches(bookmark: bookmark, query: "bilibili.com"))
     }
 
-    @Test func duplicateListRowsKeepIndependentSelectionKeys() {
-        let bookmark = Bookmark(title: "Duplicate", url: "https://duplicate.example")
-        let items = [
-            BookmarkListSection(
-                title: "最近添加 (1)",
-                bookmarks: [bookmark],
-                referenceIndicatorSystemImage: FaviconReferenceBadge.systemImageName
-            ),
-            BookmarkListSection(title: "未分组 (1)", bookmarks: [bookmark]),
-        ].flattenedItems
+    @Test func gridAndListUseTheSameChronologicalBookmarkOrder() {
+        let newest = Bookmark(title: "Zulu", url: "https://newest.example", createdAt: Date(timeIntervalSince1970: 300))
+        let sameTimeA = Bookmark(title: "Alpha", url: "https://alpha.example", createdAt: Date(timeIntervalSince1970: 200))
+        let sameTimeZ = Bookmark(title: "Zulu", url: "https://zulu.example", createdAt: Date(timeIntervalSince1970: 200))
+        let sections = BookmarkGridSection.dateSections(from: [sameTimeZ, newest, sameTimeA])
 
-        #expect(items.count == 4)
-        #expect(items[1].isReference)
-        #expect(!items[3].isReference)
-        let reference = NativeBookmarkSelectionResolver.selection(
-            from: IndexSet(integer: 1),
-            in: items,
-            allowsCollectionSelection: false
-        )
-        #expect(NativeBookmarkSelectionResolver.rowIndexes(
-            for: reference.bookmarkIDs,
-            selectedRowKeys: reference.rowKeys,
-            selectedCollectionId: nil,
-            in: items
-        ) == IndexSet(integer: 1))
-        #expect(NativeBookmarkSelectionResolver.rowIndexes(
-            for: [bookmark.id],
-            selectedRowKeys: [],
-            selectedCollectionId: nil,
-            in: items
-        ) == IndexSet(integer: 3))
+        #expect(sections.flatMap(\.bookmarks).map(\.id) == [newest.id, sameTimeA.id, sameTimeZ.id])
+        #expect(sections.listSections.flatMap(\.bookmarks).map(\.id) == sections.flatMap(\.bookmarks).map(\.id))
     }
 
     @Test func firstBookmarkSelectionSkipsSectionHeaders() {
         let bookmark = Bookmark(title: "YouTube", url: "https://youtube.com")
         #expect(NativeBookmarkSelectionResolver.firstBookmarkRowIndex(in: [
-            BookmarkListSection(title: "置顶 (1)", bookmarks: [bookmark])
+            BookmarkListSection(title: "今天", bookmarks: [bookmark])
         ].flattenedItems) == 1)
         #expect(NativeBookmarkSelectionResolver.firstBookmarkRowIndex(in: [
             BookmarkListSection(title: "没有结果", bookmarks: [])
@@ -182,14 +159,14 @@ struct FeatureRegressionTests {
     }
 
     @MainActor
-    @Test func hiddenBookmarksSidebarShortcutUsesAHiddenMenuItem() {
+    @Test func hiddenBookmarksSidebarMenuUsesTheConfiguredShortcut() {
         let target = HiddenBookmarksSidebarMenuActionStub()
         let item = ApplicationMenu.hiddenBookmarksSidebarMenuItem(
             target: target,
             action: #selector(HiddenBookmarksSidebarMenuActionStub.toggle(_:))
         )
 
-        #expect(item.isHidden)
+        #expect(!item.isHidden)
         #expect(item.keyEquivalent == "h")
         #expect(item.keyEquivalentModifierMask == [.command, .shift])
         #expect(item.action == #selector(HiddenBookmarksSidebarMenuActionStub.toggle(_:)))
@@ -234,9 +211,7 @@ struct FeatureRegressionTests {
         configuration.onCopyURL = {}
         configuration.onEdit = {}
         configuration.onRevertTitleOptimization = {}
-        configuration.pinStateActionTitle = "置顶".obeliskLocalized
-        configuration.pinStateSystemSymbolName = "pin"
-        configuration.onSetPinned = {}
+        configuration.onRetryTitleOptimization = {}
         configuration.collectionAssignOptions = [
             BookmarkCollectionAssignOption(title: "工作", collectionId: collectionID)
         ]
@@ -253,9 +228,8 @@ struct FeatureRegressionTests {
         let menu = try #require(controller.makeMenu(configuration: configuration))
 
         #expect(menu.items.map(\.isSeparatorItem) == [
-            false, false, false, false,
-            true, false,
-            true, false,
+            false, false, false,
+            true, false, false, false,
             true, false,
             true, false,
             true, false
@@ -263,10 +237,11 @@ struct FeatureRegressionTests {
         #expect(menu.items[0].title == "打开".obeliskLocalized)
         #expect(menu.items[0].image != nil)
         #expect(!menu.items.contains { $0.title == "刷新 favicon".obeliskLocalized })
-        #expect(menu.items[7].title == "移到分组".obeliskLocalized)
-        #expect(menu.items[7].submenu?.items.map(\.title) == ["工作"])
-        #expect(menu.items[13].title == "删除".obeliskLocalized)
-        let destructiveTitle = try #require(menu.items[13].attributedTitle)
+        #expect(menu.items[4].title == "移到分组".obeliskLocalized)
+        #expect(menu.items[4].submenu?.items.map(\.title) == ["工作"])
+        #expect(menu.items[6].title == "重新优化".obeliskLocalized)
+        #expect(menu.items[12].title == "删除".obeliskLocalized)
+        let destructiveTitle = try #require(menu.items[12].attributedTitle)
         #expect(destructiveTitle.attribute(
             .foregroundColor,
             at: 0,
@@ -275,8 +250,8 @@ struct FeatureRegressionTests {
 
         menu.delegate?.menuDidClose?(menu)
         menu.performActionForItem(at: 0)
-        menu.items[7].submenu?.performActionForItem(at: 0)
-        menu.performActionForItem(at: 13)
+        menu.items[4].submenu?.performActionForItem(at: 0)
+        menu.performActionForItem(at: 12)
         #expect(opened)
         #expect(assignedCollectionID == collectionID)
         #expect(deleted)
@@ -334,15 +309,6 @@ struct FeatureRegressionTests {
         menu.performActionForItem(at: 2)
         #expect(renamed)
         #expect(deleted)
-    }
-
-    @Test func bookmarkFeedbackHUDUsesTheCurrentScreensUpperCenter() {
-        let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
-        let frame = BookmarkFeedbackPanelLayout.anchorFrame(in: visibleFrame)
-
-        #expect(frame.midX == visibleFrame.midX)
-        #expect(frame.maxY == visibleFrame.maxY - BookmarkFeedbackPanelLayout.topInset)
-        #expect(frame.size == BookmarkFeedbackPanelLayout.anchorSize)
     }
 
     @Test func enteringSearchPageCreatesANewFocusRequest() {
@@ -478,53 +444,12 @@ struct FeatureRegressionTests {
             let model = BookmarksModel(store: store)
             let archived = try #require(model.bookmarks.first)
             #expect(model.isEffectivelyArchived(archived))
-            #expect(model.visibleUngroupedSections(sortMode: .name).isEmpty)
+            #expect(model.visibleUngroupedBookmarks.isEmpty)
             #expect(model.menuRenderSections().allSatisfy { section in
                 !section.bookmarks.contains(where: { $0.id == bookmark.id })
             })
             #expect(model.setArchived(false, for: bookmark.id) == nil)
-            #expect(model.visibleUngroupedSections(sortMode: .name)
-                .flatMap(\.bookmarks)
-                .contains(where: { $0.id == bookmark.id }))
-        }
-    }
-
-    @MainActor
-    @Test func pinnedBookmarksLeadLibraryAndLeaveOtherSections() async throws {
-        try await withStore { store in
-            let pinned = try store.add(title: "Pinned", url: "https://pinned.example")
-            let plain = try store.add(title: "Plain", url: "https://plain.example")
-            try store.setPinned(true, ids: [pinned.id])
-            let model = BookmarksModel(store: store)
-            let sections = model.bookmarkLibrarySections(
-                for: model.bookmarks,
-                pinnedSortMode: .name,
-                collectionSortMode: .name,
-                ungroupedSortMode: .name
-            )
-            #expect(sections.first?.title == "置顶 (1)")
-            #expect(sections.first?.bookmarks.map(\.id) == [pinned.id])
-            #expect(sections.first(where: { $0.title == "未分组 (1)" })?.bookmarks.map(\.id) == [plain.id])
-        }
-    }
-
-    @MainActor
-    @Test func hiddenArchivedAndDeletedBookmarksCannotRemainPinned() async throws {
-        try await withStore { store in
-            var hidden = try store.add(title: "Hide", url: "https://hide.example")
-            let archived = try store.add(title: "Archive", url: "https://archive-pinned.example")
-            try store.setPinned(true, ids: [hidden.id, archived.id])
-            hidden.isHidden = true
-            _ = try store.update(hidden)
-            try store.setArchived(true, ids: [archived.id])
-
-            var snapshot = try store.snapshot()
-            #expect(snapshot.bookmarks.first(where: { $0.id == hidden.id })?.isPinned == false)
-            #expect(snapshot.bookmarks.first(where: { $0.id == archived.id })?.isPinned == false)
-
-            try store.delete(ids: [hidden.id, archived.id])
-            snapshot = try store.snapshot()
-            #expect(snapshot.bookmarks.isEmpty)
+            #expect(model.visibleUngroupedBookmarks.contains(where: { $0.id == bookmark.id }))
         }
     }
 
@@ -558,7 +483,7 @@ struct FeatureRegressionTests {
 
             bookmarks = try store.snapshot().bookmarks
             #expect(bookmarks.first(where: { $0.id == first.id })?.title == original)
-            #expect(bookmarks.first(where: { $0.id == first.id })?.titleOptimized == false)
+            #expect(bookmarks.first(where: { $0.id == first.id })?.titleOptimizationState == .notAttempted)
             #expect(try store.applyOriginalTitles([first.id: "Inbox - Proton Mail"], forceApplyDisplay: true) == 1)
             #expect(try store.snapshot().bookmarks.first(where: { $0.id == first.id })?.title == "Inbox - Proton Mail")
         }
@@ -641,13 +566,13 @@ struct FeatureRegressionTests {
                 hidden.id: "Hidden Optimized",
             ])
             let firstModel = BookmarksModel(store: store, titleOptimizer: firstOptimizer)
-            #expect(await firstModel.optimizeTitles(bookmarkIds: [visible.id, hidden.id]) == "已优化 1 个标题")
+            #expect(await firstModel.optimizeTitleDetails(bookmarkIds: [visible.id, hidden.id]).message == "已优化 1 个标题")
             #expect(firstOptimizer.candidateIDs == [visible.id])
 
             defaults.set(true, forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey)
             let secondOptimizer = StubTitleOptimizer(response: [hidden.id: "Hidden Optimized"])
             let secondModel = BookmarksModel(store: store, titleOptimizer: secondOptimizer)
-            #expect(await secondModel.optimizeTitles(bookmarkIds: [hidden.id]) == "已优化 1 个标题")
+            #expect(await secondModel.optimizeTitleDetails(bookmarkIds: [hidden.id]).message == "已优化 1 个标题")
             #expect(secondOptimizer.candidateIDs == [hidden.id])
         }
     }
@@ -666,144 +591,7 @@ struct FeatureRegressionTests {
             let outcome = await model.optimizeTitleDetails(bookmarkIds: [bookmark.id])
             #expect(outcome.message == "已优化 1 个标题")
             #expect(outcome.optimizedTitles == ["Optimized"])
-            #expect(await model.optimizeTitles(bookmarkIds: [bookmark.id]) == "没有需要优化的标题")
-        }
-    }
-
-    @Test func automaticIntelligenceOptionsRemainIndependent() {
-        let defaults = UserDefaults.standard
-        let title = defaults.object(forKey: TitleOptimizationPreferences.autoOptimizeNewBookmarksKey)
-        let grouping = defaults.object(forKey: BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey)
-        defer {
-            restore(title, key: TitleOptimizationPreferences.autoOptimizeNewBookmarksKey, defaults: defaults)
-            restore(grouping, key: BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey, defaults: defaults)
-        }
-        let bookmark = Bookmark(title: "Visible", url: "https://visible.example")
-        for optimizeTitles in [false, true] {
-            for autoGroup in [false, true] {
-                defaults.set(optimizeTitles, forKey: TitleOptimizationPreferences.autoOptimizeNewBookmarksKey)
-                defaults.set(autoGroup, forKey: BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey)
-                #expect(BookmarkIntelligenceOptimizationOptions.automatic(
-                    for: bookmark,
-                    defaults: defaults
-                ) == BookmarkIntelligenceOptimizationOptions(
-                    optimizeTitles: optimizeTitles,
-                    autoGroup: autoGroup
-                ))
-            }
-        }
-    }
-
-    @MainActor
-    @Test func combinedIntelligenceGroupsUsingOptimizedTitles() async throws {
-        let defaults = UserDefaults.standard
-        let ai = defaults.object(forKey: BookmarksModel.aiFeaturesEnabledKey)
-        defer { restore(ai, key: BookmarksModel.aiFeaturesEnabledKey, defaults: defaults) }
-        defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
-
-        try await withStore { store in
-            let first = try store.add(title: "First Original", url: "https://first.example")
-            let second = try store.add(title: "Second Original", url: "https://second.example")
-            let titleOptimizer = StubTitleOptimizer(response: [
-                first.id: "First Optimized",
-                second.id: "Second Optimized",
-            ])
-            let groupOptimizer = StubBookmarkGroupOptimizer(response: [
-                first.id: "开发",
-                second.id: "开发",
-            ])
-            let model = BookmarksModel(
-                store: store,
-                titleOptimizer: titleOptimizer,
-                groupOptimizer: groupOptimizer
-            )
-            #expect(model.createCollection(name: "开发") == nil)
-            let outcome = await model.optimizeBookmarks(options: .init(optimizeTitles: true, autoGroup: true))
-            #expect(Set(titleOptimizer.candidateIDs) == [first.id, second.id])
-            #expect(Set(groupOptimizer.candidateTitles) == ["First Optimized", "Second Optimized"])
-            #expect(outcome.didChange)
-            #expect(outcome.summary == "优化标题 2 个；自动分组 2 个")
-        }
-    }
-
-    @Test func intelligenceOutcomeSummaryPreservesPartialFailures() {
-        let partial = BookmarkIntelligenceOptimizationOutcome(
-            titleOptimization: TitleOptimizationOutcome(
-                message: "已优化 1 个标题",
-                optimizedTitles: ["Optimized"],
-                status: .changed
-            ),
-            autoGrouping: BookmarkAutoGroupingOutcome(
-                message: "分组请求失败",
-                groupedCount: 0,
-                placements: [],
-                status: .failed
-            )
-        )
-        #expect(partial.didChange)
-        #expect(partial.summary == "标题「Optimized」；分组请求失败")
-        let unchanged = BookmarkIntelligenceOptimizationOutcome(
-            titleOptimization: TitleOptimizationOutcome(message: "没有需要优化的标题", optimizedTitles: []),
-            autoGrouping: BookmarkAutoGroupingOutcome(
-                message: "没有需要自动分组的书签",
-                groupedCount: 0,
-                placements: []
-            )
-        )
-        #expect(!unchanged.didChange)
-        #expect(unchanged.summary == "没有需要优化的标题；没有需要自动分组的书签")
-    }
-
-    @MainActor
-    @Test func autoGroupingUsesOnlyExistingCollections() async throws {
-        let defaults = UserDefaults.standard
-        let ai = defaults.object(forKey: BookmarksModel.aiFeaturesEnabledKey)
-        defer { restore(ai, key: BookmarksModel.aiFeaturesEnabledKey, defaults: defaults) }
-        defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
-
-        try await withStore { store in
-            let docs = try store.add(title: "Swift Concurrency", url: "https://developer.apple.com/swift")
-            let recipe = try store.add(title: "Sourdough", url: "https://example.com/sourdough")
-            let groupOptimizer = StubBookmarkGroupOptimizer(response: [docs.id: "开发", recipe.id: "食谱"])
-            let model = BookmarksModel(store: store, groupOptimizer: groupOptimizer)
-            #expect(model.createCollection(name: "开发") == nil)
-            let outcome = await model.autoGroupBookmarks()
-            #expect(outcome.groupedCount == 1)
-            #expect(groupOptimizer.existingCollectionNames == ["开发"])
-            #expect(model.collectionId(for: docs.id) != nil)
-            #expect(model.collectionId(for: recipe.id) == nil)
-            #expect(!model.collections.contains(where: { $0.name == "食谱" }))
-        }
-    }
-
-    @MainActor
-    @Test func autoGroupingSkipsGroupedPinnedAndHiddenBookmarks() async throws {
-        let defaults = UserDefaults.standard
-        let ai = defaults.object(forKey: BookmarksModel.aiFeaturesEnabledKey)
-        defer { restore(ai, key: BookmarksModel.aiFeaturesEnabledKey, defaults: defaults) }
-        defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
-
-        try await withStore { store in
-            let grouped = try store.add(title: "Grouped", url: "https://grouped.example")
-            let pinned = try store.add(title: "Pinned", url: "https://pinned.example")
-            let hidden = try store.add(title: "Hidden", url: "https://hidden.example", isHidden: true)
-            let ungrouped = try store.add(title: "Ungrouped", url: "https://ungrouped.example")
-            try store.setPinned(true, ids: [pinned.id])
-            let optimizer = StubBookmarkGroupOptimizer(response: [ungrouped.id: "阅读"])
-            let model = BookmarksModel(store: store, groupOptimizer: optimizer)
-            #expect(model.createCollection(name: "工作") == nil)
-            #expect(model.createCollection(name: "阅读") == nil)
-            let work = try #require(model.collections.first(where: { $0.name == "工作" }))
-            #expect(model.setBookmarkCollection(bookmarkId: grouped.id, collectionId: work.id) == nil)
-
-            let outcome = await model.autoGroupBookmarks()
-            #expect(outcome.groupedCount == 1)
-            #expect(outcome.singleBookmarkDescription == "已归入「阅读」")
-            #expect(optimizer.candidateIDs == [ungrouped.id])
-            #expect(model.collectionId(for: grouped.id) == work.id)
-            #expect(model.collectionId(for: pinned.id) == nil)
-            #expect(model.collectionId(for: hidden.id) == nil)
-            #expect(model.collectionId(for: ungrouped.id) != nil)
+            #expect(await model.optimizeTitleDetails(bookmarkIds: [bookmark.id]).message == "没有需要优化的标题")
         }
     }
 
@@ -814,17 +602,27 @@ struct FeatureRegressionTests {
         ObeliskAppDefaults.register(in: defaults)
         #expect(defaults.bool(forKey: ObeliskAppDefaults.openHiddenBookmarksIncognitoKey))
         #expect(!defaults.bool(forKey: TitleOptimizationPreferences.optimizeHiddenBookmarksKey))
-        #expect(!defaults.bool(forKey: BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey))
         #expect(HiddenBookmarkKeywordExclusion.keywords(in: defaults).isEmpty)
     }
 
     @MainActor
     @Test func sidebarResizeAndSelectionKeepRowsInsideViewport() throws {
         var selection: BookmarkManagerView.SettingsPage? = .bookmarks
+        var scope = BookmarkManagerView.CollectionScope.recent
+        var expanded = true
+        let collections = (0..<5).map { BookmarkCollection(name: "Group \($0)", sortOrder: $0) }
         let sidebar = AppKitSettingsSidebar(
             pages: [.bookmarks, .collections],
             selectedPage: Binding(get: { selection }, set: { selection = $0 }),
+            collections: collections,
+            selectedCollectionScope: Binding(get: { scope }, set: { scope = $0 }),
+            collectionsExpanded: Binding(get: { expanded }, set: { expanded = $0 }),
             badgeCount: { $0 == .bookmarks ? 176 : 5 },
+            collectionScopeBadgeCount: { _ in 0 },
+            onCreateCollection: {},
+            onRenameCollection: { _ in },
+            onDeleteCollection: { _ in },
+            onReorderCollections: { _ in },
             iconTheme: .colorful,
             iconStyle: .lucide,
             colorfulIconSize: 22,
@@ -1018,26 +816,6 @@ private final class StubTitleOptimizer: TitleOptimizing {
     }
 }
 
-private final class StubBookmarkGroupOptimizer: BookmarkGroupingOptimizing {
-    private let response: [UUID: String]
-    private(set) var candidateIDs: [UUID] = []
-    private(set) var candidateTitles: [String] = []
-    private(set) var existingCollectionNames: [String] = []
-
-    init(response: [UUID: String]) {
-        self.response = response
-    }
-
-    func suggestGroups(
-        for candidates: [BookmarkGroupingCandidate],
-        existingCollections: [BookmarkGroupingExistingCollection]
-    ) async throws -> [UUID: String] {
-        candidateIDs = candidates.map(\.id)
-        candidateTitles = candidates.map(\.title)
-        existingCollectionNames = existingCollections.map(\.name)
-        return response
-    }
-}
 
 @MainActor
 private final class HiddenBookmarksSidebarMenuActionStub: NSObject {

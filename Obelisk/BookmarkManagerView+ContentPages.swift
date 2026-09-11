@@ -1,148 +1,28 @@
 import AppKit
 import ObeliskCore
-import ObeliskSync
 import SwiftUI
 
-// Content pages: bookmarks, search, collections, hidden bookmarks, archive
+// Content pages share one chronological section model
+// The global display preference changes only the layout
 extension BookmarkManagerView {
     var bookmarkManagementPage: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !model.bookmarks.isEmpty {
-                bookmarkDisplayModePicker
-                    .padding(.leading, 0)
-                    .padding(.trailing, 18)
-                    .padding(.top, 12)
-                    .padding(.bottom, 8)
-            }
-
-            if model.bookmarks.isEmpty {
-                ContentUnavailableView {
-                    Label {
-                        Text("还没有书签")
-                    } icon: {
-                        Image(nsImage: AppIcon.image(size: NSSize(width: 28, height: 28)))
-                    }
-                } description: {
-                    Text("点击工具栏的 + 添加你的第一个书签")
-                }
-            } else if bookmarkDisplayMode == .dateGrid, visibleBookmarks.isEmpty {
-                ContentUnavailableView {
-                    Label("没有可见书签", systemImage: "square.grid.2x2")
-                } description: {
-                    Text("隐藏书签和归档书签不会显示在这里")
-                }
-            } else if bookmarkDisplayMode == .dateGrid {
-                BookmarkSectionGridView(
-                    sections: dateGridBookmarkSections,
-                    selection: $selection,
-                    faviconLoader: faviconLoader,
-                    showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmarks in openBookmarks(bookmarks) },
-                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
-                    onEdit: { bookmark in presentation = .edit(bookmark) },
-                    onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
-                    archiveStateActionTitle: "归档".obeliskLocalized,
-                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
-                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
-                    collectionAssignOptions: collectionAssignOptions,
-                    onAssignCollection: { bookmarkIds, collectionId in
-                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                    },
-                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
-                )
-            } else if bookmarkSections.isEmpty {
-                ContentUnavailableView {
-                    Label("没有未分组的书签", systemImage: "bookmark")
-                } description: {
-                    Text("已放入分组的书签在「分组」页查看")
-                }
-            } else {
-                NativeBookmarkList(
-                    sections: bookmarkSections,
-                    selection: $selection,
-                    faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version,
-                    showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmarks in openBookmarks(bookmarks) },
-                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
-                    onEdit: { bookmark in presentation = .edit(bookmark) },
-                    onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
-                    archiveStateActionTitle: "归档".obeliskLocalized,
-                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
-                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
-                    onSortModeChange: { sortMode, scope in
-                        updateBookmarkListSortMode(sortMode, scope: scope)
-                    },
-                    collectionAssignOptions: collectionAssignOptions,
-                    onAssignCollection: { bookmarkIds, collectionId in
-                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                    },
-                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
-                )
-            }
-        }
-        .navigationTitle("书签")
-    }
-
-    var bookmarkDisplayModePicker: some View {
-        HStack(spacing: 10) {
-            Picker("", selection: bookmarkDisplayModeBinding) {
-                ForEach([BookmarkDisplayMode.dateGrid, .list]) { mode in
-                    Label(mode.title, systemImage: mode.systemImage)
-                        .tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 154)
-
-            Spacer(minLength: 0)
-        }
-    }
-
-    var hiddenBookmarkDisplayModePicker: some View {
-        HStack(spacing: 10) {
-            Picker("", selection: hiddenBookmarkDisplayModeBinding) {
-                ForEach([BookmarkDisplayMode.dateGrid, .list]) { mode in
-                    Label(mode.title, systemImage: mode.systemImage)
-                        .tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 154)
-
-            Spacer(minLength: 0)
-        }
-    }
-
-    var collectionBookmarkDisplayModePicker: some View {
-        HStack(spacing: 10) {
-            Picker("", selection: collectionBookmarkDisplayModeBinding) {
-                ForEach([BookmarkDisplayMode.dateGrid, .list]) { mode in
-                    Label(mode.title, systemImage: mode.systemImage)
-                        .tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 154)
-
-            Spacer(minLength: 0)
-        }
+        bookmarkResults(
+            bookmarks: model.visibleBookmarksSnapshot,
+            emptyTitle: "还没有书签",
+            emptyDescription: "点击工具栏的 + 添加你的第一个书签",
+            emptySystemImage: "bookmark",
+            onOpen: openBookmarks,
+            hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
+            onSetHidden: { requestHiddenFromContextMenu(ids: $0, isHidden: true) },
+            archiveStateActionTitle: "归档".obeliskLocalized,
+            onSetArchived: { requestArchivedFromContextMenu(ids: $0, isArchived: true) }
+        )
+        .navigationTitle("全部")
     }
 
     var searchPage: some View {
         VStack(alignment: .leading, spacing: 0) {
-            NativeSearchField(
-                text: $searchText,
-                placeholder: "搜索",
-                focusRequest: searchFocusRequest
-            )
+            NativeSearchField(text: $searchText, placeholder: "搜索", focusRequest: searchFocusRequest)
                 .frame(height: 38)
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
@@ -156,196 +36,55 @@ extension BookmarkManagerView {
             .padding(.leading, 16)
             .padding(.bottom, 6)
 
-            if searchBookmarkSections.isEmpty {
-                ContentUnavailableView {
-                    Label("没有结果", systemImage: "magnifyingglass")
+            bookmarkResults(
+                bookmarks: searchableBookmarks,
+                emptyTitle: "没有结果",
+                emptyDescription: nil,
+                emptySystemImage: "magnifyingglass",
+                onOpen: openBookmarks,
+                hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
+                onSetHidden: { requestHiddenFromContextMenu(ids: $0, isHidden: true) },
+                archiveStateActionTitleProvider: { bookmarks in
+                    let shouldArchive = bookmarks.isEmpty || !bookmarks.allSatisfy { model.isEffectivelyArchived($0) }
+                    return shouldArchive ? "归档".obeliskLocalized : "恢复到书签".obeliskLocalized
+                },
+                onSetArchived: { ids in
+                    let bookmarks = model.bookmarks.filter { ids.contains($0.id) }
+                    let shouldArchive = bookmarks.isEmpty || !bookmarks.allSatisfy { model.isEffectivelyArchived($0) }
+                    requestArchivedFromContextMenu(ids: ids, isArchived: shouldArchive)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                NativeBookmarkList(
-                    sections: searchBookmarkSections,
-                    selection: $selection,
-                    faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version,
-                    showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmarks in openBookmarks(bookmarks) },
-                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
-                    onEdit: { bookmark in presentation = .edit(bookmark) },
-                    onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
-                    archiveStateActionTitleProvider: { bookmarks in
-                        let shouldArchive = bookmarks.isEmpty || !bookmarks.allSatisfy { model.isEffectivelyArchived($0) }
-                        return shouldArchive ? "归档".obeliskLocalized : "恢复到书签".obeliskLocalized
-                    },
-                    onSetArchived: { ids in
-                        let bookmarks = model.bookmarks.filter { ids.contains($0.id) }
-                        let shouldArchive = bookmarks.isEmpty || !bookmarks.allSatisfy { model.isEffectivelyArchived($0) }
-                        requestArchivedFromContextMenu(ids: ids, isArchived: shouldArchive)
-                    },
-                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
-                    collectionAssignOptions: collectionAssignOptions,
-                    onAssignCollection: { bookmarkIds, collectionId in
-                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                    },
-                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
-                )
-            }
+            )
         }
         .navigationTitle("搜索")
     }
 
     var collectionsManagementPage: some View {
-        VStack(spacing: 0) {
-            if !model.collections.isEmpty {
-                collectionBookmarkDisplayModePicker
-                    .padding(.leading, 0)
-                    .padding(.trailing, 18)
-                    .padding(.top, 12)
-                    .padding(.bottom, 8)
-            }
-
-            if model.collections.isEmpty {
-                ContentUnavailableView {
-                    Label("还没有分组", systemImage: "folder")
-                } description: {
-                    Text("点击工具栏 + 创建分组")
-                }
-            } else if collectionBookmarkDisplayMode == .dateGrid {
-                BookmarkSectionGridView(
-                    sections: collectionGridSections,
-                    selection: $selection,
-                    selectedCollectionId: $selectedCollectionId,
-                    faviconLoader: faviconLoader,
-                    showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmarks in openBookmarks(bookmarks) },
-                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
-                    onEdit: { bookmark in presentation = .edit(bookmark) },
-                    onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
-                    archiveStateActionTitle: "归档".obeliskLocalized,
-                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
-                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
-                    collectionAssignOptions: collectionAssignOptions,
-                    onAssignCollection: { bookmarkIds, collectionId in
-                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                    },
-                    onRenameCollection: { id in beginRenameCollection(id: id) },
-                    onDeleteCollection: { id in beginDeleteCollection(id: id) },
-                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
-                )
-            } else if collectionBookmarkSections.allSatisfy({ $0.bookmarks.isEmpty }) {
-                NativeBookmarkList(
-                    sections: collectionBookmarkSections,
-                    selection: $selection,
-                    selectedCollectionId: $selectedCollectionId,
-                    faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version,
-                    showsURLHostOnly: showsURLHostOnly,
-                    onSortModeChange: { sortMode, _ in collectionListSortMode = sortMode },
-                    onRenameCollection: { id in beginRenameCollection(id: id) },
-                    onDeleteCollection: { id in beginDeleteCollection(id: id) },
-                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
-                )
-            } else {
-                NativeBookmarkList(
-                    sections: collectionBookmarkSections,
-                    selection: $selection,
-                    selectedCollectionId: $selectedCollectionId,
-                    faviconLoader: faviconLoader,
-                    faviconVersion: faviconLoader.version,
-                    showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmarks in openBookmarks(bookmarks) },
-                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
-                    onEdit: { bookmark in presentation = .edit(bookmark) },
-                    onDelete: { ids in requestDelete(ids: ids) },
-                    hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
-                    onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: true) },
-                    archiveStateActionTitle: "归档".obeliskLocalized,
-                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
-                    onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
-                    onSortModeChange: { sortMode, _ in collectionListSortMode = sortMode },
-                    collectionAssignOptions: collectionAssignOptions,
-                    onAssignCollection: { bookmarkIds, collectionId in
-                        requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                    },
-                    onRenameCollection: { id in beginRenameCollection(id: id) },
-                    onDeleteCollection: { id in beginDeleteCollection(id: id) },
-                    onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
-                )
-            }
-        }
-        .navigationTitle("分组")
+        bookmarkResults(
+            bookmarks: currentCollectionScopeBookmarks,
+            emptyTitle: currentCollectionScopeEmptyTitle,
+            emptyDescription: "点击工具栏的 + 添加书签",
+            emptySystemImage: "folder",
+            onOpen: openBookmarks,
+            hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
+            onSetHidden: { requestHiddenFromContextMenu(ids: $0, isHidden: true) },
+            archiveStateActionTitle: "归档".obeliskLocalized,
+            onSetArchived: { requestArchivedFromContextMenu(ids: $0, isArchived: true) }
+        )
+        .navigationTitle(currentCollectionScopeTitle)
     }
 
     var hiddenBookmarkManagementPage: some View {
-        Group {
-            if hiddenBookmarks.isEmpty {
-                ContentUnavailableView {
-                    Label("还没有隐藏书签", systemImage: "eye.slash")
-                } description: {
-                    Text("按 ⌥H 可以把当前浏览器标签添加为隐藏书签")
-                }
-            } else if hiddenBookmarkDisplayMode == .dateGrid {
-                VStack(spacing: 0) {
-                    hiddenBookmarkDisplayModePicker
-                        .padding(.leading, 0)
-                        .padding(.trailing, 18)
-                        .padding(.top, 12)
-                        .padding(.bottom, 8)
-
-                    BookmarkSectionGridView(
-                        sections: hiddenBookmarkDateGridSections,
-                        selection: $selection,
-                        faviconLoader: faviconLoader,
-                        showsURLHostOnly: showsURLHostOnly,
-                        onOpen: { bookmarks in openHiddenBookmarks(bookmarks) },
-                        onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
-                        onEdit: { bookmark in presentation = .edit(bookmark) },
-                        onDelete: { ids in requestDelete(ids: ids) },
-                        hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
-                        onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: false) },
-                        archiveStateActionTitle: "归档".obeliskLocalized,
-                        onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: true) },
-                        onSetPinned: { ids in requestPinFromContextMenu(ids: ids) },
-                        collectionAssignOptions: collectionAssignOptions,
-                        onAssignCollection: { bookmarkIds, collectionId in
-                            requestAssignCollectionFromContextMenu(bookmarkIds: bookmarkIds, collectionId: collectionId)
-                        },
-                        onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
-                    )
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    hiddenBookmarkDisplayModePicker
-                        .padding(.leading, 0)
-                        .padding(.trailing, 18)
-                        .padding(.top, 12)
-                        .padding(.bottom, 8)
-
-                    hiddenBookmarkSortMenu
-                        .padding(.leading, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-
-                    NativeBookmarkList(
-                        sections: hiddenBookmarkSections,
-                        selection: $selection,
-                        faviconLoader: faviconLoader,
-                        faviconVersion: faviconLoader.version,
-                        showsURLHostOnly: showsURLHostOnly,
-                        onOpen: { bookmarks in openHiddenBookmarks(bookmarks) },
-                        onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
-                        onEdit: { bookmark in presentation = .edit(bookmark) },
-                        onDelete: { ids in requestDelete(ids: ids) },
-                        hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
-                        onSetHidden: { ids in requestHiddenFromContextMenu(ids: ids, isHidden: false) },
-                        onRevertTitleOptimization: { bookmarkIds in revertTitleOptimizations(bookmarkIds: bookmarkIds) }
-                    )
-                }
-            }
-        }
+        bookmarkResults(
+            bookmarks: hiddenBookmarks,
+            emptyTitle: "还没有隐藏书签",
+            emptyDescription: "按 ⌥H 可以把当前浏览器标签添加为隐藏书签",
+            emptySystemImage: "eye.slash",
+            onOpen: openHiddenBookmarks,
+            hiddenStateActionTitle: "恢复到书签".obeliskLocalized,
+            onSetHidden: { requestHiddenFromContextMenu(ids: $0, isHidden: false) },
+            archiveStateActionTitle: "归档".obeliskLocalized,
+            onSetArchived: { requestArchivedFromContextMenu(ids: $0, isArchived: true) }
+        )
         .navigationTitle("隐藏书签")
     }
 
@@ -371,7 +110,6 @@ extension BookmarkManagerView {
                                     .monospacedDigit()
                                     .foregroundStyle(.secondary)
                                     .frame(minWidth: 24, alignment: .trailing)
-
                                 Stepper(
                                     "闲置天数",
                                     value: Binding(
@@ -401,34 +139,93 @@ extension BookmarkManagerView {
             .settingsContentMargins()
             .frame(height: 190)
 
-            if archivedBookmarks.isEmpty {
-                ContentUnavailableView {
-                    Label("没有归档书签", systemImage: "archivebox")
-                } description: {
-                    if autoArchiveEnabled {
-                        Text("闲置书签会在达到设定天数后自动归档")
-                    } else {
-                        Text("您手动归档的书签会显示在这里")
-                    }
+            bookmarkResults(
+                bookmarks: archivedBookmarks,
+                emptyTitle: "没有归档书签",
+                emptyDescription: autoArchiveEnabled
+                    ? "闲置书签会在达到设定天数后自动归档"
+                    : "您手动归档的书签会显示在这里",
+                emptySystemImage: "archivebox",
+                onOpen: openArchivedBookmarks,
+                archiveStateActionTitle: "恢复到书签".obeliskLocalized,
+                onSetArchived: { requestArchivedFromContextMenu(ids: $0, isArchived: false) }
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .navigationTitle("归档")
+    }
+
+    @ViewBuilder
+    func bookmarkResults(
+        bookmarks: [Bookmark],
+        emptyTitle: String,
+        emptyDescription: String?,
+        emptySystemImage: String,
+        onOpen: @escaping ([Bookmark]) -> Void,
+        hiddenStateActionTitle: String? = nil,
+        onSetHidden: ((Set<Bookmark.ID>) -> Void)? = nil,
+        archiveStateActionTitle: String? = nil,
+        archiveStateActionTitleProvider: (([Bookmark]) -> String)? = nil,
+        onSetArchived: ((Set<Bookmark.ID>) -> Void)? = nil
+    ) -> some View {
+        if bookmarks.isEmpty {
+            ContentUnavailableView {
+                Label(emptyTitle, systemImage: emptySystemImage)
+            } description: {
+                if let emptyDescription {
+                    Text(emptyDescription)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            let sections = BookmarkGridSection.dateSections(from: bookmarks)
+            if bookmarkDisplayMode == .dateGrid {
+                BookmarkSectionGridView(
+                    sections: sections,
+                    selection: $selection,
+                    faviconLoader: faviconLoader,
+                    showsURLHostOnly: showsURLHostOnly,
+                    onOpen: onOpen,
+                    onCopyURL: copyURLs,
+                    onEdit: { presentation = .edit($0) },
+                    onDelete: requestDelete,
+                    hiddenStateActionTitle: hiddenStateActionTitle,
+                    onSetHidden: onSetHidden,
+                    archiveStateActionTitle: archiveStateActionTitle,
+                    onSetArchived: onSetArchived,
+                    collectionAssignOptions: collectionAssignOptions,
+                    onAssignCollection: requestAssignCollectionFromContextMenu,
+                    onRevertTitleOptimization: revertTitleOptimizations,
+                    onRetryTitleOptimization: retryTitleOptimization
+                )
             } else {
                 NativeBookmarkList(
-                    sections: archivedBookmarkSections,
+                    sections: sections.listSections,
                     selection: $selection,
                     faviconLoader: faviconLoader,
                     faviconVersion: faviconLoader.version,
                     showsURLHostOnly: showsURLHostOnly,
-                    onOpen: { bookmarks in openArchivedBookmarks(bookmarks) },
-                    onCopyURL: { bookmarks in copyURLs(of: bookmarks) },
-                    onEdit: { bookmark in presentation = .edit(bookmark) },
-                    onDelete: { ids in requestDelete(ids: ids) },
-                    archiveStateActionTitle: "恢复到书签".obeliskLocalized,
-                    onSetArchived: { ids in requestArchivedFromContextMenu(ids: ids, isArchived: false) }
+                    onOpen: onOpen,
+                    onCopyURL: copyURLs,
+                    onEdit: { presentation = .edit($0) },
+                    onDelete: requestDelete,
+                    hiddenStateActionTitle: hiddenStateActionTitle,
+                    onSetHidden: onSetHidden,
+                    archiveStateActionTitle: archiveStateActionTitle,
+                    archiveStateActionTitleProvider: archiveStateActionTitleProvider,
+                    onSetArchived: onSetArchived,
+                    collectionAssignOptions: collectionAssignOptions,
+                    onAssignCollection: requestAssignCollectionFromContextMenu,
+                    onRevertTitleOptimization: revertTitleOptimizations,
+                    onRetryTitleOptimization: retryTitleOptimization
                 )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .navigationTitle("归档")
+    }
+}
+
+extension Array where Element == BookmarkGridSection {
+    var listSections: [BookmarkListSection] {
+        map { BookmarkListSection(title: $0.title, bookmarks: $0.bookmarks) }
     }
 }

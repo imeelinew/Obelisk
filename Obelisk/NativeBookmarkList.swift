@@ -8,25 +8,11 @@ struct BookmarkCollectionAssignOption: Equatable {
     var collectionId: UUID?
 }
 
-enum BookmarkListSortScope: String, Equatable {
-    case pinned
-    case ungrouped
-}
-
 struct BookmarkListSection: Equatable, Identifiable {
     var title: String?
     var bookmarks: [Bookmark]
-    var sortMode: BookmarkListSortMode?
-    var referenceIndicatorSystemImage: String? = nil
-    /// When set, the section header sort control updates only this scope's preference.
-    var sortScope: BookmarkListSortScope? = nil
-    /// Set on the collections page so section headers can offer rename/delete.
-    var collectionId: UUID?
 
     var id: String {
-        if let collectionId {
-            return collectionId.uuidString
-        }
         return title ?? bookmarks.map(\.id.uuidString).joined(separator: ",")
     }
 }
@@ -36,7 +22,6 @@ struct NativeBookmarkList: NSViewRepresentable {
     @Binding var selection: Set<Bookmark.ID>
     var focusSelectedBookmarkRequest: Int = 0
     var onCancel: (() -> Void)?
-    var selectedCollectionId: Binding<UUID?>?
     var faviconLoader: FaviconLoader
     var faviconVersion: Int
     var showsURLHostOnly: Bool = false
@@ -50,13 +35,10 @@ struct NativeBookmarkList: NSViewRepresentable {
     var archiveStateActionTitle: String? = nil
     var archiveStateActionTitleProvider: (([Bookmark]) -> String)? = nil
     var onSetArchived: ((Set<Bookmark.ID>) -> Void)? = nil
-    var onSetPinned: ((Set<Bookmark.ID>) -> Void)? = nil
-    var onSortModeChange: ((BookmarkListSortMode, BookmarkListSortScope?) -> Void)? = nil
     var collectionAssignOptions: [BookmarkCollectionAssignOption] = []
     var onAssignCollection: ((Set<Bookmark.ID>, UUID?) -> Void)? = nil
-    var onRenameCollection: ((UUID) -> Void)? = nil
-    var onDeleteCollection: ((UUID) -> Void)? = nil
     var onRevertTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
+    var onRetryTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
     static let contentInset: CGFloat = 18
     static let rowHeight: CGFloat = 50
     static let headerHeight: CGFloat = 24
@@ -134,12 +116,10 @@ struct NativeBookmarkList: NSViewRepresentable {
         weak var scrollView: NSScrollView?
         weak var tableView: BookmarkMenuTableView?
         private var isSyncingSelection = false
-        private var selectedRowKeys: Set<NativeBookmarkRowSelectionKey> = []
         fileprivate var cachedFaviconVersion: Int = -1
         fileprivate var cachedShowsURLHostOnly = false
         private var handledFocusSelectedBookmarkRequest = 0
         private var bookmarkContextMenuController: NativeBookmarkContextMenuController?
-        private var collectionContextMenuController: NativeCollectionContextMenuController?
 
         init(_ parent: NativeBookmarkList) {
             self.parent = parent
@@ -202,33 +182,11 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, shouldSelectContextRow row: Int) -> Bool {
             guard row >= 0, row < items.count else { return false }
-            if items[row].collectionId != nil, parent.onRenameCollection != nil || parent.onDeleteCollection != nil {
-                return true
-            }
             return items[row].bookmark != nil
         }
 
         func bookmarkMenuTableView(_ tableView: BookmarkMenuTableView, menuForRow row: Int) -> NSMenu? {
             guard row >= 0, row < items.count else { return nil }
-
-            if let collectionId = items[row].collectionId {
-                var configuration = NativeCollectionContextMenuConfiguration()
-                if parent.onRenameCollection != nil {
-                    configuration.onRename = { [weak self] in
-                        self?.parent.onRenameCollection?(collectionId)
-                    }
-                }
-                if parent.onDeleteCollection != nil {
-                    configuration.onDelete = { [weak self] in
-                        self?.parent.onDeleteCollection?(collectionId)
-                    }
-                }
-
-                let controller = NativeCollectionContextMenuController()
-                guard let menu = controller.makeMenu(configuration: configuration) else { return nil }
-                collectionContextMenuController = controller
-                return menu
-            }
 
             guard let bookmark = items[row].bookmark else {
                 return nil
@@ -264,12 +222,11 @@ struct NativeBookmarkList: NSViewRepresentable {
                     parent.onRevertTitleOptimization?(targetBookmarkIDs(contextBookmark: bookmark))
                 }
             }
-            if parent.onSetPinned != nil {
-                configuration.pinStateActionTitle = pinActionTitle(for: targets).obeliskLocalized
-                configuration.pinStateSystemSymbolName = pinStateSymbolName(for: targets)
-                configuration.onSetPinned = { [weak self] in
+            if parent.onRetryTitleOptimization != nil,
+               targets.contains(where: { $0.titleOptimizationState == .failed }) {
+                configuration.onRetryTitleOptimization = { [weak self] in
                     guard let self else { return }
-                    parent.onSetPinned?(targetBookmarkIDs(contextBookmark: bookmark))
+                    parent.onRetryTitleOptimization?(targetBookmarkIDs(contextBookmark: bookmark))
                 }
             }
             if !parent.collectionAssignOptions.isEmpty, parent.onAssignCollection != nil {
@@ -338,11 +295,8 @@ struct NativeBookmarkList: NSViewRepresentable {
 
         func bookmarkMenuTableViewCancel(_ tableView: BookmarkMenuTableView) -> Bool {
             let hasBookmarkSelection = !parent.selection.isEmpty
-            let hasCollectionSelection = parent.selectedCollectionId?.wrappedValue != nil
-            if hasBookmarkSelection || hasCollectionSelection {
+            if hasBookmarkSelection {
                 parent.selection = []
-                parent.selectedCollectionId?.wrappedValue = nil
-                selectedRowKeys = []
                 isSyncingSelection = true
                 tableView.deselectAll(nil)
                 isSyncingSelection = false
@@ -361,7 +315,7 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard startRow < items.count else { return nil }
 
             return items.indices[startRow...].first { candidate in
-                items[candidate].bookmark != nil || selectedCollectionId(for: candidate) != nil
+                items[candidate].bookmark != nil
             }
         }
 
@@ -378,13 +332,13 @@ struct NativeBookmarkList: NSViewRepresentable {
             if items[row].bookmark != nil {
                 return true
             }
-            return selectedCollectionId(for: row) != nil
+            return false
         }
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             guard row >= 0,
                   row < items.count,
-                  items[row].bookmark != nil || selectedCollectionId(for: row) != nil
+                  items[row].bookmark != nil
             else {
                 return nil
             }
@@ -394,9 +348,9 @@ struct NativeBookmarkList: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row >= 0, row < items.count else { return Self.parentRowHeight }
             switch items[row] {
-            case .header(_, let topSpacing, _, _, _):
+            case .header(_, let topSpacing):
                 return NativeBookmarkList.headerHeight + topSpacing + NativeBookmarkList.headerBottomSpacing
-            case .bookmark(_, _, _, _):
+            case .bookmark:
                 return NativeBookmarkList.rowHeight
             }
         }
@@ -409,22 +363,18 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard row >= 0, row < items.count else { return nil }
 
             switch items[row] {
-            case .header(let title, let topSpacing, let sortMode, _, let sortScope):
+            case .header(let title, let topSpacing):
                 let view = tableView.makeView(
                     withIdentifier: BookmarkHeaderCellView.identifier,
                     owner: self
                 ) as? BookmarkHeaderCellView ?? BookmarkHeaderCellView()
                 view.configure(
                     title: title,
-                    topSpacing: topSpacing,
-                    sortMode: sortMode,
-                    sortScope: sortScope,
-                    target: self,
-                    action: #selector(changeSortModeFromHeader(_:))
+                    topSpacing: topSpacing
                 )
                 return view
 
-            case .bookmark(let bookmark, let referenceIndicatorSystemImage, _, _):
+            case .bookmark(let bookmark):
                 let view = tableView.makeView(
                     withIdentifier: BookmarkTableCellView.identifier,
                     owner: self
@@ -432,8 +382,7 @@ struct NativeBookmarkList: NSViewRepresentable {
                 view.configure(
                     bookmark: bookmark,
                     showsURLHostOnly: parent.showsURLHostOnly,
-                    favicon: parent.faviconLoader.image(for: bookmark.url),
-                    referenceIndicatorSystemImage: referenceIndicatorSystemImage
+                    favicon: parent.faviconLoader.image(for: bookmark.url)
                 )
                 return view
             }
@@ -443,15 +392,10 @@ struct NativeBookmarkList: NSViewRepresentable {
             guard !isSyncingSelection, let tableView else { return }
             let resolvedSelection = NativeBookmarkSelectionResolver.selection(
                 from: tableView.selectedRowIndexes,
-                in: items,
-                allowsCollectionSelection: parent.selectedCollectionId != nil
+                in: items
             )
 
-            selectedRowKeys = resolvedSelection.rowKeys
             parent.selection = resolvedSelection.bookmarkIDs
-            parent.selectedCollectionId?.wrappedValue = resolvedSelection.bookmarkIDs.isEmpty
-                ? resolvedSelection.collectionId
-                : nil
         }
 
         @objc func handleDoubleClick(_ sender: NSTableView) {
@@ -465,7 +409,7 @@ struct NativeBookmarkList: NSViewRepresentable {
         private func selectionHasRevertableTitleOptimization(contextBookmark: Bookmark) -> Bool {
             targetBookmarkIDs(contextBookmark: contextBookmark).contains { id in
                 guard let bookmark = bookmark(for: id) else { return false }
-                guard bookmark.titleOptimized else { return false }
+                guard bookmark.titleOptimizationState == .succeeded else { return false }
                 let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 return !original.isEmpty
             }
@@ -495,34 +439,12 @@ struct NativeBookmarkList: NSViewRepresentable {
             return parent.archiveStateActionTitle
         }
 
-        private func pinActionTitle(for bookmarks: [Bookmark]) -> String {
-            let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
-            return shouldPin ? "置顶" : "取消置顶"
-        }
-
-        @objc private func changeSortModeFromHeader(_ sender: NSPopUpButton) {
-            guard
-                let rawValue = sender.selectedItem?.representedObject as? String,
-                let sortMode = BookmarkListSortMode(rawValue: rawValue)
-            else {
-                return
-            }
-            let sortScope = (sender.superview as? BookmarkHeaderCellView)?.sortScope
-            parent.onSortModeChange?(sortMode, sortScope)
-        }
-
         func syncSelectionToTable() {
             guard let tableView else { return }
             let rowIndexes = NativeBookmarkSelectionResolver.rowIndexes(
                 for: parent.selection,
-                selectedRowKeys: selectedRowKeys,
-                selectedCollectionId: parent.selectedCollectionId?.wrappedValue,
                 in: items
             )
-            selectedRowKeys = Set(rowIndexes.compactMap { row in
-                guard row >= 0, row < items.count else { return nil }
-                return items[row].selectionKey
-            })
 
             isSyncingSelection = true
             tableView.selectRowIndexes(rowIndexes, byExtendingSelection: false)
@@ -539,8 +461,6 @@ struct NativeBookmarkList: NSViewRepresentable {
 
             let rowIndexes = NativeBookmarkSelectionResolver.rowIndexes(
                 for: parent.selection,
-                selectedRowKeys: selectedRowKeys,
-                selectedCollectionId: parent.selectedCollectionId?.wrappedValue,
                 in: items
             )
             guard !rowIndexes.isEmpty else { return }
@@ -553,27 +473,12 @@ struct NativeBookmarkList: NSViewRepresentable {
             }
         }
 
-        private func pinStateSymbolName(for bookmarks: [Bookmark]) -> String {
-            let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
-            return shouldPin ? "pin" : "pin.slash"
-        }
-
         private func restoreBookmarkSymbolName(for title: String, defaultSymbolName: String) -> String {
             let restoreTitle = "恢复到书签"
             if title == restoreTitle || title == restoreTitle.obeliskLocalized {
                 return "bookmark"
             }
             return defaultSymbolName
-        }
-
-        private func selectedCollectionId(for row: Int) -> UUID? {
-            guard parent.selectedCollectionId != nil,
-                  row >= 0,
-                  row < items.count
-            else {
-                return nil
-            }
-            return items[row].collectionId
         }
 
         private func singleSelectedBookmark(in tableView: NSTableView) -> Bookmark? {
@@ -712,6 +617,14 @@ class BookmarkMenuTableView: NSTableView {
 }
 
 final class HoverableRowView: NSTableRowView {
+    private var trackingArea: NSTrackingArea?
+    private var isHovered = false {
+        didSet {
+            guard oldValue != isHovered else { return }
+            needsDisplay = true
+        }
+    }
+
     /// Keep list selection blue even when the table is not first responder
     /// (e.g. on first launch while the sidebar holds focus).
     override var isEmphasized: Bool {
@@ -722,6 +635,33 @@ final class HoverableRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
         drawRoundedBackground(color: .selectedContentBackgroundColor)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        guard isHovered, !isSelected else { return }
+        drawRoundedBackground(color: .selectedContentBackgroundColor.withAlphaComponent(0.10))
     }
 
     private func drawRoundedBackground(color: NSColor) {
@@ -735,9 +675,7 @@ final class HoverableRowView: NSTableRowView {
 final class BookmarkHeaderCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("BookmarkHeaderCell")
     private let titleField = NSTextField(labelWithString: "")
-    private let sortButton = NSPopUpButton(frame: .zero, pullsDown: false)
     private var titleCenterYConstraint: NSLayoutConstraint?
-    fileprivate var sortScope: BookmarkListSortScope?
 
     init() {
         super.init(frame: .zero)
@@ -750,18 +688,6 @@ final class BookmarkHeaderCellView: NSTableCellView {
         titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(titleField)
 
-        sortButton.translatesAutoresizingMaskIntoConstraints = false
-        sortButton.bezelStyle = .rounded
-        sortButton.controlSize = .regular
-        sortButton.font = .systemFont(ofSize: 12, weight: .medium)
-        sortButton.setContentHuggingPriority(.required, for: .horizontal)
-        sortButton.heightAnchor.constraint(equalToConstant: NativeBookmarkList.headerSortControlHeight).isActive = true
-        if let cell = sortButton.cell as? NSPopUpButtonCell {
-            cell.alignment = .left
-        }
-        sortButton.menu = Self.makeSortMenu()
-        addSubview(sortButton)
-
         titleCenterYConstraint = titleField.centerYAnchor.constraint(
             equalTo: topAnchor,
             constant: NativeBookmarkList.headerHeight / 2
@@ -769,9 +695,7 @@ final class BookmarkHeaderCellView: NSTableCellView {
         NSLayoutConstraint.activate([
             titleCenterYConstraint!,
             titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: NativeBookmarkList.contentInset),
-            sortButton.leadingAnchor.constraint(equalTo: titleField.trailingAnchor, constant: 8),
-            sortButton.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset),
-            sortButton.centerYAnchor.constraint(equalTo: titleField.centerYAnchor)
+            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -NativeBookmarkList.contentInset)
         ])
     }
 
@@ -780,90 +704,10 @@ final class BookmarkHeaderCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(
-        title: String,
-        topSpacing: CGFloat,
-        sortMode: BookmarkListSortMode?,
-        sortScope: BookmarkListSortScope?,
-        target: AnyObject?,
-        action: Selector
-    ) {
+    func configure(title: String, topSpacing: CGFloat) {
         titleField.stringValue = title
         let rowHeight = topSpacing + NativeBookmarkList.headerHeight + NativeBookmarkList.headerBottomSpacing
         titleCenterYConstraint?.constant = rowHeight / 2
-        sortButton.isHidden = sortMode == nil
-        self.sortScope = sortScope
-        sortButton.target = target
-        sortButton.action = action
-        if let sortMode {
-            let item = sortButton.menu?.items.first {
-                ($0.representedObject as? String) == sortMode.rawValue
-            }
-            sortButton.select(item)
-        }
-    }
-
-    private static func makeSortMenu() -> NSMenu {
-        let menu = NSMenu()
-        for mode in BookmarkListSortMode.allCases {
-            let item = NSMenuItem(title: mode.title, action: nil, keyEquivalent: "")
-            item.representedObject = mode.rawValue
-            menu.addItem(item)
-        }
-        return menu
-    }
-}
-
-private final class DisclosureChevronView: NSView {
-    var strokeColor = NSColor.labelColor {
-        didSet {
-            needsDisplay = true
-        }
-    }
-
-    var isExpanded = false {
-        didSet {
-            guard oldValue != isExpanded else { return }
-            needsDisplay = true
-        }
-    }
-
-    override var isFlipped: Bool { true }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setContentHuggingPriority(.required, for: .horizontal)
-        setContentCompressionResistancePriority(.required, for: .horizontal)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        let center = NSPoint(x: bounds.midX, y: bounds.midY)
-        let horizontal: CGFloat = 3.4
-        let vertical: CGFloat = 2.85
-        let path = NSBezierPath()
-        path.lineWidth = 1.8
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-
-        if isExpanded {
-            path.move(to: NSPoint(x: center.x - horizontal, y: center.y - vertical / 2))
-            path.line(to: NSPoint(x: center.x, y: center.y + vertical))
-            path.line(to: NSPoint(x: center.x + horizontal, y: center.y - vertical / 2))
-        } else {
-            path.move(to: NSPoint(x: center.x - vertical / 2, y: center.y - horizontal))
-            path.line(to: NSPoint(x: center.x + vertical, y: center.y))
-            path.line(to: NSPoint(x: center.x - vertical / 2, y: center.y + horizontal))
-        }
-
-        strokeColor.setStroke()
-        path.stroke()
     }
 }
 
@@ -871,12 +715,10 @@ final class BookmarkTableCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("BookmarkTableCell")
 
     private static let faviconEdge: CGFloat = 18
-    private static let referenceBadgeDiameter = FaviconReferenceBadge.badgeDiameter(forFaviconEdge: faviconEdge)
-    private static let faviconLayoutSize = FaviconReferenceBadge.layoutCanvasSize(forFaviconEdge: faviconEdge)
+    private static let faviconLayoutSize = NSSize(width: faviconEdge, height: faviconEdge)
 
     private let faviconContainer = NSView()
     private let faviconView = NSImageView()
-    private let referenceBadgeView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let urlField = NSTextField(labelWithString: "")
     private var textTrailingConstraint: NSLayoutConstraint?
@@ -899,12 +741,7 @@ final class BookmarkTableCellView: NSTableCellView {
         faviconView.translatesAutoresizingMaskIntoConstraints = false
         faviconView.imageScaling = .scaleProportionallyUpOrDown
 
-        referenceBadgeView.translatesAutoresizingMaskIntoConstraints = false
-        referenceBadgeView.imageScaling = .scaleProportionallyUpOrDown
-        referenceBadgeView.isHidden = true
-
         faviconContainer.addSubview(faviconView)
-        faviconContainer.addSubview(referenceBadgeView)
 
         titleField.translatesAutoresizingMaskIntoConstraints = false
         titleField.font = .systemFont(ofSize: 13)
@@ -927,8 +764,6 @@ final class BookmarkTableCellView: NSTableCellView {
             constant: -NativeBookmarkList.contentInset
         )
 
-        let badgeDiameter = Self.referenceBadgeDiameter
-        let badgeOffset = FaviconReferenceBadge.badgeCenterOffset(forFaviconEdge: Self.faviconEdge)
         faviconLeadingConstraint = faviconContainer.leadingAnchor.constraint(
             equalTo: leadingAnchor,
             constant: NativeBookmarkList.contentInset
@@ -944,11 +779,6 @@ final class BookmarkTableCellView: NSTableCellView {
             faviconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             faviconView.widthAnchor.constraint(equalToConstant: Self.faviconEdge),
             faviconView.heightAnchor.constraint(equalToConstant: Self.faviconEdge),
-
-            referenceBadgeView.widthAnchor.constraint(equalToConstant: badgeDiameter),
-            referenceBadgeView.heightAnchor.constraint(equalToConstant: badgeDiameter),
-            referenceBadgeView.centerXAnchor.constraint(equalTo: faviconView.trailingAnchor, constant: badgeOffset.width),
-            referenceBadgeView.centerYAnchor.constraint(equalTo: faviconView.bottomAnchor, constant: -badgeOffset.height),
 
             titleField.leadingAnchor.constraint(equalTo: faviconContainer.trailingAnchor, constant: 12),
             titleField.topAnchor.constraint(equalTo: topAnchor, constant: 8),
@@ -968,23 +798,12 @@ final class BookmarkTableCellView: NSTableCellView {
     func configure(
         bookmark: Bookmark,
         showsURLHostOnly: Bool,
-        favicon: NSImage?,
-        referenceIndicatorSystemImage: String?
+        favicon: NSImage?
     ) {
         let canvasSize = NSSize(width: Self.faviconEdge, height: Self.faviconEdge)
         faviconView.image = favicon ?? AppIcon.faviconPlaceholder(size: canvasSize)
         faviconView.contentTintColor = nil
 
-        if let referenceIndicatorSystemImage {
-            referenceBadgeView.image = FaviconReferenceBadge.badgeImage(
-                diameter: Self.referenceBadgeDiameter,
-                systemImageName: referenceIndicatorSystemImage
-            )
-            referenceBadgeView.isHidden = false
-        } else {
-            referenceBadgeView.image = nil
-            referenceBadgeView.isHidden = true
-        }
         titleField.stringValue = bookmark.title
         urlField.stringValue = displayURL(for: bookmark.url, showsHostOnly: showsURLHostOnly)
         applyNativeTextColors()

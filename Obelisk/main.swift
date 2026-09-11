@@ -43,7 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.handleManagerWindowClosed()
         }
     )
-    private lazy var bookmarkFeedbackPanel = BookmarkFeedbackPanelController()
+    private lazy var bookmarkFeedbackPanel = BookmarkFeedbackPanelController { [weak self] in
+        self?.menuBar.feedbackAnchorView
+    }
     private lazy var faviconLoader: FaviconLoader = {
         let loader = FaviconLoader(rootDirectory: store.rootDirectory)
         loader.onIconLoaded = { [weak self] in
@@ -51,7 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return loader
     }()
-    private var pendingOptimizationTask: Task<Void, Never>?
     private var aiFeaturesEnabled: Bool {
         UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
     }
@@ -102,7 +103,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.menuBar.scheduleRebuild()
         }
         installKeyboardShortcutHandlers()
-        bookmarkFeedbackPanel.prepare()
         menuBar.rebuildMenu()
         startDatabaseWatch()
 
@@ -127,7 +127,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
         databaseWatchTask?.cancel()
-        pendingOptimizationTask?.cancel()
     }
 
     private func installDefaultsObserver() {
@@ -154,6 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         KeyboardShortcuts.onKeyUp(for: .addHiddenBookmark) { [weak self] in
             self?.handleGlobalHotkey(isHidden: true)
+        }
+        KeyboardShortcuts.onKeyUp(for: .toggleHiddenBookmarksSidebar) { [weak self] in
+            self?.toggleHiddenBookmarksSidebarFromMenu(nil)
         }
     }
 
@@ -207,17 +209,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard aiFeaturesEnabled else { return }
 
-        let options = BookmarkIntelligenceOptimizationOptions.automatic(for: bookmark)
-        guard options.optimizeTitles || options.autoGroup else { return }
+        guard TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark) else { return }
 
-        pendingOptimizationTask?.cancel()
-        pendingOptimizationTask = Task { [weak self] in
+        Task { [weak self] in
             guard let self else { return }
-            let outcome = await bookmarksModel.optimizeBookmarks(
-                bookmarkIds: [bookmark.id],
-                options: options
-            )
-            guard !Task.isCancelled else { return }
+            let outcome = await bookmarksModel.enqueueTitleOptimization(bookmarkIds: [bookmark.id])
             showBookmarkFeedback(
                 title: "Intelligence 书签优化",
                 subtitle: outcome.summary,

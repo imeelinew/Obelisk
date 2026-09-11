@@ -22,6 +22,7 @@ struct BookmarkEditor: View {
     var prefilledURL: String? = nil
     var prefilledTitle: String? = nil
     var prefilledIsHidden: Bool = false
+    var initialCollectionID: UUID? = nil
     var onBookmarkAdded: ((Bookmark) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
@@ -143,7 +144,12 @@ struct BookmarkEditor: View {
     private func commit() {
         switch mode {
         case .add:
-            switch model.addBookmark(title: title, url: url, isHidden: isHidden) {
+            switch model.addBookmark(
+                title: title,
+                url: url,
+                isHidden: isHidden,
+                collectionID: initialCollectionID
+            ) {
             case .success(let bookmark):
                 onBookmarkAdded?(bookmark)
                 dismiss()

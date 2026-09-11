@@ -18,17 +18,6 @@ struct BookmarkFeedbackPresentation: Equatable {
 
 enum BookmarkFeedbackPanelLayout {
     static let contentWidth: CGFloat = 280
-    static let anchorSize = NSSize(width: 1, height: 1)
-    static let topInset: CGFloat = 8
-
-    static func anchorFrame(in visibleFrame: NSRect) -> NSRect {
-        NSRect(
-            x: visibleFrame.midX - anchorSize.width / 2,
-            y: visibleFrame.maxY - topInset - anchorSize.height,
-            width: anchorSize.width,
-            height: anchorSize.height
-        )
-    }
 }
 
 /// The exact notification content used by the former menu-bar popover.
@@ -122,20 +111,17 @@ struct BookmarkAddedNotificationView: View {
 
 @MainActor
 final class BookmarkFeedbackPanelController {
-    private var anchorPanel: BookmarkFeedbackAnchorPanel?
+    private let anchorView: () -> NSView?
     private var popover: NSPopover?
     private var dismissWorkItem: DispatchWorkItem?
 
-    func prepare() {
-        _ = anchorPanel ?? makeAnchorPanel()
+    init(anchorView: @escaping () -> NSView?) {
+        self.anchorView = anchorView
     }
 
     func show(_ presentation: BookmarkFeedbackPresentation) {
         dismiss()
-
-        let anchorPanel = anchorPanel ?? makeAnchorPanel()
-        position(anchorPanel)
-        anchorPanel.orderFront(nil)
+        guard let anchorView = anchorView() else { return }
 
         let contentView = BookmarkAddedNotificationView(
             title: presentation.title,
@@ -162,7 +148,6 @@ final class BookmarkFeedbackPanelController {
         )
         self.popover = popover
 
-        guard let anchorView = anchorPanel.contentView else { return }
         popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
 
         let workItem = DispatchWorkItem { [weak self] in
@@ -185,41 +170,5 @@ final class BookmarkFeedbackPanelController {
         popover?.performClose(nil)
         popover?.close()
         popover = nil
-        anchorPanel?.orderOut(nil)
     }
-
-    private func makeAnchorPanel() -> BookmarkFeedbackAnchorPanel {
-        let panel = BookmarkFeedbackAnchorPanel(
-            contentRect: NSRect(origin: .zero, size: BookmarkFeedbackPanelLayout.anchorSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.contentView = NSView(frame: NSRect(origin: .zero, size: BookmarkFeedbackPanelLayout.anchorSize))
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = true
-        panel.isReleasedWhenClosed = false
-        panel.isRestorable = false
-        panel.isExcludedFromWindowsMenu = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .fullScreenAuxiliary]
-        anchorPanel = panel
-        return panel
-    }
-
-    private func position(_ panel: NSWindow) {
-        let pointer = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(pointer) } ?? NSScreen.main
-        guard let visibleFrame = screen?.visibleFrame else { return }
-        panel.setFrame(BookmarkFeedbackPanelLayout.anchorFrame(in: visibleFrame), display: false)
-    }
-}
-
-private final class BookmarkFeedbackAnchorPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
 }

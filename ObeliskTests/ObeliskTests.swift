@@ -13,17 +13,12 @@ struct ObeliskTests {
             var bookmark = try store.add(title: " Example ", url: "https://example.com/")
             #expect(bookmark.title == "Example")
 
-            bookmark.isPinned = true
-            bookmark = try store.update(bookmark)
-            #expect(bookmark.isPinned)
-
             bookmark.isHidden = true
             bookmark = try store.update(bookmark)
-            #expect(!bookmark.isPinned)
             let loaded = try #require(store.snapshot().bookmarks.first)
             #expect(loaded.id == bookmark.id)
             #expect(loaded.isHidden)
-            #expect(!loaded.isPinned)
+            #expect(loaded.titleOptimizationState == .notAttempted)
 
             try store.delete(ids: [bookmark.id])
             #expect(try store.snapshot().bookmarks.isEmpty)
@@ -44,7 +39,7 @@ struct ObeliskTests {
     @Test func collectionsAndUsageShareTheSameDatabase() async throws {
         try await withStore { store in
             let bookmark = try store.add(title: "Article", url: "https://example.com/article")
-            let collection = BookmarkCollection(name: "Reading", showInMenu: true)
+            let collection = BookmarkCollection(name: "Reading")
             try store.database.saveCollection(collection)
             try store.database.setCollection(collection.id, for: [bookmark.id])
             try store.database.recordUsage(bookmarkID: bookmark.id, at: Date(timeIntervalSince1970: 100))
@@ -64,7 +59,7 @@ struct ObeliskTests {
     }
 
     @MainActor
-    @Test func modelSearchExcludesHiddenBookmarksAndKeepsArchivedBookmarks() async throws {
+    @Test func modelSearchExcludesHiddenAndArchivedBookmarks() async throws {
         try await withStore { store in
             let visible = try store.add(title: "Target visible", url: "https://visible.example")
             _ = try store.add(title: "Target hidden", url: "https://hidden.example", isHidden: true)
@@ -72,7 +67,7 @@ struct ObeliskTests {
             try store.setArchived(true, ids: [archived.id], at: Date(timeIntervalSince1970: 1_000))
 
             let model = BookmarksModel(store: store)
-            #expect(Set(model.searchBookmarks(matching: "target").map(\.id)) == [visible.id, archived.id])
+            #expect(model.searchBookmarks(matching: "target").map(\.id) == [visible.id])
         }
     }
 
@@ -103,14 +98,11 @@ struct ObeliskTests {
         #expect(BookmarkUsageRanking.frecencySorted(among: [first, second], usage: usage, now: now).map(\.id) == [second.id, first.id])
     }
 
-    @Test func menuOrderDropsUnknownCollectionsAndAddsCurrentOnes() {
-        let staleID = UUID()
+    @Test func menuOrderUsesSyncedCollectionOrderBetweenFixedScopes() {
         let current = BookmarkCollection(name: "Current")
-        let rawValue = BookmarkMenuSectionOrder.encoded([.collection(staleID), .ungrouped])
 
         #expect(
-            BookmarkMenuSectionOrder.order(collections: [current], rawValue: rawValue) == [
-                .pinned,
+            BookmarkMenuSectionOrder.order(collections: [current]) == [
                 .recent,
                 .collection(current.id),
                 .ungrouped
@@ -118,47 +110,16 @@ struct ObeliskTests {
         )
     }
 
-    @Test func menuOrderMovePreservesSourceOrderAndSupportsEveryDestination() {
-        let collectionID = UUID()
-        let original: [BookmarkMenuSectionID] = [
-            .pinned,
-            .recent,
-            .collection(collectionID),
-            .ungrouped
-        ]
-
-        #expect(
-            BookmarkMenuSectionOrder.moving(
-                [.recent, .pinned],
-                before: .ungrouped,
-                in: original
-            ) == [
-                .collection(collectionID),
-                .pinned,
-                .recent,
-                .ungrouped
-            ]
-        )
-        #expect(
-            BookmarkMenuSectionOrder.moving(
-                [.pinned],
-                before: nil,
-                in: original
-            ) == [
-                .recent,
-                .collection(collectionID),
-                .ungrouped,
-                .pinned
-            ]
-        )
-    }
-
-    @Test func menuOrderDiscardsRemovedHistoryAndPreservesCustomOrder() {
-        let collection = BookmarkCollection(name: "Current")
-        let raw = "ungrouped\nbrowserHistory\ncollection:\(collection.id.uuidString)\nrecent\npinned"
-        #expect(BookmarkMenuSectionOrder.order(collections: [collection], rawValue: raw) == [
-            .ungrouped, .collection(collection.id), .recent, .pinned
-        ])
+    @Test func menuExpansionDefaultsToRecentAndCommonOnly() throws {
+        let suite = "ObeliskMenuExpansion-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let common = BookmarkCollection(name: "常用")
+        let other = BookmarkCollection(name: "Other")
+        #expect(BookmarkMenuExpansionPreferences.expandedIDs(
+            collections: [common, other],
+            defaults: defaults
+        ) == [.recent, .collection(common.id)])
     }
 
     @MainActor

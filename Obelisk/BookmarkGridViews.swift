@@ -7,14 +7,17 @@ struct BookmarkGridSection: Identifiable, Equatable {
     let title: String
     let subtitle: String
     let bookmarks: [Bookmark]
-    var collectionId: UUID? = nil
 
     static func dateSections(from bookmarks: [Bookmark], calendar: Calendar = .current) -> [BookmarkGridSection] {
         let sorted = bookmarks.sorted { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
                 return lhs.createdAt > rhs.createdAt
             }
-            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+            let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+            if titleOrder != .orderedSame {
+                return titleOrder == .orderedAscending
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
         }
 
         let grouped = Dictionary(grouping: sorted) { bookmark -> Date? in
@@ -67,7 +70,6 @@ struct BookmarkGridSection: Identifiable, Equatable {
 struct BookmarkSectionGridView: View {
     let sections: [BookmarkGridSection]
     @Binding var selection: Set<Bookmark.ID>
-    var selectedCollectionId: Binding<UUID?>? = nil
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
     let onOpen: ([Bookmark]) -> Void
@@ -78,16 +80,13 @@ struct BookmarkSectionGridView: View {
     var onSetHidden: ((Set<Bookmark.ID>) -> Void)? = nil
     var archiveStateActionTitle: String? = nil
     var onSetArchived: ((Set<Bookmark.ID>) -> Void)? = nil
-    var onSetPinned: ((Set<Bookmark.ID>) -> Void)? = nil
     let collectionAssignOptions: [BookmarkCollectionAssignOption]
     let onAssignCollection: (Set<Bookmark.ID>, UUID?) -> Void
-    var onRenameCollection: ((UUID) -> Void)? = nil
-    var onDeleteCollection: ((UUID) -> Void)? = nil
     var onRevertTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
+    var onRetryTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
 
     @State private var selectionAnchorID: Bookmark.ID?
     @State private var contextMenuController = NativeBookmarkContextMenuController()
-    @State private var collectionContextMenuController = NativeCollectionContextMenuController()
     @FocusState private var isFocused: Bool
 
     private let columns = [
@@ -154,9 +153,7 @@ struct BookmarkSectionGridView: View {
     }
 
     private func sectionHeader(_ section: BookmarkGridSection) -> some View {
-        let isSelected = section.collectionId != nil && selectedCollectionId?.wrappedValue == section.collectionId
-
-        let content = HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(section.title)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -165,35 +162,10 @@ struct BookmarkSectionGridView: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, section.collectionId == nil ? 0 : 8)
-        .padding(.vertical, section.collectionId == nil ? 0 : 5)
-        .background {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard let collectionId = section.collectionId else { return }
-            selection.removeAll()
-            selectionAnchorID = nil
-            selectedCollectionId?.wrappedValue = collectionId
-            isFocused = true
-        }
-
-        return NativeContextMenuHost(
-            content: content,
-            menuProvider: { _ in
-                guard let collectionId = section.collectionId else { return nil }
-                return collectionContextMenu(for: collectionId)
-            }
-        )
     }
 
     private func selectBookmark(_ bookmark: Bookmark) {
         isFocused = true
-        selectedCollectionId?.wrappedValue = nil
 
         let modifiers = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
@@ -232,7 +204,6 @@ struct BookmarkSectionGridView: View {
     }
 
     private func alignSelectionForContextMenu(_ bookmark: Bookmark) {
-        selectedCollectionId?.wrappedValue = nil
         if !selection.contains(bookmark.id) {
             selection = [bookmark.id]
             selectionAnchorID = bookmark.id
@@ -245,26 +216,6 @@ struct BookmarkSectionGridView: View {
         return contextMenuController.makeMenu(
             configuration: contextMenuConfiguration(for: bookmark)
         )
-    }
-
-    private func collectionContextMenu(for collectionId: UUID) -> NSMenu? {
-        selection.removeAll()
-        selectionAnchorID = nil
-        selectedCollectionId?.wrappedValue = collectionId
-        isFocused = true
-
-        var configuration = NativeCollectionContextMenuConfiguration()
-        if let onRenameCollection {
-            configuration.onRename = {
-                onRenameCollection(collectionId)
-            }
-        }
-        if let onDeleteCollection {
-            configuration.onDelete = {
-                onDeleteCollection(collectionId)
-            }
-        }
-        return collectionContextMenuController.makeMenu(configuration: configuration)
     }
 
     private func contextMenuConfiguration(
@@ -291,11 +242,10 @@ struct BookmarkSectionGridView: View {
                 onRevertTitleOptimization?(targetBookmarkIDs(contextBookmark: bookmark))
             }
         }
-        if onSetPinned != nil {
-            configuration.pinStateActionTitle = pinActionTitle(for: targets)
-            configuration.pinStateSystemSymbolName = pinSystemSymbolName(for: targets)
-            configuration.onSetPinned = {
-                onSetPinned?(targetBookmarkIDs(contextBookmark: bookmark))
+        if targets.contains(where: { $0.titleOptimizationState == .failed }),
+           onRetryTitleOptimization != nil {
+            configuration.onRetryTitleOptimization = {
+                onRetryTitleOptimization?(targetBookmarkIDs(contextBookmark: bookmark))
             }
         }
         if !collectionAssignOptions.isEmpty {
@@ -353,18 +303,6 @@ struct BookmarkSectionGridView: View {
         )
     }
 
-    private func pinActionTitle(for bookmarks: [Bookmark]) -> String {
-        let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
-        return shouldPin
-            ? String(localized: "bookmark.action.pin", defaultValue: "置顶")
-            : "取消置顶".obeliskLocalized
-    }
-
-    private func pinSystemSymbolName(for bookmarks: [Bookmark]) -> String {
-        let shouldPin = bookmarks.isEmpty || !bookmarks.allSatisfy(\.isPinned)
-        return shouldPin ? "pin" : "pin.slash"
-    }
-
     private func restoreBookmarkSymbolName(for title: String, defaultSymbolName: String) -> String {
         let restoreTitle = "恢复到书签"
         if title == restoreTitle || title == restoreTitle.obeliskLocalized {
@@ -376,21 +314,16 @@ struct BookmarkSectionGridView: View {
     private func canRevertTitle(for bookmarks: [Bookmark]) -> Bool {
         guard onRevertTitleOptimization != nil else { return false }
         return bookmarks.contains { bookmark in
-            guard bookmark.titleOptimized else { return false }
+            guard bookmark.titleOptimizationState == .succeeded else { return false }
             let original = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return !original.isEmpty
         }
     }
 
     private func clearSelection() -> KeyPress.Result {
-        let hasBookmarkSelection = !selection.isEmpty
-        let hasCollectionSelection = selectedCollectionId?.wrappedValue != nil
-        guard hasBookmarkSelection || hasCollectionSelection else {
-            return .ignored
-        }
+        guard !selection.isEmpty else { return .ignored }
         selection = []
         selectionAnchorID = nil
-        selectedCollectionId?.wrappedValue = nil
         return .handled
     }
 
@@ -442,6 +375,7 @@ struct BookmarkGridCard: View {
     let onOpenCard: () -> Void
 
     @State private var isPressed = false
+    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -452,14 +386,6 @@ struct BookmarkGridCard: View {
                 )
 
                 Spacer(minLength: 0)
-
-                if bookmark.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.tint)
-                        .padding(6)
-                        .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                }
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -481,6 +407,7 @@ struct BookmarkGridCard: View {
         .overlay(cardBorder)
         .scaleEffect(isPressed ? 0.985 : 1)
         .animation(.easeOut(duration: 0.12), value: isPressed)
+        .animation(.easeOut(duration: 0.12), value: isHovered)
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onTapGesture {
             onSelect()
@@ -495,6 +422,7 @@ struct BookmarkGridCard: View {
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in isPressed = false }
         )
+        .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(bookmark.title)
     }
@@ -505,14 +433,20 @@ struct BookmarkGridCard: View {
         return shape
             .fill(.thinMaterial)
             .overlay {
-                shape.fill(isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.018))
+                shape.fill(
+                    isSelected
+                        ? Color.accentColor.opacity(0.14)
+                        : Color.primary.opacity(isHovered ? 0.08 : 0.018)
+                )
             }
     }
 
     private var cardBorder: some View {
         RoundedRectangle(cornerRadius: 10)
             .stroke(
-                isSelected ? Color.accentColor.opacity(0.75) : Color(nsColor: .separatorColor).opacity(0.42),
+                isSelected
+                    ? Color.accentColor.opacity(0.75)
+                    : Color(nsColor: .separatorColor).opacity(isHovered ? 0.70 : 0.42),
                 lineWidth: isSelected ? 1.4 : 1
             )
     }

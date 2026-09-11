@@ -147,11 +147,8 @@ public final class BookmarkStore {
         var updated = bookmark
         updated.title = trimmedTitle
         updated.url = trimmedURL
-        if !updated.titleOptimized {
+        if updated.titleOptimizationState != .succeeded {
             updated.originalTitle = trimmedTitle
-        }
-        if updated.isHidden || updated.archivedAt != nil {
-            updated.isPinned = false
         }
         try database.saveBookmark(updated, collectionID: collectionID)
         return updated
@@ -167,17 +164,6 @@ public final class BookmarkStore {
         let current = try snapshot()
         for var bookmark in current.bookmarks where ids.contains(bookmark.id) {
             bookmark.archivedAt = isArchived ? date : nil
-            if isArchived {
-                bookmark.isPinned = false
-            }
-            try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
-        }
-    }
-
-    public func setPinned(_ isPinned: Bool, ids: Set<UUID>) throws {
-        let current = try snapshot()
-        for var bookmark in current.bookmarks where ids.contains(bookmark.id) {
-            bookmark.isPinned = isPinned && !bookmark.isHidden && bookmark.archivedAt == nil
             try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
         }
     }
@@ -214,6 +200,14 @@ public final class BookmarkStore {
         try database.deleteCollection(id: id)
     }
 
+    public func reorderCollections(_ orderedIDs: [UUID]) throws {
+        let current = try snapshot()
+        guard Set(orderedIDs) == Set(current.collections.map(\.id)), orderedIDs.count == current.collections.count else {
+            throw BookmarkStoreError.missingCollection
+        }
+        try database.reorderCollections(orderedIDs)
+    }
+
     public func setCollection(_ collectionID: UUID?, for bookmarkIDs: Set<UUID>) throws {
         let current = try snapshot()
         if let collectionID,
@@ -233,7 +227,7 @@ public final class BookmarkStore {
         var count = 0
         for var bookmark in current.bookmarks {
             guard
-                !bookmark.titleOptimized,
+                bookmark.titleOptimizationState != .succeeded,
                 let title = optimizedTitles[bookmark.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
                 !title.isEmpty
             else {
@@ -243,7 +237,7 @@ public final class BookmarkStore {
                 bookmark.originalTitle = bookmark.title
             }
             bookmark.title = title
-            bookmark.titleOptimized = true
+            bookmark.titleOptimizationState = .succeeded
             try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
             count += 1
         }
@@ -254,12 +248,13 @@ public final class BookmarkStore {
     public func revertTitleOptimizations(ids: Set<UUID>) throws -> Int {
         let current = try snapshot()
         var count = 0
-        for var bookmark in current.bookmarks where ids.contains(bookmark.id) && bookmark.titleOptimized {
+        for var bookmark in current.bookmarks
+        where ids.contains(bookmark.id) && bookmark.titleOptimizationState == .succeeded {
             guard let title = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
                 continue
             }
             bookmark.title = title
-            bookmark.titleOptimized = false
+            bookmark.titleOptimizationState = .notAttempted
             try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
             count += 1
         }
@@ -275,10 +270,23 @@ public final class BookmarkStore {
                 continue
             }
             bookmark.originalTitle = title
-            if forceApplyDisplay || !bookmark.titleOptimized {
+            if forceApplyDisplay || bookmark.titleOptimizationState != .succeeded {
                 bookmark.title = title
-                bookmark.titleOptimized = false
+                bookmark.titleOptimizationState = .notAttempted
             }
+            try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
+            count += 1
+        }
+        return count
+    }
+
+    @discardableResult
+    public func markTitleOptimizationFailed(ids: Set<UUID>) throws -> Int {
+        let current = try snapshot()
+        var count = 0
+        for var bookmark in current.bookmarks
+        where ids.contains(bookmark.id) && bookmark.titleOptimizationState != .succeeded {
+            bookmark.titleOptimizationState = .failed
             try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
             count += 1
         }

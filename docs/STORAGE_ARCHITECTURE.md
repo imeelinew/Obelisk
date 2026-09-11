@@ -66,9 +66,11 @@ resurrect old data.
 
 ## Invariants
 
-- Hidden, archived, or deleted bookmarks cannot stay pinned. The rule is
-  enforced identically on the client and the server after every merge, so all
-  replicas converge regardless of arrival order.
+- Bookmark presentation state is canonical across client, D1, and wire rows.
+  Bookmarks use `title_optimization_state` (`not_attempted`, `succeeded`, or
+  `failed`); collections use the synchronized `position_key` as their only
+  ordering field. Pinning and per-collection menu visibility are not domain
+  state.
 - `usage_events` are immutable and deduplicated by id.
 - Deletion of bookmarks and collections is a soft delete via `deleted_at`;
   snapshots filter deleted rows.
@@ -99,3 +101,14 @@ or renumbered: existing cursors can include sequence numbers allocated to
 history. Future writes continue above those cursors. The changes feed and
 push table allowlist now contain only bookmarks, collections, and usage;
 the history reconcile endpoint is removed.
+
+## Unified bookmark presentation migration
+
+Local migration `2026-09-unify-bookmark-presentation` and D1 migration
+`0003_unify_bookmark_presentation.sql` replace pinned bookmarks with membership
+in a normal `常用` collection, map the former title optimization boolean to the
+explicit optimization state, and remove the retired pin and menu-visibility
+columns. Deleted rows, usage events, HLC metadata, outbox state, cursors, and
+idempotency records remain intact. D1 assigns every rebuilt versioned row a
+fresh sequence above the existing global cursor so upgraded clients receive
+the canonical schema state.

@@ -30,7 +30,6 @@ export const collectionsTable: VersionedTable = {
   fields: {
     name: requiredString,
     position_key: requiredString,
-    show_in_menu: requiredBoolean,
     deleted_at: optionalTime,
   },
 };
@@ -41,10 +40,15 @@ export const bookmarksTable: VersionedTable = {
     collection_id: optionalUUIDString,
     title: requiredString,
     url: requiredWebURL,
-    title_optimized: requiredBoolean,
+    title_optimization_state: (value) => {
+      const state = requiredString(value) as string;
+      if (!["not_attempted", "succeeded", "failed"].includes(state)) {
+        throw new ValidationError("title_optimization_state is invalid");
+      }
+      return state;
+    },
     is_hidden: requiredBoolean,
     archived_at: optionalTime,
-    is_pinned: requiredBoolean,
     original_title: optionalString,
     position_key: requiredString,
     deleted_at: optionalTime,
@@ -153,40 +157,5 @@ export function insertRow(table: VersionedTable, incoming: IncomingRow): MergeRe
     changed: true,
     columns,
     encodedVersions: encodeVersions(versions),
-  };
-}
-
-/// Bookmark invariant shared with the client: hidden, archived, or deleted
-/// bookmarks cannot stay pinned. Applied after a merge so devices converge on
-/// the same outcome regardless of arrival order.
-export function enforceBookmarkInvariants(
-  columns: Map<string, ColumnValue>,
-  stored: { is_hidden: number; archived_at: string | null; deleted_at: string | null; is_pinned: number },
-  versions: Map<string, LogicalTimestamp>
-): { columns: Map<string, ColumnValue>; encodedVersions: string } | null {
-  const hidden = (columns.get("is_hidden") ?? stored.is_hidden) === 1;
-  const archived = (columns.has("archived_at") ? columns.get("archived_at") : stored.archived_at) !== null;
-  const deleted = (columns.has("deleted_at") ? columns.get("deleted_at") : stored.deleted_at) !== null;
-  const pinned = (columns.get("is_pinned") ?? stored.is_pinned) === 1;
-  if (!pinned || (!hidden && !archived && !deleted)) {
-    return null;
-  }
-
-  let maximum = versions.get("is_pinned");
-  for (const field of ["is_hidden", "archived_at", "deleted_at"]) {
-    const candidate = versions.get(field);
-    if (candidate !== undefined && (maximum === undefined || isAfter(candidate, maximum))) {
-      maximum = candidate;
-    }
-  }
-  const adjustedVersions = new Map(versions);
-  if (maximum !== undefined) {
-    adjustedVersions.set("is_pinned", maximum);
-  }
-  const adjustedColumns = new Map(columns);
-  adjustedColumns.set("is_pinned", 0);
-  return {
-    columns: adjustedColumns,
-    encodedVersions: encodeVersions(adjustedVersions),
   };
 }

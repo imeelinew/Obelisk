@@ -1,4 +1,5 @@
 import AppKit
+import KeyboardShortcuts
 import Sparkle
 
 @objc
@@ -12,6 +13,8 @@ private protocol StandardMenuActionSelectors {
 /// Standard macOS commands use the responder chain; application commands target the delegate.
 @MainActor
 enum ApplicationMenu {
+    private static let viewMenuDelegate = HiddenBookmarksShortcutMenuDelegate()
+
     static func install(
         updaterController: SPUStandardUpdaterController,
         target: AnyObject,
@@ -163,6 +166,7 @@ enum ApplicationMenu {
         let viewMenuItem = NSMenuItem()
         mainMenu.addItem(viewMenuItem)
         let viewMenu = NSMenu(title: NSLocalizedString("View", comment: "View menu title"))
+        viewMenu.delegate = viewMenuDelegate
         let showToolbarItem = NSMenuItem(title: NSLocalizedString("Show Toolbar", comment: "View menu"), action: #selector(NSWindow.toggleToolbarShown(_:)), keyEquivalent: "t")
         showToolbarItem.keyEquivalentModifierMask = [.command, .option]
         viewMenu.addItem(showToolbarItem)
@@ -209,12 +213,22 @@ enum ApplicationMenu {
         let item = NSMenuItem(
             title: NSLocalizedString("Show Hidden Bookmarks in Sidebar", comment: "View menu"),
             action: action,
-            keyEquivalent: "h"
+            keyEquivalent: ""
         )
-        item.keyEquivalentModifierMask = [.command, .shift]
         item.target = target
-        item.isHidden = true
+        item.setShortcut(for: .toggleHiddenBookmarksSidebar)
         return item
     }
 
+}
+
+@MainActor
+private final class HiddenBookmarksShortcutMenuDelegate: NSObject, NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        KeyboardShortcuts.disable(.toggleHiddenBookmarksSidebar)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        KeyboardShortcuts.enable(.toggleHiddenBookmarksSidebar)
+    }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import ObeliskCore
 
 /// Local SQLite schema. Plain GRDB tables; synchronization state lives in
 /// `sync_state` (HLC clock, pull cursor) and `outbox` (rows waiting for
@@ -25,7 +26,200 @@ public enum ObeliskSchema {
                 DROP TABLE IF EXISTS browser_history_tombstones;
                 """)
         }
+        migrator.registerMigration("2026-09-unify-bookmark-presentation") { database in
+            try migrateUnifiedBookmarkPresentation(database)
+        }
         return migrator
+    }
+
+    private static let commonCollectionID = "65b1a579-07c4-4f0c-97ee-3dd4af479cc3"
+    private static let migrationDate = "2026-09-11T07:43:51.000Z"
+    private static let migrationTimestamp = LogicalTimestamp(
+        milliseconds: 1_789_112_631_000,
+        counter: 0,
+        deviceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    )
+
+    private static func migrateUnifiedBookmarkPresentation(_ database: Database) throws {
+        let hasPinnedBookmarks = try Bool.fetchOne(
+            database,
+            sql: "SELECT EXISTS(SELECT 1 FROM bookmarks WHERE is_pinned = 1 AND deleted_at IS NULL)"
+        ) ?? false
+        let existingCommonID = try String.fetchOne(
+            database,
+            sql: """
+            SELECT id FROM collections
+            WHERE deleted_at IS NULL AND name = ? COLLATE NOCASE
+            ORDER BY created_at, id
+            LIMIT 1
+            """,
+            arguments: ["常用"]
+        )
+        let commonID = existingCommonID ?? commonCollectionID
+
+        if hasPinnedBookmarks, existingCommonID == nil {
+            let versions = try ObeliskDatabase.encodeVersions([
+                "name": migrationTimestamp,
+                "position_key": migrationTimestamp,
+                "show_in_menu": migrationTimestamp,
+                "deleted_at": migrationTimestamp,
+            ])
+            try database.execute(
+                sql: """
+                INSERT INTO collections (
+                    id, name, position_key, show_in_menu, field_versions,
+                    created_at, updated_at, deleted_at
+                ) VALUES (?, ?, ?, 0, ?, ?, ?, NULL)
+                """,
+                arguments: [
+                    commonID,
+                    "常用",
+                    collectionPosition(0),
+                    versions,
+                    migrationDate,
+                    migrationDate,
+                ]
+            )
+        }
+
+        let collectionRows = try Row.fetchAll(
+            database,
+            sql: "SELECT * FROM collections ORDER BY position_key, id"
+        )
+        let activeIDs = collectionRows.compactMap { row -> String? in
+            let deletedAt: String? = row["deleted_at"]
+            return deletedAt == nil ? row["id"] : nil
+        }
+        let orderedActiveIDs = hasPinnedBookmarks || existingCommonID != nil
+            ? [commonID] + activeIDs.filter { $0 != commonID }
+            : activeIDs
+        let activePositions = Dictionary(
+            uniqueKeysWithValues: orderedActiveIDs.enumerated().map { ($0.element, collectionPosition($0.offset)) }
+        )
+
+        try database.execute(sql: """
+            CREATE TABLE collections_next (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                position_key TEXT NOT NULL,
+                field_versions TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT
+            )
+            """)
+        for row in collectionRows {
+            let id: String = row["id"]
+            let oldPosition: String = row["position_key"]
+            let position = activePositions[id] ?? oldPosition
+            var versions = try ObeliskDatabase.decodeVersions(row["field_versions"])
+            versions.removeValue(forKey: "show_in_menu")
+            if position != oldPosition {
+                versions["position_key"] = max(versions["position_key"] ?? migrationTimestamp, migrationTimestamp)
+            }
+            try database.execute(
+                sql: """
+                INSERT INTO collections_next (
+                    id, name, position_key, field_versions, created_at, updated_at, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    id,
+                    row["name"] as String,
+                    position,
+                    try ObeliskDatabase.encodeVersions(versions),
+                    row["created_at"] as String,
+                    row["updated_at"] as String,
+                    row["deleted_at"] as String?,
+                ]
+            )
+        }
+
+        let bookmarkRows = try Row.fetchAll(database, sql: "SELECT * FROM bookmarks")
+        try database.execute(sql: """
+            CREATE TABLE bookmarks_next (
+                id TEXT PRIMARY KEY NOT NULL,
+                collection_id TEXT,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                title_optimization_state TEXT NOT NULL,
+                is_hidden INTEGER NOT NULL,
+                archived_at TEXT,
+                original_title TEXT,
+                position_key TEXT NOT NULL,
+                field_versions TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT
+            )
+            """)
+        for row in bookmarkRows {
+            let wasPinned: Bool = row["is_pinned"]
+            let deletedAt: String? = row["deleted_at"]
+            let shouldMigratePin = wasPinned && deletedAt == nil
+            let wasOptimized: Bool = row["title_optimized"]
+            var versions = try ObeliskDatabase.decodeVersions(row["field_versions"])
+            versions["title_optimization_state"] = versions["title_optimized"] ?? migrationTimestamp
+            versions.removeValue(forKey: "title_optimized")
+            if shouldMigratePin {
+                versions["collection_id"] = max(
+                    versions["collection_id"] ?? migrationTimestamp,
+                    versions["is_pinned"] ?? migrationTimestamp
+                )
+            }
+            versions.removeValue(forKey: "is_pinned")
+            let oldCollectionID: String? = row["collection_id"]
+            try database.execute(
+                sql: """
+                INSERT INTO bookmarks_next (
+                    id, collection_id, title, url, title_optimization_state,
+                    is_hidden, archived_at, original_title, position_key,
+                    field_versions, created_at, updated_at, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    row["id"] as String,
+                    shouldMigratePin ? commonID : oldCollectionID,
+                    row["title"] as String,
+                    row["url"] as String,
+                    wasOptimized ? TitleOptimizationState.succeeded.rawValue : TitleOptimizationState.notAttempted.rawValue,
+                    row["is_hidden"] as Bool,
+                    row["archived_at"] as String?,
+                    row["original_title"] as String?,
+                    row["position_key"] as String,
+                    try ObeliskDatabase.encodeVersions(versions),
+                    row["created_at"] as String,
+                    row["updated_at"] as String,
+                    deletedAt,
+                ]
+            )
+        }
+
+        try database.execute(sql: """
+            DROP TABLE bookmarks;
+            ALTER TABLE bookmarks_next RENAME TO bookmarks;
+            CREATE INDEX bookmarks_active_position ON bookmarks (deleted_at, position_key);
+            CREATE INDEX bookmarks_collection ON bookmarks (collection_id);
+            DROP TABLE collections;
+            ALTER TABLE collections_next RENAME TO collections;
+            CREATE INDEX collections_active_position ON collections (deleted_at, position_key);
+            """)
+
+        for table in ["bookmarks", "collections"] {
+            let ids = try String.fetchAll(database, sql: "SELECT id FROM \(table)")
+            for id in ids {
+                try ObeliskDatabase.enqueueOutbox(
+                    database,
+                    table: table,
+                    rowID: id,
+                    now: Date(timeIntervalSince1970: 1_789_112_631)
+                )
+            }
+        }
+    }
+
+    private static func collectionPosition(_ sortOrder: Int) -> String {
+        String(format: "%020d", sortOrder)
     }
 
     private static func createTables(_ database: Database) throws {

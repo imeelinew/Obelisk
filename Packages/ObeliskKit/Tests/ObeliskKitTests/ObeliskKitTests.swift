@@ -95,7 +95,7 @@ struct ObeliskKitTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let database = try ObeliskDatabase.open(rootDirectory: root, deviceID: UUID())
-        let collection = BookmarkCollection(name: "Reference", sortOrder: 7, showInMenu: true)
+        let collection = BookmarkCollection(name: "Reference", sortOrder: 7)
         let bookmark = Bookmark(
             title: "Obelisk",
             url: "https://obelisk.example",
@@ -143,6 +143,26 @@ struct ObeliskKitTests {
         )
         let deletePayload = try #require(try database.pushRow(for: deleteEntry))
         #expect(deletePayload.values["deleted_at"] != .null)
+    }
+
+    @Test func collectionReorderIsAtomicAndQueuesEveryChangedCollection() throws {
+        let root = temporaryRoot("CollectionReorder")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try ObeliskDatabase.open(rootDirectory: root, deviceID: UUID())
+        let first = BookmarkCollection(name: "First", sortOrder: 0)
+        let second = BookmarkCollection(name: "Second", sortOrder: 1)
+        let third = BookmarkCollection(name: "Third", sortOrder: 2)
+        try database.saveCollection(first)
+        try database.saveCollection(second)
+        try database.saveCollection(third)
+        try database.completeOutboxEntries(try database.outboxBatch())
+
+        try database.reorderCollections([third.id, first.id, second.id])
+
+        #expect(try database.loadSnapshot().collections.map(\.id) == [third.id, first.id, second.id])
+        let queued = try database.outboxBatch()
+        #expect(Set(queued.map(\.rowID)) == Set([first.id, second.id, third.id].map { $0.uuidString.lowercased() }))
+        #expect(queued.allSatisfy { $0.tableName == "collections" })
     }
 
     @Test func databaseObserversBroadcastChanges() async throws {
@@ -215,14 +235,13 @@ struct ObeliskKitTests {
         let future = Int64(Date().addingTimeInterval(3_600).timeIntervalSince1970 * 1_000)
         let past = Int64(Date().addingTimeInterval(-3_600).timeIntervalSince1970 * 1_000)
 
-        // A newer remote title wins; an older remote pin state loses.
+        // A newer remote title wins while older remote fields lose
         let page = try changesPage(
             bookmarks: [
                 remoteBookmarkJSON(
                     id: bookmark.id,
                     title: "Remote title",
                     url: "https://example.com",
-                    isPinned: true,
                     titleVersion: (future, remoteDevice),
                     otherVersion: (past, remoteDevice)
                 )
@@ -233,7 +252,7 @@ struct ObeliskKitTests {
         let snapshot = try database.loadSnapshot()
         #expect(snapshot.bookmarks.count == 1)
         #expect(snapshot.bookmarks[0].title == "Remote title")
-        #expect(snapshot.bookmarks[0].isPinned == false)
+        #expect(snapshot.bookmarks[0].titleOptimizationState == .notAttempted)
 
         // Applying the same page again changes nothing.
         try database.applyRemoteChanges(page)
@@ -257,7 +276,6 @@ struct ObeliskKitTests {
                     id: bookmark.id,
                     title: "Remote",
                     url: "https://example.com",
-                    isPinned: false,
                     titleVersion: (futureMilliseconds, remoteDevice),
                     otherVersion: (0, remoteDevice)
                 )
@@ -292,7 +310,6 @@ struct ObeliskKitTests {
                     id: UUID(),
                     title: "From cloud",
                     url: "https://cloud.example",
-                    isPinned: false,
                     titleVersion: (1_000, UUID()),
                     otherVersion: (1_000, UUID())
                 )
@@ -402,9 +419,11 @@ struct ObeliskKitTests {
         let snapshot = try database.loadSnapshot()
         #expect(snapshot.bookmarks.count == 1)
         #expect(snapshot.bookmarks[0].title == "Migrated")
-        #expect(snapshot.bookmarks[0].isPinned == true)
-        #expect(snapshot.collections.first?.name == "Reading")
-        #expect(snapshot.collectionByBookmarkID[UUID(uuidString: bookmarkID)!] == UUID(uuidString: collectionID))
+        let common = try #require(snapshot.collections.first(where: { $0.name == "常用" }))
+        #expect(snapshot.collections.first?.id == common.id)
+        #expect(snapshot.collections.contains(where: { $0.name == "Reading" }))
+        #expect(snapshot.collectionByBookmarkID[UUID(uuidString: bookmarkID)!] == common.id)
+        #expect(snapshot.bookmarks[0].titleOptimizationState == .notAttempted)
         #expect(snapshot.usageByBookmarkID[UUID(uuidString: bookmarkID)!]?.count == 1)
         #expect(try database.syncCursor() == 0)
 
@@ -438,7 +457,6 @@ struct ObeliskKitTests {
             id: remoteBookmarkID,
             title: "Remote",
             url: "https://remote.example",
-            isPinned: false,
             titleVersion: (2_000, UUID()),
             otherVersion: (2_000, UUID())
         )
@@ -690,13 +708,12 @@ struct ObeliskKitTests {
         id: UUID,
         title: String,
         url: String,
-        isPinned: Bool,
         titleVersion: (Int64, UUID),
         otherVersion: (Int64, UUID)
     ) throws -> String {
         let fields = [
-            "collection_id", "url", "title_optimized", "is_hidden",
-            "archived_at", "is_pinned", "original_title", "position_key", "deleted_at",
+            "collection_id", "url", "title_optimization_state", "is_hidden",
+            "archived_at", "original_title", "position_key", "deleted_at",
         ]
         let otherVersions = fields
             .map { "\"\($0)\": \(versionJSON(otherVersion.0, otherVersion.1))" }
@@ -707,10 +724,9 @@ struct ObeliskKitTests {
           "collection_id": null,
           "title": "\(title)",
           "url": "\(url)",
-          "title_optimized": 0,
+          "title_optimization_state": "not_attempted",
           "is_hidden": 0,
           "archived_at": null,
-          "is_pinned": \(isPinned ? 1 : 0),
           "original_title": null,
           "position_key": "00000000000000000001-x",
           "created_at": "2026-07-01T00:00:00.000Z",

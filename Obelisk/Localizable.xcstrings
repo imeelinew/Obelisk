@@ -65,23 +65,6 @@
     "Base URL" : {
 
     },
-    "bookmark.action.pin" : {
-      "comment" : "Action title for pinning bookmarks",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pin"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "置顶"
-          }
-        }
-      }
-    },
     "Bring All to Front" : {
       "comment" : "Window menu",
       "localizations" : {
@@ -1912,55 +1895,6 @@
         }
       }
     },
-    "取消置顶" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unpin"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "取消置顶"
-          }
-        }
-      }
-    },
-    "取消置顶?" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unpin bookmarks?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "取消置顶?"
-          }
-        }
-      }
-    },
-    "取消置顶选中的书签" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unpin Selected Bookmarks"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "取消置顶选中的书签"
-          }
-        }
-      }
-    },
     "可用" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2430,23 +2364,6 @@
         }
       }
     },
-    "已取消置顶" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unpinned"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已取消置顶"
-          }
-        }
-      }
-    },
     "已同步" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2544,23 +2461,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已放入分组的书签在「分组」页查看"
-          }
-        }
-      }
-    },
-    "已置顶" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pinned"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已置顶"
           }
         }
       }
@@ -3029,40 +2929,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "按使用频率"
-          }
-        }
-      }
-    },
-    "按最近添加" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "By Recently Added"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按最近添加"
-          }
-        }
-      }
-    },
-    "按名称" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "By Name"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按名称"
           }
         }
       }
@@ -3738,23 +3604,6 @@
         }
       }
     },
-    "没有需要自动分组的书签" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No Bookmarks Need Auto-Grouping"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "没有需要自动分组的书签"
-          }
-        }
-      }
-    },
     "测试中…" : {
       "localizations" : {
         "en" : {
@@ -4201,55 +4050,6 @@
         }
       }
     },
-    "置顶" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pinned"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "置顶"
-          }
-        }
-      }
-    },
-    "置顶书签?" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pin bookmarks?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "置顶书签?"
-          }
-        }
-      }
-    },
-    "置顶选中的书签" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pin Selected Bookmarks"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "置顶选中的书签"
-          }
-        }
-      }
-    },
     "自动优化新书签标题" : {
       "localizations" : {
         "en" : {
@@ -4262,22 +4062,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自动优化新书签标题"
-          }
-        }
-      }
-    },
-    "自动分组新书签" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-Group New Bookmarks"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动分组新书签"
           }
         }
       }
@@ -4375,22 +4159,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "菜单栏"
-          }
-        }
-      }
-    },
-    "菜单栏排序" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Menu Bar Order"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "菜单栏排序"
           }
         }
       }

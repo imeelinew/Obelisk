@@ -1,114 +1,56 @@
 import Foundation
 import ObeliskCore
 import ObeliskData
-import Observation
 import Testing
 @testable import Obelisk
 
-// Join the existing serialized suite because Intelligence preferences use standard defaults.
 extension FeatureRegressionTests {
     @MainActor
-    @Test func intelligenceBusyStateRemainsObservableAndRejectsCombinedReentry() async throws {
+    @Test func titleOptimizationQueueProcessesConsecutiveBookmarksSerially() async throws {
         try await withIntelligenceStore { store in
-            let bookmark = try store.add(title: "Original", url: "https://busy.example")
-            let optimizer = InspectingIntelligenceOptimizer()
-            let model = BookmarksModel(store: store, titleOptimizer: optimizer, groupOptimizer: optimizer)
-            let changes = IntelligenceObservationCount()
-            withObservationTracking {
-                _ = model.isOptimizingBookmarks
-            } onChange: {
-                changes.increment()
-            }
-            optimizer.titleAction = { [weak model] _ in
-                let model = try #require(model)
-                #expect(model.isOptimizingBookmarks)
-                #expect(model.isOptimizingTitles)
-                #expect(!model.isAutoGroupingBookmarks)
-                #expect(changes.value == 1)
-                let titles = await model.optimizeTitleDetails(bookmarkIds: [bookmark.id])
-                let grouping = await model.autoGroupBookmarks()
-                let combined = await model.optimizeBookmarks(options: .init(optimizeTitles: true, autoGroup: true))
-                #expect(titles.status == .failed)
-                #expect(grouping.status == .failed)
-                #expect(combined.titleOptimization?.status == .failed)
-                #expect(combined.autoGrouping?.status == .failed)
-                // Observe the reset separately: Observation subscriptions are one-shot.
-                withObservationTracking {
-                    _ = model.isOptimizingTitles
-                } onChange: {
-                    changes.increment()
-                }
-                throw CancellationError()
-            }
-            let outcome = await model.optimizeBookmarks(options: .init(optimizeTitles: true, autoGroup: false))
-            #expect(outcome.titleOptimization?.status == .failed)
-            #expect(!model.isOptimizingBookmarks)
-            #expect(!model.isOptimizingTitles)
-            #expect(!model.isAutoGroupingBookmarks)
-            #expect(changes.value == 2)
-            #expect(try store.snapshot().bookmarks.first?.title == "Original")
+            let first = try store.add(title: "First", url: "https://first-queue.example")
+            let second = try store.add(title: "Second", url: "https://second-queue.example")
+            let optimizer = SerialTitleOptimizer()
+            let model = BookmarksModel(store: store, titleOptimizer: optimizer)
+
+            let firstTask = Task { await model.enqueueTitleOptimization(bookmarkIds: [first.id]) }
+            await Task.yield()
+            let secondTask = Task { await model.enqueueTitleOptimization(bookmarkIds: [second.id]) }
+            let outcomes = await [firstTask.value, secondTask.value]
+
+            #expect(outcomes[0].didChange)
+            #expect(outcomes[1].didChange)
+            #expect(optimizer.maximumConcurrentRequests == 1)
+            #expect(optimizer.requestedIDs == [first.id, second.id])
+            let bookmarks = try store.snapshot().bookmarks
+            #expect(bookmarks.allSatisfy { $0.titleOptimizationState == .succeeded })
         }
     }
 
     @MainActor
-    @Test func intelligenceStandaloneStepsCanOverlapAndCommitLocally() async throws {
+    @Test func failedOptimizationPersistsAndCanBeRetried() async throws {
         try await withIntelligenceStore { store in
-            let bookmark = try store.add(title: "Original", url: "https://overlap.example")
-            try store.createCollection(name: "Reading")
-            let optimizer = InspectingIntelligenceOptimizer()
-            let model = BookmarksModel(store: store, titleOptimizer: optimizer, groupOptimizer: optimizer)
-            optimizer.titleAction = { [weak model] _ in
-                let model = try #require(model)
-                #expect(model.isOptimizingTitles)
-                #expect(!model.isOptimizingBookmarks)
-                let grouping = await model.autoGroupBookmarks()
-                #expect(grouping.status == .changed)
-                #expect(model.isOptimizingTitles)
-                #expect(!model.isAutoGroupingBookmarks)
-                return [bookmark.id: "Optimized"]
-            }
-            optimizer.groupAction = { [weak model] candidates in
-                let model = try #require(model)
-                #expect(model.isOptimizingTitles)
-                #expect(model.isAutoGroupingBookmarks)
-                #expect(candidates.map(\.title) == ["Original"])
-                let duplicate = await model.autoGroupBookmarks()
-                #expect(duplicate.status == .failed)
-                return [bookmark.id: "Reading"]
-            }
-            let result = await model.optimizeTitleDetails(bookmarkIds: [bookmark.id])
-            #expect(result.optimizedTitles == ["Optimized"])
-            #expect(!model.isOptimizingTitles)
-            let snapshot = try store.snapshot()
-            #expect(snapshot.bookmarks.first?.title == "Optimized")
-            #expect(snapshot.collectionByBookmarkID[bookmark.id] == snapshot.collections.first?.id)
+            let bookmark = try store.add(title: "Original", url: "https://retry.example")
+            let optimizer = RetryTitleOptimizer()
+            let model = BookmarksModel(store: store, titleOptimizer: optimizer)
+
+            let failed = await model.enqueueTitleOptimization(bookmarkIds: [bookmark.id])
+            #expect(failed.status == .failed)
+            #expect(try store.snapshot().bookmarks.first?.titleOptimizationState == .failed)
+
+            optimizer.shouldFail = false
+            let retried = await model.enqueueTitleOptimization(bookmarkIds: [bookmark.id])
+            #expect(retried.didChange)
+            let updated = try #require(try store.snapshot().bookmarks.first)
+            #expect(updated.title == "Optimized")
+            #expect(updated.titleOptimizationState == .succeeded)
         }
     }
 
     @MainActor
-    @Test func intelligenceRechecksGroupingEligibilityAfterOptimizerReturns() async throws {
-        try await withIntelligenceStore { store in
-            let bookmark = try store.add(title: "Original", url: "https://recheck.example")
-            try store.createCollection(name: "Reading")
-            let optimizer = InspectingIntelligenceOptimizer()
-            let model = BookmarksModel(store: store, groupOptimizer: optimizer)
-            optimizer.groupAction = { [weak model] candidates in
-                let model = try #require(model)
-                #expect(candidates.map(\.id) == [bookmark.id])
-                #expect(model.setHidden(true, for: bookmark.id) == nil)
-                await Task.yield()
-                return [bookmark.id: "Reading"]
-            }
-            let outcome = await model.autoGroupBookmarks()
-            #expect(outcome.status == .noChange)
-            #expect(outcome.groupedCount == 0)
-            #expect(!model.isAutoGroupingBookmarks)
-            #expect(try store.snapshot().collectionByBookmarkID[bookmark.id] == nil)
-        }
-    }
-
-    @MainActor
-    private func withIntelligenceStore(_ body: @MainActor (BookmarkStore) async throws -> Void) async throws {
+    private func withIntelligenceStore(
+        _ body: @MainActor (BookmarkStore) async throws -> Void
+    ) async throws {
         let defaults = UserDefaults.standard
         let previous = defaults.object(forKey: BookmarksModel.aiFeaturesEnabledKey)
         defaults.set(true, forKey: BookmarksModel.aiFeaturesEnabledKey)
@@ -126,27 +68,29 @@ extension FeatureRegressionTests {
     }
 }
 
-@MainActor
-private final class InspectingIntelligenceOptimizer: TitleOptimizing, BookmarkGroupingOptimizing {
-    var titleAction: (@MainActor ([TitleOptimizationCandidate]) async throws -> [UUID: String])?
-    var groupAction: (@MainActor ([BookmarkGroupingCandidate]) async throws -> [UUID: String])?
+private final class SerialTitleOptimizer: TitleOptimizing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var activeRequests = 0
+    private(set) var maximumConcurrentRequests = 0
+    private(set) var requestedIDs: [UUID] = []
 
     func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String] {
-        try await titleAction?(candidates) ?? [:]
-    }
-
-    func suggestGroups(
-        for candidates: [BookmarkGroupingCandidate],
-        existingCollections: [BookmarkGroupingExistingCollection]
-    ) async throws -> [UUID: String] {
-        try await groupAction?(candidates) ?? [:]
+        lock.withLock {
+            activeRequests += 1
+            maximumConcurrentRequests = max(maximumConcurrentRequests, activeRequests)
+            requestedIDs.append(contentsOf: candidates.map(\.id))
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        lock.withLock { activeRequests -= 1 }
+        return Dictionary(uniqueKeysWithValues: candidates.map { ($0.id, "Optimized \($0.title)") })
     }
 }
 
-private final class IntelligenceObservationCount: @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
+private final class RetryTitleOptimizer: TitleOptimizing, @unchecked Sendable {
+    var shouldFail = true
 
-    var value: Int { lock.withLock { count } }
-    func increment() { lock.withLock { count += 1 } }
+    func optimize(_ candidates: [TitleOptimizationCandidate]) async throws -> [UUID: String] {
+        if shouldFail { throw TitleOptimizerError.requestFailed }
+        return Dictionary(uniqueKeysWithValues: candidates.map { ($0.id, "Optimized") })
+    }
 }

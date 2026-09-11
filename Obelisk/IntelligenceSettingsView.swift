@@ -6,7 +6,6 @@ struct IntelligenceSettingsView: View {
     let onMessage: (String, Bool) -> Void
     @Bindable var settings: IntelligenceSettingsModel
     @AppStorage(TitleOptimizationPreferences.autoOptimizeNewBookmarksKey) private var autoOptimizeNewBookmarks = false
-    @AppStorage(BookmarkAutoGroupingPreferences.autoGroupNewBookmarksKey) private var autoGroupNewBookmarks = false
     @AppStorage(TitleOptimizationTranslation.storageKey) private var translateNonChineseTitles = false
     @AppStorage(BookmarksModel.aiFeaturesEnabledKey) private var aiFeaturesEnabled = true
     @AppStorage(TitleOptimizationPreferences.optimizeHiddenBookmarksKey) private var optimizeHiddenBookmarks = false
@@ -21,7 +20,6 @@ struct IntelligenceSettingsView: View {
             if aiFeaturesEnabled {
                 Section("Intelligence 书签优化") {
                     Toggle("自动优化新书签标题", isOn: $autoOptimizeNewBookmarks)
-                    Toggle("自动分组新书签", isOn: $autoGroupNewBookmarks)
                     Toggle("优化隐藏书签", isOn: $optimizeHiddenBookmarks)
                     Toggle("自动翻译非中文标题", isOn: $translateNonChineseTitles)
                 }

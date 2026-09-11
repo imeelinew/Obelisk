@@ -6,9 +6,7 @@ struct NativeBookmarkContextMenuConfiguration {
     var onCopyURL: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
     var onRevertTitleOptimization: (() -> Void)? = nil
-    var pinStateActionTitle: String? = nil
-    var pinStateSystemSymbolName: String? = nil
-    var onSetPinned: (() -> Void)? = nil
+    var onRetryTitleOptimization: (() -> Void)? = nil
     var collectionAssignOptions: [BookmarkCollectionAssignOption] = []
     var onAssignCollection: ((UUID?) -> Void)? = nil
     var hiddenStateActionTitle: String? = nil
@@ -92,25 +90,6 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
             when: configuration.onEdit != nil,
             to: menu
         )
-        appendItem(
-            title: "恢复原标题".obeliskLocalized,
-            systemSymbolName: "arrow.uturn.backward",
-            action: #selector(revertTitleOptimization(_:)),
-            when: configuration.onRevertTitleOptimization != nil,
-            to: menu
-        )
-
-        if let title = configuration.pinStateActionTitle,
-           let systemSymbolName = configuration.pinStateSystemSymbolName,
-           configuration.onSetPinned != nil {
-            appendSeparator(to: menu)
-            menu.addItem(menuItem(
-                title: title,
-                systemSymbolName: systemSymbolName,
-                action: #selector(setPinned(_:))
-            ))
-        }
-
         if !configuration.collectionAssignOptions.isEmpty,
            configuration.onAssignCollection != nil {
             appendSeparator(to: menu)
@@ -132,6 +111,21 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
             moveItem.submenu = submenu
             menu.addItem(moveItem)
         }
+
+        appendItem(
+            title: "恢复原标题".obeliskLocalized,
+            systemSymbolName: "arrow.uturn.backward",
+            action: #selector(revertTitleOptimization(_:)),
+            when: configuration.onRevertTitleOptimization != nil,
+            to: menu
+        )
+        appendItem(
+            title: "重新优化".obeliskLocalized,
+            systemSymbolName: "sparkles",
+            action: #selector(retryTitleOptimization(_:)),
+            when: configuration.onRetryTitleOptimization != nil,
+            to: menu
+        )
 
         if let title = configuration.hiddenStateActionTitle,
            let systemSymbolName = configuration.hiddenStateSystemSymbolName,
@@ -232,8 +226,8 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
         configuration?.onRevertTitleOptimization?()
     }
 
-    @objc private func setPinned(_ sender: NSMenuItem) {
-        configuration?.onSetPinned?()
+    @objc private func retryTitleOptimization(_ sender: NSMenuItem) {
+        configuration?.onRetryTitleOptimization?()
     }
 
     @objc private func assignCollection(_ sender: NSMenuItem) {

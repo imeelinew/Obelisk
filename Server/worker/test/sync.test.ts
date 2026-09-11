@@ -23,10 +23,9 @@ function bookmarkValues(overrides: Record<string, unknown> = {}) {
     collection_id: null,
     title: "Example",
     url: "https://example.com",
-    title_optimized: false,
+    title_optimization_state: "not_attempted",
     is_hidden: false,
     archived_at: null,
-    is_pinned: false,
     original_title: "Example",
     position_key: "00000000000000000001-x",
     deleted_at: null,
@@ -40,10 +39,9 @@ function allVersions(milliseconds: number, deviceID = deviceA) {
     "collection_id",
     "title",
     "url",
-    "title_optimized",
+    "title_optimization_state",
     "is_hidden",
     "archived_at",
-    "is_pinned",
     "original_title",
     "position_key",
     "deleted_at",
@@ -165,14 +163,14 @@ describe("push and pull", () => {
       {
         table: "bookmarks",
         id: bookmarkID,
-        values: bookmarkValues({ is_pinned: true }),
-        fieldVersions: { ...allVersions(1000), is_pinned: version(2001, 0, deviceB) },
+        values: bookmarkValues({ is_hidden: true }),
+        fieldVersions: { ...allVersions(1000), is_hidden: version(2001, 0, deviceB) },
       },
     ]);
 
     const feed = await changes(0);
     expect(feed.bookmarks[0].title).toBe("Renamed by A");
-    expect(feed.bookmarks[0].is_pinned).toBe(1);
+    expect(feed.bookmarks[0].is_hidden).toBe(1);
   });
 
   it("lets the same field converge on the newer version and ignores older writes", async () => {
@@ -212,13 +210,11 @@ describe("push and pull", () => {
         values: {
           name: "Reading",
           position_key: "00000000000000000000",
-          show_in_menu: true,
           deleted_at: null,
         },
         fieldVersions: {
           name: version(1000),
           position_key: version(1000),
-          show_in_menu: version(1000),
           deleted_at: version(1000),
         },
       },
@@ -231,12 +227,12 @@ describe("push and pull", () => {
     expect(feed.collections).toHaveLength(1);
   });
 
-  it("unpins bookmarks that become hidden, archived, or deleted", async () => {
+  it("persists failed title optimization state", async () => {
     await push([
       {
         table: "bookmarks",
         id: bookmarkID,
-        values: bookmarkValues({ is_pinned: true }),
+        values: bookmarkValues(),
         fieldVersions: allVersions(1000),
       },
     ]);
@@ -244,14 +240,16 @@ describe("push and pull", () => {
       {
         table: "bookmarks",
         id: bookmarkID,
-        values: bookmarkValues({ is_pinned: true, archived_at: "2026-07-02T00:00:00.000Z" }),
-        fieldVersions: { ...allVersions(1000), archived_at: version(2000, 0, deviceB) },
+        values: bookmarkValues({ title_optimization_state: "failed" }),
+        fieldVersions: {
+          ...allVersions(1000),
+          title_optimization_state: version(2000, 0, deviceB),
+        },
       },
     ]);
 
     const feed = await changes(0);
-    expect(feed.bookmarks[0].archived_at).toBe("2026-07-02T00:00:00.000Z");
-    expect(feed.bookmarks[0].is_pinned).toBe(0);
+    expect(feed.bookmarks[0].title_optimization_state).toBe("failed");
   });
 
   it("stores usage events exactly once", async () => {

@@ -17,7 +17,18 @@ enum ObeliskAppDefaults {
             openHiddenBookmarksIncognitoKey: true
         ])
         TitleOptimizationPreferences.register(in: defaults)
-        BookmarkAutoGroupingPreferences.register(in: defaults)
+        for obsoleteKey in [
+            "autoGroupNewBookmarks",
+            "bookmarkListSortMode",
+            "pinnedBookmarkListSortMode",
+            "collectionBookmarkListSortMode",
+            "hiddenBookmarkListSortMode",
+            "hiddenBookmarkDisplayMode",
+            "collectionBookmarkDisplayMode",
+            "menuBarSectionOrder"
+        ] {
+            defaults.removeObject(forKey: obsoleteKey)
+        }
         HiddenBookmarkKeywordExclusion.register(in: defaults)
         AppLanguagePreference.applyStoredPreference(in: defaults)
     }

@@ -16,7 +16,8 @@ enum ApplicationMenu {
         updaterController: SPUStandardUpdaterController,
         target: AnyObject,
         openManager: Selector,
-        newBookmark: Selector
+        newBookmark: Selector,
+        toggleHiddenBookmarksSidebar: Selector
     ) {
         let mainMenu = NSMenu()
 
@@ -167,6 +168,11 @@ enum ApplicationMenu {
         viewMenu.addItem(showToolbarItem)
         let customizeToolbarItem = NSMenuItem(title: NSLocalizedString("Customize Toolbar…", comment: "View menu"), action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
         viewMenu.addItem(customizeToolbarItem)
+        let hiddenBookmarksSidebarItem = hiddenBookmarksSidebarMenuItem(
+            target: target,
+            action: toggleHiddenBookmarksSidebar
+        )
+        viewMenu.addItem(hiddenBookmarksSidebarItem)
         viewMenu.addItem(.separator())
         let fullScreenItem = NSMenuItem(title: NSLocalizedString("Enter Full Screen", comment: "View menu"), action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreenItem.keyEquivalentModifierMask = [.command, .control]
@@ -197,6 +203,18 @@ enum ApplicationMenu {
         NSApp.helpMenu = helpMenu
 
         NSApp.mainMenu = mainMenu
+    }
+
+    static func hiddenBookmarksSidebarMenuItem(target: AnyObject, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: NSLocalizedString("Show Hidden Bookmarks in Sidebar", comment: "View menu"),
+            action: action,
+            keyEquivalent: "h"
+        )
+        item.keyEquivalentModifierMask = [.command, .shift]
+        item.target = target
+        item.isHidden = true
+        return item
     }
 
 }

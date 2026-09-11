@@ -66,7 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updaterController: updaterController,
             target: self,
             openManager: #selector(openManager),
-            newBookmark: #selector(newBookmarkFromMenu(_:))
+            newBookmark: #selector(newBookmarkFromMenu(_:)),
+            toggleHiddenBookmarksSidebar: #selector(toggleHiddenBookmarksSidebarFromMenu(_:))
         )
         guard !isUnitTesting else { return }
         Task {
@@ -270,6 +271,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func newBookmarkFromMenu(_ sender: Any?) {
         openManager()
         addRequest.request(url: nil, title: nil, isHidden: false)
+    }
+
+    @objc private func toggleHiddenBookmarksSidebarFromMenu(_ sender: Any?) {
+        ObeliskAppDefaults.toggleShowHiddenBookmarksPage()
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {

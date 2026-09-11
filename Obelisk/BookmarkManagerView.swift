@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 import ObeliskCore
 import ObeliskSync
 import SwiftUI
@@ -45,7 +44,6 @@ struct BookmarkManagerView: View {
     @State var searchFocusRequest = 0
     @State var intelligenceSettings = IntelligenceSettingsModel()
     @State var hiddenBookmarksUnlocked = false
-    @State var quickLookController = QuickLookController()
     @AppStorage(SidebarIconTheme.storageKey) var sidebarIconThemeRaw = SidebarIconTheme.professional.rawValue
     @AppStorage(SidebarIconStyle.storageKey) var sidebarIconStyleRaw = SidebarIconStyle.tabler.rawValue
     @AppStorage(MenuBarIconStyle.storageKey) var menuBarIconStyleRaw = MenuBarIconStyle.outline.rawValue
@@ -53,7 +51,7 @@ struct BookmarkManagerView: View {
     let sidebarIconSymbolSize = 11.0
     let sidebarIconCornerRadius = 6.0
     let professionalSidebarIconSize = 15.0
-    @AppStorage("showHiddenBookmarksPage") var showHiddenBookmarksPage = false
+    @AppStorage(ObeliskAppDefaults.showHiddenBookmarksPageKey) var showHiddenBookmarksPage = false
     @AppStorage("showsURLHostOnly") var showsURLHostOnly = false
     @AppStorage("menuRecentGroupLimit") var menuRecentGroupLimit = 5
     @AppStorage(BookmarksModel.autoArchiveEnabledKey) var autoArchiveEnabled = false
@@ -1226,10 +1224,6 @@ struct BookmarkManagerView: View {
         )
     }
 
-    func toggleHiddenBookmarksPageVisibility() {
-        showHiddenBookmarksPage.toggle()
-    }
-
     var settingsPageBinding: Binding<SettingsPage?> {
         Binding<SettingsPage?>(
             get: { settingsPage },
@@ -1288,16 +1282,6 @@ struct BookmarkManagerView: View {
                 WindowBackgroundBlur(materialAlpha: effectiveBlurAlpha)
                     .ignoresSafeArea()
             }
-
-            Button {
-                toggleHiddenBookmarksPageVisibility()
-            } label: {
-                EmptyView()
-            }
-            .keyboardShortcut("h", modifiers: [.command, .shift])
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
         }
         .sheet(item: $presentation) { kind in
             switch kind {
@@ -1324,20 +1308,9 @@ struct BookmarkManagerView: View {
             // so we'd miss the initial request without this check. Subsequent
             // presses (window already open) hit .onChange below.
             consumePendingAddRequestIfNeeded()
-
-            let modelRef = model
-            let selectionBinding = $selection
-            let presentationBinding = $presentation
-            quickLookController.selection = { selectionBinding.wrappedValue }
-            quickLookController.bookmarkLookup = { id in
-                modelRef.bookmarks.first { $0.id == id }
-            }
-            quickLookController.isSheetPresented = { presentationBinding.wrappedValue != nil }
-            quickLookController.install()
         }
         .onDisappear {
             intelligenceSettings.flush()
-            quickLookController.uninstall()
         }
         .onChange(of: addRequest.seq) { _, _ in
             consumePendingAddRequestIfNeeded()

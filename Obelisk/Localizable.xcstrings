@@ -868,6 +868,9 @@
         }
       }
     },
+    "Show Hidden Bookmarks in Sidebar" : {
+      "comment" : "View menu"
+    },
     "Show Spelling and Grammar" : {
       "comment" : "Edit menu",
       "localizations" : {
@@ -3246,22 +3249,6 @@
         }
       }
     },
-    "显示或隐藏侧边栏" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show or Hide Sidebar"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示或隐藏侧边栏"
-          }
-        }
-      }
-    },
     "显示完整网站域名" : {
       "localizations" : {
         "en" : {
@@ -3274,6 +3261,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示完整网站域名"
+          }
+        }
+      }
+    },
+    "显示或隐藏侧边栏" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show or Hide Sidebar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示或隐藏侧边栏"
           }
         }
       }

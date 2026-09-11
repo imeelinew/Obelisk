@@ -182,6 +182,33 @@ struct FeatureRegressionTests {
     }
 
     @MainActor
+    @Test func hiddenBookmarksSidebarShortcutUsesAHiddenMenuItem() {
+        let target = HiddenBookmarksSidebarMenuActionStub()
+        let item = ApplicationMenu.hiddenBookmarksSidebarMenuItem(
+            target: target,
+            action: #selector(HiddenBookmarksSidebarMenuActionStub.toggle(_:))
+        )
+
+        #expect(item.isHidden)
+        #expect(item.keyEquivalent == "h")
+        #expect(item.keyEquivalentModifierMask == [.command, .shift])
+        #expect(item.action == #selector(HiddenBookmarksSidebarMenuActionStub.toggle(_:)))
+    }
+
+    @Test func togglingHiddenBookmarksSidebarVisibilityFlipsStoredFlag() {
+        let defaults = UserDefaults.standard
+        let key = ObeliskAppDefaults.showHiddenBookmarksPageKey
+        let previous = defaults.object(forKey: key)
+        defer { restore(previous, key: key, defaults: defaults) }
+
+        defaults.set(false, forKey: key)
+        ObeliskAppDefaults.toggleShowHiddenBookmarksPage(in: defaults)
+        #expect(defaults.bool(forKey: key))
+        ObeliskAppDefaults.toggleShowHiddenBookmarksPage(in: defaults)
+        #expect(!defaults.bool(forKey: key))
+    }
+
+    @MainActor
     @Test func menuItemFaviconsRemainVisibleAndUseBalancedRowHeight() {
         let menuItem = NSMenuItem(title: "Bookmark", action: nil, keyEquivalent: "")
         let oversizedFavicon = AppIcon.faviconPlaceholder(size: NSSize(width: 32, height: 32))
@@ -1010,6 +1037,11 @@ private final class StubBookmarkGroupOptimizer: BookmarkGroupingOptimizing {
         existingCollectionNames = existingCollections.map(\.name)
         return response
     }
+}
+
+@MainActor
+private final class HiddenBookmarksSidebarMenuActionStub: NSObject {
+    @objc func toggle(_ sender: Any?) {}
 }
 
 @MainActor

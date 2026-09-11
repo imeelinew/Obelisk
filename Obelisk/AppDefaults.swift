@@ -2,6 +2,11 @@ import Foundation
 
 enum ObeliskAppDefaults {
     static let openHiddenBookmarksIncognitoKey = "openHiddenBookmarksIncognito"
+    static let showHiddenBookmarksPageKey = "showHiddenBookmarksPage"
+
+    static func toggleShowHiddenBookmarksPage(in defaults: UserDefaults = .standard) {
+        defaults.set(!defaults.bool(forKey: showHiddenBookmarksPageKey), forKey: showHiddenBookmarksPageKey)
+    }
 
     static func register(in defaults: UserDefaults = .standard) {
         defaults.register(defaults: [

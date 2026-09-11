@@ -104,33 +104,34 @@ struct BookmarkSectionGridView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 22) {
+            // Keep every card in the scroll view's single lazy layout, including
+            // large date groups and the ungrouped search results.
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                 ForEach(sections) { section in
-                    VStack(alignment: .leading, spacing: 10) {
-                        sectionHeader(section)
-
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                            ForEach(section.bookmarks) { bookmark in
-                                NativeContextMenuHost(
-                                    content: BookmarkGridCard(
-                                        bookmark: bookmark,
-                                        isSelected: selection.contains(bookmark.id),
-                                        faviconLoader: faviconLoader,
-                                        showsURLHostOnly: showsURLHostOnly,
-                                        onSelect: {
-                                            selectBookmark(bookmark)
-                                        },
-                                        onOpenCard: {
-                                            isFocused = true
-                                            onOpen([bookmark])
-                                        }
-                                    ),
-                                    menuProvider: { _ in
-                                        bookmarkContextMenu(for: bookmark)
+                    Section {
+                        ForEach(section.bookmarks) { bookmark in
+                            NativeContextMenuHost(
+                                content: BookmarkGridCard(
+                                    bookmark: bookmark,
+                                    isSelected: selection.contains(bookmark.id),
+                                    faviconLoader: faviconLoader,
+                                    showsURLHostOnly: showsURLHostOnly,
+                                    onSelect: {
+                                        selectBookmark(bookmark)
+                                    },
+                                    onOpenCard: {
+                                        isFocused = true
+                                        onOpen([bookmark])
                                     }
-                                )
-                            }
+                                ),
+                                menuProvider: { _ in
+                                    bookmarkContextMenu(for: bookmark)
+                                }
+                            )
                         }
+                    } header: {
+                        sectionHeader(section)
+                            .padding(.top, section.id == sections.first?.id ? 0 : 10)
                     }
                 }
             }
@@ -161,13 +162,13 @@ struct BookmarkSectionGridView: View {
         Group {
             if !section.title.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(section.title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
-            Text(section.subtitle)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+                    Text(section.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text(section.subtitle)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
                 }
             }
         }
@@ -487,9 +488,10 @@ private struct BookmarkGridFaviconView: View {
             }
         }
         .frame(width: 24, height: 24)
-        .task(id: LoadRequest(url: url, version: faviconLoader.version)) {
-            favicon = nil
-            favicon = await faviconLoader.loadImage(for: url)
+        .task(id: LoadRequest(url: url, version: faviconLoader.imageVersion(for: url))) {
+            let image = await faviconLoader.loadImage(for: url)
+            guard !Task.isCancelled else { return }
+            favicon = image
         }
     }
 

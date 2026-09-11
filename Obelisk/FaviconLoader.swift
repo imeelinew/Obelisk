@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ImageIO
 import ObeliskCore
 import Observation
 import os
@@ -14,11 +15,31 @@ private struct FaviconRecord: Codable {
 
 @MainActor
 @Observable
+private final class FaviconRevision {
+    var value = 0
+}
+
+@MainActor
+@Observable
 final class FaviconLoader {
     @ObservationIgnored var onIconLoaded: (() -> Void)?
     /// Bumped whenever a new favicon lands on disk. Views that read this
     /// in their body get re-rendered so cached lookups pick up new icons.
     private(set) var version: Int = 0
+
+    @ObservationIgnored private var imageRevisions: [String: FaviconRevision] = [:]
+
+    /// Each website has its own observation dependency so one download doesn't
+    /// restart the loading tasks of every card in the grid.
+    func imageVersion(for urlString: String) -> Int {
+        guard let key = FaviconDownloader.cacheKey(for: urlString) else { return 0 }
+        if let revision = imageRevisions[key] {
+            return revision.value
+        }
+        let revision = FaviconRevision()
+        imageRevisions[key] = revision
+        return revision.value
+    }
 
     @ObservationIgnored private var rootDirectory: URL
     @ObservationIgnored private var inFlight: Set<String> = []
@@ -116,12 +137,24 @@ final class FaviconLoader {
         }
 
         let fileURL = iconURL(for: key)
-        let data = await Task.detached(priority: .userInitiated) {
-            try? LocalFileAccess.readData(from: fileURL)
+        let bitmap = await Task.detached(priority: .userInitiated) {
+            guard let data = try? LocalFileAccess.readData(from: fileURL),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil as CGImage? }
+            return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 48,
+                kCGImageSourceShouldCacheImmediately: true
+            ] as CFDictionary)
         }.value
+        guard !Task.isCancelled else { return nil }
 
-        if let data, let image = NSImage(data: data) {
-            image.size = NSSize(width: 16, height: 16)
+        // A network fetch may have populated the cache while the disk read ran.
+        if let image = imageCache.object(forKey: cacheKey) {
+            return image
+        }
+        if let bitmap {
+            let image = NSImage(cgImage: bitmap, size: NSSize(width: 16, height: 16))
             imageCache.setObject(image, forKey: cacheKey, cost: Self.memoryCost(of: image))
 
             if let record = index[key], Date().timeIntervalSince(record.fetchedAt) > positiveTTL {
@@ -154,6 +187,7 @@ final class FaviconLoader {
         imageCache.removeObject(forKey: key as NSString)
         index.removeValue(forKey: key)
         saveIndex()
+        imageRevisions[key]?.value &+= 1
         version &+= 1
         onIconLoaded?()
         fetchIfNeeded(pageURL: pageURL, key: key, fileURL: fileURL)
@@ -164,6 +198,9 @@ final class FaviconLoader {
         index.removeAll()
         imageCache.removeAllObjects()
         loadIndex()
+        for revision in imageRevisions.values {
+            revision.value &+= 1
+        }
         version &+= 1
         onIconLoaded?()
     }
@@ -220,6 +257,7 @@ final class FaviconLoader {
                     cost: Self.memoryCost(of: image)
                 )
                 self.recordResult(key: key, success: true)
+                self.imageRevisions[key]?.value &+= 1
                 self.version &+= 1
                 self.onIconLoaded?()
             } catch {

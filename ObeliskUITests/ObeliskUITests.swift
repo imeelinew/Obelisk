@@ -106,6 +106,54 @@ final class ObeliskUITests: XCTestCase {
     }
 
     @MainActor
+    func testListContextMenuAcrossRowContents() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTesting", "-bookmarkDisplayMode", "list", "-aiFeaturesEnabled", "NO"]
+        app.launch()
+        func addBookmark(title: String) {
+            let add = app.buttons["添加"].firstMatch
+            XCTAssertTrue(add.waitForExistence(timeout: 8))
+            add.click()
+            let titleField = app.textFields.element(boundBy: 0)
+            XCTAssertTrue(titleField.waitForExistence(timeout: 3))
+            titleField.click()
+            titleField.typeKey("a", modifierFlags: .command)
+            titleField.typeText(title)
+            let url = app.textFields.element(boundBy: 1)
+            url.click()
+            url.typeKey("a", modifierFlags: .command)
+            url.typeText("https://\(title.lowercased()).example")
+            app.sheets.buttons["添加"].click()
+        }
+        addBookmark(title: "ContextMenuUITest")
+        addBookmark(title: "OtherBookmark")
+
+        let row = app.tables.tableRows.containing(.staticText, identifier: "ContextMenuUITest").firstMatch
+        let otherRow = app.tables.tableRows.containing(.staticText, identifier: "OtherBookmark").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertTrue(otherRow.waitForExistence(timeout: 5), app.debugDescription)
+        for point in [CGVector(dx: 0.15, dy: 0.3), CGVector(dx: 0.15, dy: 0.72),
+                      CGVector(dx: 0.035, dy: 0.5), CGVector(dx: 0.85, dy: 0.5)] {
+            for controlClick in [false, true] {
+                otherRow.click()
+                let target = row.coordinate(withNormalizedOffset: point)
+                if controlClick {
+                    XCUIElement.perform(withKeyModifiers: .control) { target.click() }
+                } else {
+                    target.rightClick()
+                }
+                let edit = app.menuItems["编辑"]
+                XCTAssertTrue(edit.waitForExistence(timeout: 2), "Missing menu at \(point), control: \(controlClick)")
+                edit.click()
+                let editorTitle = app.sheets.textFields.element(boundBy: 0)
+                XCTAssertTrue(editorTitle.waitForExistence(timeout: 3))
+                XCTAssertEqual(editorTitle.value as? String, "ContextMenuUITest")
+                app.sheets.buttons["取消"].click()
+            }
+        }
+    }
+
+    @MainActor
     func testManualArchiveCanBeRestoredWhenAutoArchiveIsDisabled() throws {
         let app = XCUIApplication()
         app.launchArguments = [

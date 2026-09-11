@@ -622,6 +622,23 @@ extension BookmarkMenuTableViewDelegate {
 class BookmarkMenuTableView: NSTableView {
     weak var menuDelegate: BookmarkMenuTableViewDelegate?
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hitView = super.hitTest(point)
+        guard hitView != nil,
+              NativeContextMenuEventView.handlesContextMenuEvent(NSApp.currentEvent) else {
+            return hitView
+        }
+
+        // Route contextual clicks directly to the table that owns the menu
+        // instead of depending on labels and image controls to forward them
+        let row = row(at: convert(point, from: superview))
+        guard row >= 0,
+              menuDelegate?.bookmarkMenuTableView(self, shouldSelectContextRow: row) == true else {
+            return hitView
+        }
+        return self
+    }
+
     override func keyDown(with event: NSEvent) {
         let characters = event.charactersIgnoringModifiers ?? ""
         let modifiers = event.modifierFlags

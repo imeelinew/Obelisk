@@ -284,9 +284,10 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             }
             parent.collectionsExpanded.toggle()
             applySelectionStyleToVisibleRows(in: tableView)
-            DispatchQueue.main.async { [weak self] in
-                self?.reloadIfNeeded()
-            }
+            // Apply each tap immediately so a second tap can reverse an
+            // in-flight row animation instead of being coalesced with it by
+            // SwiftUI's next representable update
+            reloadIfNeeded()
             return true
         }
 

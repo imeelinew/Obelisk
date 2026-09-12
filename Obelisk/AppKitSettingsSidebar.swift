@@ -10,6 +10,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
     @Binding var collectionsExpanded: Bool
     var badgeCount: (BookmarkManagerView.SettingsPage) -> Int?
     var collectionScopeBadgeCount: (BookmarkManagerView.CollectionScope) -> Int?
+    var assignmentFeedback: CollectionAssignmentFeedback?
     var onCreateCollection: () -> Void
     var onRenameCollection: (UUID) -> Void
     var onDeleteCollection: (UUID) -> Void
@@ -44,6 +45,8 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         private var disclosureContentPage: BookmarkManagerView.SettingsPage?
         private var disclosureCollectionScope: BookmarkManagerView.CollectionScope?
         private var collectionContextMenuController: NativeCollectionContextMenuController?
+        private var lastAssignmentFeedbackToken: UUID?
+        private var hasReadAssignmentFeedback = false
 
         init(parent: AppKitSettingsSidebar) {
             self.parent = parent
@@ -104,6 +107,8 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         func reloadIfNeeded() {
             let nextItems = parent.items
             let rowsChanged = nextItems != items
+            let feedback = takeNewAssignmentFeedback()
+            let animateScopes = assignmentAnimateScopes(for: feedback)
 
             guard let tableView else { return }
             if rowsChanged {
@@ -132,7 +137,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                         tableView.removeRows(at: changedRows, withAnimation: [.effectFade, .slideUp])
                     }
                     tableView.endUpdates()
-                    reloadVisibleRows(in: tableView)
+                    reloadVisibleRows(in: tableView, animateScopes: animateScopes)
                 } else {
                     items = nextItems
                     tableView.reloadData()
@@ -148,7 +153,11 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                 }
             } else {
                 items = nextItems
-                reloadVisibleRows(in: tableView)
+                if let destinationRow = assignmentDestinationRow(for: feedback) {
+                    tableView.scrollRowToVisible(destinationRow)
+                }
+                reloadVisibleRows(in: tableView, animateScopes: animateScopes)
+                playAssignmentGlow(for: feedback, in: tableView)
             }
             syncSelection(in: tableView)
         }
@@ -217,7 +226,9 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     showsIcon: true,
                     iconResourceName: nil,
                     disclosureExpanded: nil,
-                    isSelected: tableView.selectedRow == row
+                    isSelected: tableView.selectedRow == row,
+                    itemKey: SettingsSidebarItem.page(page).assignmentAnimationKey,
+                    animateBadge: false
                 )
                 return cell
             case .collectionsDisclosure(let expanded):
@@ -230,7 +241,8 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     indentation: 0,
                     showsIcon: true,
                     iconResourceName: nil,
-                    disclosureExpanded: expanded
+                    disclosureExpanded: expanded,
+                    itemKey: SettingsSidebarItem.collectionsDisclosure(expanded).assignmentAnimationKey
                 )
             case .scope(let scope):
                 return configuredPageCell(
@@ -242,7 +254,8 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     indentation: 14,
                     showsIcon: scope.showsSidebarIcon,
                     iconResourceName: scope.sidebarIconResourceName(for: parent.iconStyle),
-                    disclosureExpanded: nil
+                    disclosureExpanded: nil,
+                    itemKey: SettingsSidebarItem.scope(scope).assignmentAnimationKey
                 )
             }
         }
@@ -333,7 +346,10 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             applySelectionStyleToVisibleRows(in: tableView)
         }
 
-        private func reloadVisibleRows(in tableView: NSTableView) {
+        private func reloadVisibleRows(
+            in tableView: NSTableView,
+            animateScopes: Set<BookmarkManagerView.CollectionScope> = []
+        ) {
             let visibleRows = tableView.rows(in: tableView.visibleRect)
             guard visibleRows.location != NSNotFound else { return }
 
@@ -353,6 +369,12 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     iconStyle: parent.iconStyle
                 )
                 guard let presentation else { continue }
+                let animateBadge: Bool
+                if case .scope(let scope) = item {
+                    animateBadge = animateScopes.contains(scope)
+                } else {
+                    animateBadge = false
+                }
                 cell.configure(
                     page: presentation.page,
                     title: presentation.title,
@@ -367,7 +389,9 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     showsIcon: presentation.showsIcon,
                     iconResourceName: presentation.iconResourceName,
                     disclosureExpanded: presentation.disclosureExpanded,
-                    isSelected: tableView.selectedRow == row
+                    isSelected: tableView.selectedRow == row,
+                    itemKey: item.assignmentAnimationKey,
+                    animateBadge: animateBadge
                 )
             }
         }
@@ -381,7 +405,8 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             indentation: CGFloat,
             showsIcon: Bool,
             iconResourceName: String?,
-            disclosureExpanded: Bool?
+            disclosureExpanded: Bool?,
+            itemKey: String?
         ) -> NSView {
             let cell = tableView.makeView(
                 withIdentifier: SettingsSidebarPageCell.reuseIdentifier,
@@ -401,9 +426,57 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                 showsIcon: showsIcon,
                 iconResourceName: iconResourceName,
                 disclosureExpanded: disclosureExpanded,
-                isSelected: tableView.selectedRow == row
+                isSelected: tableView.selectedRow == row,
+                itemKey: itemKey,
+                animateBadge: false
             )
             return cell
+        }
+
+        private func takeNewAssignmentFeedback() -> CollectionAssignmentFeedback? {
+            let feedback = parent.assignmentFeedback
+            if !hasReadAssignmentFeedback {
+                hasReadAssignmentFeedback = true
+                lastAssignmentFeedbackToken = feedback?.token
+                return nil
+            }
+            guard let feedback, feedback.token != lastAssignmentFeedbackToken else { return nil }
+            lastAssignmentFeedbackToken = feedback.token
+            return feedback
+        }
+
+        private func assignmentAnimateScopes(
+            for feedback: CollectionAssignmentFeedback?
+        ) -> Set<BookmarkManagerView.CollectionScope> {
+            guard parent.collectionsExpanded, let feedback else { return [] }
+            return Set(feedback.animatedTargets.map(\.sidebarScope))
+        }
+
+        private func assignmentDestinationRow(
+            for feedback: CollectionAssignmentFeedback?
+        ) -> Int? {
+            guard parent.collectionsExpanded, let feedback else { return nil }
+            return items.firstIndex(of: .scope(feedback.destination.sidebarScope))
+        }
+
+        private func playAssignmentGlow(
+            for feedback: CollectionAssignmentFeedback?,
+            in tableView: NSTableView
+        ) {
+            guard let row = assignmentDestinationRow(for: feedback) else { return }
+            let play = {
+                guard let cell = tableView.view(
+                    atColumn: 0,
+                    row: row,
+                    makeIfNecessary: true
+                ) as? SettingsSidebarPageCell else { return }
+                cell.playAssignmentGlow()
+            }
+            if tableView.view(atColumn: 0, row: row, makeIfNecessary: false) == nil {
+                DispatchQueue.main.async(execute: play)
+            } else {
+                play()
+            }
         }
 
         private func applySelectionStyleToVisibleRows(in tableView: NSTableView) {
@@ -531,6 +604,23 @@ private enum SettingsSidebarItem: Equatable {
         case .page(let page): (page, nil)
         case .scope(let scope): (.collections, scope)
         case .header, .collectionsDisclosure: nil
+        }
+    }
+
+    var assignmentAnimationKey: String? {
+        switch self {
+        case .page(let page):
+            "page-\(page.rawValue)"
+        case .collectionsDisclosure:
+            "collections-disclosure"
+        case .scope(let scope):
+            switch scope {
+            case .recent: "scope-recent"
+            case .collection(let id): "scope-collection-\(id.uuidString)"
+            case .ungrouped: "scope-ungrouped"
+            }
+        case .header:
+            nil
         }
     }
 
@@ -676,6 +766,10 @@ private final class SettingsSidebarTableView: NSTableView {
     }
 }
 
+private final class SidebarPassthroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private final class SettingsSidebarRowView: NSTableRowView {
     override var isSelected: Bool {
         didSet {
@@ -736,6 +830,9 @@ private final class SettingsSidebarPageCell: NSTableCellView {
     private let professionalIconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let badgeField = NSTextField(labelWithString: "")
+    private let glowHost = SidebarPassthroughView()
+    private var displayedBadgeCount: Int?
+    private var configuredItemKey: String?
     private var colorfulIconWidth: NSLayoutConstraint!
     private var colorfulIconHeight: NSLayoutConstraint!
     private var professionalIconWidth: NSLayoutConstraint!
@@ -769,7 +866,15 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         badgeField.alignment = .right
         badgeField.lineBreakMode = .byTruncatingTail
         badgeField.translatesAutoresizingMaskIntoConstraints = false
+        badgeField.wantsLayer = true
 
+        glowHost.wantsLayer = true
+        glowHost.layer?.masksToBounds = true
+        glowHost.layer?.cornerRadius = 6
+        glowHost.layer?.cornerCurve = .continuous
+        glowHost.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(glowHost)
         addSubview(disclosureImageView)
         addSubview(colorfulIconView)
         addSubview(professionalIconView)
@@ -797,6 +902,11 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         professionalIconLeading = professionalIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.leadingInset)
 
         NSLayoutConstraint.activate([
+            glowHost.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glowHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glowHost.topAnchor.constraint(equalTo: topAnchor),
+            glowHost.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             disclosureImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
             disclosureImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
             disclosureImageView.widthAnchor.constraint(equalToConstant: 18),
@@ -842,22 +952,22 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         showsIcon: Bool,
         iconResourceName: String?,
         disclosureExpanded: Bool?,
-        isSelected: Bool
+        isSelected: Bool,
+        itemKey: String?,
+        animateBadge: Bool
     ) {
+        if configuredItemKey != itemKey {
+            stopAssignmentGlow()
+            displayedBadgeCount = nil
+        }
+        configuredItemKey = itemKey
         titleField.stringValue = title
         let disclosureOffset: CGFloat = disclosureExpanded == nil ? 0 : 20
         colorfulIconLeading.constant = Self.leadingInset + indentation + disclosureOffset
         professionalIconLeading.constant = Self.leadingInset + indentation + disclosureOffset
         applySelectionStyle(isSelected: isSelected)
         configureDisclosure(expanded: disclosureExpanded)
-
-        if let badgeCount {
-            badgeField.stringValue = "\(badgeCount)"
-            badgeField.isHidden = false
-        } else {
-            badgeField.stringValue = ""
-            badgeField.isHidden = true
-        }
+        applyBadge(badgeCount, animated: animateBadge)
 
         if !showsIcon {
             colorfulIconView.isHidden = true
@@ -932,6 +1042,91 @@ private final class SettingsSidebarPageCell: NSTableCellView {
             weight: weight
         )
     }
+
+    func playAssignmentGlow() {
+        stopAssignmentGlow()
+        glowHost.layoutSubtreeIfNeeded()
+        var bounds = glowHost.bounds
+        if bounds.width <= 1 || bounds.height <= 1 {
+            bounds = self.bounds
+        }
+        guard bounds.width > 1, bounds.height > 1 else { return }
+
+        let glowWidth = max(bounds.width * 0.55, 88)
+        let accent = NSColor.controlAccentColor
+        let gradient = CAGradientLayer()
+        gradient.frame = CGRect(x: -glowWidth, y: 0, width: glowWidth, height: bounds.height)
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+        gradient.colors = [
+            accent.withAlphaComponent(0).cgColor,
+            accent.withAlphaComponent(0.22).cgColor,
+            accent.withAlphaComponent(0.08).cgColor,
+            accent.withAlphaComponent(0).cgColor,
+        ]
+        gradient.locations = [0, 0.42, 0.72, 1]
+        gradient.name = Self.assignmentGlowLayerName
+        glowHost.layer?.addSublayer(gradient)
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self, weak gradient] in
+            gradient?.removeFromSuperlayer()
+            if self?.glowHost.layer?.sublayers?.isEmpty == true {
+                return
+            }
+        }
+        let sweep = CABasicAnimation(keyPath: "transform.translation.x")
+        sweep.fromValue = 0
+        sweep.toValue = bounds.width + glowWidth
+        sweep.duration = 0.6
+        sweep.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        sweep.fillMode = .forwards
+        sweep.isRemovedOnCompletion = false
+        gradient.add(sweep, forKey: "assignmentSweep")
+        CATransaction.commit()
+    }
+
+    private func stopAssignmentGlow() {
+        glowHost.layer?.sublayers?
+            .filter { $0.name == Self.assignmentGlowLayerName }
+            .forEach { $0.removeFromSuperlayer() }
+    }
+
+    private func applyBadge(_ count: Int?, animated: Bool) {
+        let previous = displayedBadgeCount
+        displayedBadgeCount = count
+
+        guard let count else {
+            badgeField.stringValue = ""
+            badgeField.isHidden = true
+            badgeField.layer?.removeAnimation(forKey: "badgePush")
+            badgeField.layer?.removeAnimation(forKey: "badgePop")
+            return
+        }
+
+        badgeField.isHidden = false
+        if animated, let previous, previous != count {
+            let push = CATransition()
+            push.type = .push
+            push.subtype = count > previous ? .fromBottom : .fromTop
+            push.duration = 0.32
+            push.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            badgeField.layer?.add(push, forKey: "badgePush")
+
+            let pop = CAKeyframeAnimation(keyPath: "transform.scale")
+            pop.values = [1, 1.12, 1]
+            pop.keyTimes = [0, 0.4, 1]
+            pop.duration = 0.36
+            pop.timingFunctions = [
+                CAMediaTimingFunction(name: .easeOut),
+                CAMediaTimingFunction(name: .easeIn),
+            ]
+            badgeField.layer?.add(pop, forKey: "badgePop")
+        }
+        badgeField.stringValue = "\(count)"
+    }
+
+    private static let assignmentGlowLayerName = "assignmentGlow"
 }
 
 private final class SettingsSidebarColorIconView: NSView {
@@ -1112,6 +1307,15 @@ private extension BookmarkManagerView.SettingsPage {
 
     static func rgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> NSColor {
         NSColor(srgbRed: red, green: green, blue: blue, alpha: 1)
+    }
+}
+
+private extension CollectionAssignmentFeedback.Target {
+    var sidebarScope: BookmarkManagerView.CollectionScope {
+        switch self {
+        case .collection(let id): .collection(id)
+        case .ungrouped: .ungrouped
+        }
     }
 }
 

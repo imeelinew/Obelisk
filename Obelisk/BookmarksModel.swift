@@ -9,6 +9,21 @@ private struct BookmarkValidationError: LocalizedError {
     var errorDescription: String? { message }
 }
 
+struct CollectionAssignmentFeedback: Equatable {
+    enum Target: Hashable {
+        case collection(UUID)
+        case ungrouped
+    }
+
+    let token: UUID
+    let destination: Target
+    let sources: Set<Target>
+
+    var animatedTargets: Set<Target> {
+        sources.union([destination])
+    }
+}
+
 @MainActor
 @Observable
 final class BookmarksModel {
@@ -33,8 +48,10 @@ final class BookmarksModel {
     private var searchIndex = BookmarkSearchIndex(bookmarks: [])
     var errorMessage: String?
     private(set) var loadErrorMessage: String?
+    private(set) var lastCollectionAssignmentFeedback: CollectionAssignmentFeedback?
 
     @ObservationIgnored var onChange: (() -> Void)?
+    @ObservationIgnored private var pendingAssignmentFeedback: CollectionAssignmentFeedback?
 
     private let store: BookmarkStore
     private let intelligence: BookmarkIntelligence
@@ -57,6 +74,18 @@ final class BookmarksModel {
 
     func collectionId(for bookmarkId: UUID) -> UUID? {
         membershipByBookmarkID[bookmarkId]
+    }
+
+    private func visibleCollectionAssignmentTarget(for bookmarkID: UUID) -> CollectionAssignmentFeedback.Target? {
+        guard let bookmark = bookmarks.first(where: { $0.id == bookmarkID }),
+              !bookmark.isHidden,
+              !isEffectivelyArchived(bookmark) else {
+            return nil
+        }
+        if let collectionID = membershipByBookmarkID[bookmarkID] {
+            return .collection(collectionID)
+        }
+        return .ungrouped
     }
 
     func notifyMenuPresentationChanged() {
@@ -95,8 +124,13 @@ final class BookmarksModel {
             if errorMessage == priorLoadError {
                 errorMessage = nil
             }
+            if let pending = pendingAssignmentFeedback {
+                pendingAssignmentFeedback = nil
+                lastCollectionAssignmentFeedback = pending
+            }
             onChange?()
         } catch {
+            pendingAssignmentFeedback = nil
             let message = error.localizedDescription
             loadErrorMessage = message
             errorMessage = message
@@ -138,6 +172,13 @@ final class BookmarksModel {
                 isHidden: isHidden,
                 collectionID: collectionID
             )
+            if !isHidden {
+                pendingAssignmentFeedback = CollectionAssignmentFeedback(
+                    token: UUID(),
+                    destination: collectionID.map { .collection($0) } ?? .ungrouped,
+                    sources: []
+                )
+            }
             reload()
             return .success(bookmark)
         } catch {
@@ -323,8 +364,24 @@ final class BookmarksModel {
     func setBookmarkCollection(bookmarkIds: Set<UUID>, collectionId: UUID?) -> String? {
         guard !bookmarkIds.isEmpty else { return nil }
         do {
-            let validIDs = bookmarkIds.intersection(bookmarks.map(\.id))
+            let validIDs = bookmarkIds.intersection(Set(bookmarks.map(\.id)))
+            let destination: CollectionAssignmentFeedback.Target = collectionId.map { .collection($0) } ?? .ungrouped
+            var sources: Set<CollectionAssignmentFeedback.Target> = []
+            var didMoveVisible = false
+            for id in validIDs {
+                guard let current = visibleCollectionAssignmentTarget(for: id) else { continue }
+                if current == destination { continue }
+                didMoveVisible = true
+                sources.insert(current)
+            }
             try store.setCollection(collectionId, for: validIDs)
+            if didMoveVisible {
+                pendingAssignmentFeedback = CollectionAssignmentFeedback(
+                    token: UUID(),
+                    destination: destination,
+                    sources: sources
+                )
+            }
             reload()
             return nil
         } catch {

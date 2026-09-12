@@ -1156,6 +1156,7 @@ struct BookmarkManagerView: View {
             collectionsExpanded: $sidebarCollectionsExpanded,
             badgeCount: sidebarBadgeCount(for:),
             collectionScopeBadgeCount: sidebarBadgeCount(for:),
+            assignmentFeedback: model.lastCollectionAssignmentFeedback,
             onCreateCollection: {
                 newCollectionName = ""
                 showNewCollectionDialog = true

@@ -277,7 +277,6 @@ struct BookmarkManagerView: View {
         enum Kind {
             case hide(isHidden: Bool)
             case archive(isArchived: Bool)
-            case assign(collectionId: UUID?, collectionName: String?)
         }
 
         let ids: Set<Bookmark.ID>
@@ -290,8 +289,6 @@ struct BookmarkManagerView: View {
                 return "hide-\(isHidden)-\(idsKey)"
             case .archive(let isArchived):
                 return "archive-\(isArchived)-\(idsKey)"
-            case .assign(let collectionId, _):
-                return "assign-\(collectionId?.uuidString ?? "nil")-\(idsKey)"
             }
         }
 
@@ -303,11 +300,6 @@ struct BookmarkManagerView: View {
                 return (isHidden ? "移到隐藏书签?" : "恢复到书签?").obeliskLocalized
             case .archive(let isArchived):
                 return (isArchived ? "归档书签?" : "恢复到书签?").obeliskLocalized
-            case .assign(_, let collectionName):
-                if let collectionName {
-                    return String.localizedStringWithFormat("移到「%@」?".obeliskLocalized, collectionName)
-                }
-                return "移出分组?".obeliskLocalized
             }
         }
 
@@ -317,8 +309,6 @@ struct BookmarkManagerView: View {
                 return (isHidden ? "移到隐藏书签" : "恢复到书签").obeliskLocalized
             case .archive(let isArchived):
                 return (isArchived ? "归档" : "恢复到书签").obeliskLocalized
-            case .assign:
-                return "移动".obeliskLocalized
             }
         }
 
@@ -536,6 +526,13 @@ struct BookmarkManagerView: View {
         return options
     }
 
+    func collectionDisplayName(for bookmarkID: Bookmark.ID) -> String? {
+        guard let collectionID = model.collectionId(for: bookmarkID) else {
+            return nil
+        }
+        return model.collections.first(where: { $0.id == collectionID })?.name
+    }
+
     func isEffectivelyArchived(_ bookmark: Bookmark) -> Bool {
         model.isEffectivelyArchived(bookmark)
     }
@@ -594,25 +591,12 @@ struct BookmarkManagerView: View {
         contextMenuConfirmation = ContextMenuConfirmation(ids: ids, kind: .archive(isArchived: isArchived))
     }
 
-    func requestAssignCollectionFromContextMenu(bookmarkIds: Set<Bookmark.ID>, collectionId: UUID?) {
-        guard !bookmarkIds.isEmpty else { return }
-        let collectionName = collectionId.flatMap { id in
-            model.collections.first { $0.id == id }?.name
-        }
-        contextMenuConfirmation = ContextMenuConfirmation(
-            ids: bookmarkIds,
-            kind: .assign(collectionId: collectionId, collectionName: collectionName)
-        )
-    }
-
     func confirmContextMenuAction(_ confirmation: ContextMenuConfirmation) {
         switch confirmation.kind {
         case .hide(let isHidden):
             setHidden(isHidden, for: confirmation.ids, showsToast: true)
         case .archive(let isArchived):
             setArchived(isArchived, for: confirmation.ids, showsToast: true)
-        case .assign(let collectionId, _):
-            assignCollection(bookmarkIds: confirmation.ids, collectionId: collectionId)
         }
     }
 
@@ -750,12 +734,26 @@ struct BookmarkManagerView: View {
 
     func assignCollection(bookmarkIds: Set<Bookmark.ID>, collectionId: UUID?) {
         guard !bookmarkIds.isEmpty else { return }
+        let collectionName = collectionId.flatMap { id in
+            model.collections.first { $0.id == id }?.name
+        }
         if let error = model.setBookmarkCollection(bookmarkIds: bookmarkIds, collectionId: collectionId) {
             showToast(error, kind: .error)
             return
         }
-        if bookmarkIds.count > 1 {
-            showToast("已移动 \(bookmarkIds.count) 个书签")
+        if collectionId != nil {
+            let name = collectionName ?? "分组"
+            showToast(
+                bookmarkIds.count > 1
+                    ? "已移到「\(name)」 \(bookmarkIds.count) 个书签"
+                    : "已移到「\(name)」"
+            )
+        } else {
+            showToast(
+                bookmarkIds.count > 1
+                    ? "已移出分组 \(bookmarkIds.count) 个书签"
+                    : "已移出分组"
+            )
         }
     }
 

@@ -157,7 +157,8 @@ extension BookmarkManagerView {
                     archiveStateActionTitle: archiveStateActionTitle,
                     onSetArchived: onSetArchived,
                     collectionAssignOptions: collectionAssignOptions,
-                    onAssignCollection: requestAssignCollectionFromContextMenu,
+                    onAssignCollection: assignCollection,
+                    collectionName: collectionDisplayName,
                     onRevertTitleOptimization: revertTitleOptimizations,
                     onRetryTitleOptimization: retryTitleOptimization
                 )
@@ -178,7 +179,7 @@ extension BookmarkManagerView {
                     archiveStateActionTitleProvider: archiveStateActionTitleProvider,
                     onSetArchived: onSetArchived,
                     collectionAssignOptions: collectionAssignOptions,
-                    onAssignCollection: requestAssignCollectionFromContextMenu,
+                    onAssignCollection: assignCollection,
                     onRevertTitleOptimization: revertTitleOptimizations,
                     onRetryTitleOptimization: retryTitleOptimization
                 )

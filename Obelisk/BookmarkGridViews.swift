@@ -87,6 +87,7 @@ struct BookmarkSectionGridView: View {
     var onSetArchived: ((Set<Bookmark.ID>) -> Void)? = nil
     let collectionAssignOptions: [BookmarkCollectionAssignOption]
     let onAssignCollection: (Set<Bookmark.ID>, UUID?) -> Void
+    let collectionName: (Bookmark.ID) -> String?
     var onRevertTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
     var onRetryTitleOptimization: ((Set<Bookmark.ID>) -> Void)? = nil
 
@@ -113,6 +114,7 @@ struct BookmarkSectionGridView: View {
                             NativeContextMenuHost(
                                 content: BookmarkGridCard(
                                     bookmark: bookmark,
+                                    collectionName: collectionName(bookmark.id),
                                     isSelected: selection.contains(bookmark.id),
                                     faviconLoader: faviconLoader,
                                     showsURLHostOnly: showsURLHostOnly,
@@ -378,6 +380,7 @@ struct BookmarkSectionGridView: View {
 
 struct BookmarkGridCard: View {
     let bookmark: Bookmark
+    let collectionName: String?
     let isSelected: Bool
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
@@ -395,7 +398,16 @@ struct BookmarkGridCard: View {
                     faviconLoader: faviconLoader
                 )
 
-                Spacer(minLength: 0)
+                Spacer(minLength: collectionName == nil ? 0 : 8)
+
+                if let collectionName {
+                    Text(collectionName)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
             VStack(alignment: .leading, spacing: 2) {

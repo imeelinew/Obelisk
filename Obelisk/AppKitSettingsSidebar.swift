@@ -710,7 +710,7 @@ private final class SettingsSidebarHeaderCell: NSTableCellView {
         addSubview(titleField)
 
         NSLayoutConstraint.activate([
-            titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 9),
+            titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 13),
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -9),
             titleField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])

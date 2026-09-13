@@ -146,7 +146,6 @@ struct BookmarkSectionGridView: View {
         .focusEffectDisabled()
         .onAppear {
             selectionAnchorID = stableSelectionAnchorID(in: selection)
-            isFocused = true
         }
         .onChange(of: selection) { _, newValue in
             if newValue.isEmpty {

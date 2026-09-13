@@ -20,6 +20,7 @@ enum ObeliskAppDefaults {
         for obsoleteKey in [
             "autoGroupNewBookmarks",
             "bookmarkListSortMode",
+            "bookmarkCollectionListSortMode",
             "pinnedBookmarkListSortMode",
             "hiddenBookmarkListSortMode",
             "hiddenBookmarkDisplayMode",

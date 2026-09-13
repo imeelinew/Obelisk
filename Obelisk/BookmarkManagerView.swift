@@ -65,7 +65,7 @@ struct BookmarkManagerView: View {
     @AppStorage("sidebarCollectionsExpanded") var sidebarCollectionsExpanded = true
     @AppStorage(BookmarkMenuSectionOrder.storageKey) var menuBarSectionOrderRaw = ""
     @AppStorage(BookmarkMenuExpansionPreferences.storageKey) var menuBarExpandedSectionsRaw = "\u{0}"
-    @AppStorage(BookmarkListSortMode.storageKey) var collectionBookmarkSortModeRaw = BookmarkListSortMode.recentlyAdded.rawValue
+    @AppStorage(BookmarkListSortPreferences.storageKey) var bookmarkListSortModesRaw = ""
     // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
     @AppStorage("windowSeeThrough") var windowSeeThrough: Double = 0.0
     @AppStorage("customTransparencyEnabled") var customTransparencyEnabled = false
@@ -358,10 +358,30 @@ struct BookmarkManagerView: View {
         return model.sortedBookmarks(bookmarks, by: collectionBookmarkSortMode)
     }
 
+    var currentCollectionScopeSectionID: BookmarkMenuSectionID {
+        switch collectionScope {
+        case .recent:
+            .recent
+        case .collection(let id):
+            .collection(id)
+        case .ungrouped:
+            .ungrouped
+        }
+    }
+
     var collectionBookmarkSortMode: BookmarkListSortMode {
-        get { BookmarkListSortMode(rawValue: collectionBookmarkSortModeRaw) ?? .recentlyAdded }
+        get {
+            BookmarkListSortPreferences.mode(
+                for: currentCollectionScopeSectionID,
+                rawValue: bookmarkListSortModesRaw
+            )
+        }
         nonmutating set {
-            collectionBookmarkSortModeRaw = newValue.rawValue
+            bookmarkListSortModesRaw = BookmarkListSortPreferences.setting(
+                newValue,
+                for: currentCollectionScopeSectionID,
+                in: bookmarkListSortModesRaw
+            )
             model.notifyMenuPresentationChanged()
         }
     }
@@ -787,6 +807,10 @@ struct BookmarkManagerView: View {
             showToast(error, kind: .error)
         } else {
             collectionToDelete = nil
+            bookmarkListSortModesRaw = BookmarkListSortPreferences.removing(
+                .collection(collection.id),
+                from: bookmarkListSortModesRaw
+            )
             if collectionScope == .collection(collection.id) {
                 collectionScope = .recent
             }

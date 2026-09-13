@@ -2,8 +2,8 @@ import AppKit
 import ObeliskCore
 import SwiftUI
 
-// Content pages share one chronological section model
-// The global display preference changes only the layout
+// Content pages share one section model
+// Usage-based sorting stays in one ordered section so list and grid preserve the same order
 extension BookmarkManagerView {
     var bookmarkManagementPage: some View {
         bookmarkResults(
@@ -76,7 +76,7 @@ extension BookmarkManagerView {
                 emptyTitle: currentCollectionScopeEmptyTitle,
                 emptyDescription: "点击工具栏的 + 添加书签",
                 emptySystemImage: "folder",
-                preservesInputOrder: collectionBookmarkSortMode == .frequency,
+                preservesInputOrder: collectionBookmarkSortMode != .recentlyAdded,
                 onOpen: openBookmarks,
                 hiddenStateActionTitle: "移到隐藏书签".obeliskLocalized,
                 onSetHidden: { requestHiddenFromContextMenu(ids: $0, isHidden: true) },

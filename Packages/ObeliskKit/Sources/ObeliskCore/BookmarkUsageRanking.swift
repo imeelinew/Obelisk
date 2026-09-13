@@ -25,16 +25,37 @@ public enum BookmarkUsageRanking {
         .map(\.0)
     }
 
-    public static func frecencySorted(
+    public static func recentlyUsedSorted(
         among bookmarks: [Bookmark],
-        usage: [UUID: UsageRecord],
-        now: Date = Date()
+        usage: [UUID: UsageRecord]
     ) -> [Bookmark] {
         bookmarks.sorted { lhs, rhs in
-            let lhsScore = usage[lhs.id].map { frecencyScore(for: $0, now: now) } ?? 0
-            let rhsScore = usage[rhs.id].map { frecencyScore(for: $0, now: now) } ?? 0
-            if lhsScore != rhsScore { return lhsScore > rhsScore }
-            return isOrderedByName(lhs, before: rhs)
+            let lhsUsage = usage[lhs.id]
+            let rhsUsage = usage[rhs.id]
+            if lhsUsage?.lastClickedAt != rhsUsage?.lastClickedAt {
+                return (lhsUsage?.lastClickedAt ?? .distantPast) > (rhsUsage?.lastClickedAt ?? .distantPast)
+            }
+            if lhsUsage?.count != rhsUsage?.count {
+                return (lhsUsage?.count ?? 0) > (rhsUsage?.count ?? 0)
+            }
+            return isOrderedByCreation(lhs, before: rhs)
+        }
+    }
+
+    public static func mostFrequentlyUsedSorted(
+        among bookmarks: [Bookmark],
+        usage: [UUID: UsageRecord]
+    ) -> [Bookmark] {
+        bookmarks.sorted { lhs, rhs in
+            let lhsUsage = usage[lhs.id]
+            let rhsUsage = usage[rhs.id]
+            if lhsUsage?.count != rhsUsage?.count {
+                return (lhsUsage?.count ?? 0) > (rhsUsage?.count ?? 0)
+            }
+            if lhsUsage?.lastClickedAt != rhsUsage?.lastClickedAt {
+                return (lhsUsage?.lastClickedAt ?? .distantPast) > (rhsUsage?.lastClickedAt ?? .distantPast)
+            }
+            return isOrderedByCreation(lhs, before: rhs)
         }
     }
 
@@ -56,5 +77,10 @@ public enum BookmarkUsageRanking {
             return urlComparison == .orderedAscending
         }
         return lhs.id.uuidString < rhs.id.uuidString
+    }
+
+    private static func isOrderedByCreation(_ lhs: Bookmark, before rhs: Bookmark) -> Bool {
+        if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+        return isOrderedByName(lhs, before: rhs)
     }
 }

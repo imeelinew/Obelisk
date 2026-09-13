@@ -286,8 +286,10 @@ final class BookmarksModel {
         switch mode {
         case .recentlyAdded:
             bookmarks.sorted(by: Self.bookmarkTimeOrder)
-        case .frequency:
-            BookmarkUsageRanking.frecencySorted(among: bookmarks, usage: usageByBookmarkID)
+        case .recentlyUsed:
+            BookmarkUsageRanking.recentlyUsedSorted(among: bookmarks, usage: usageByBookmarkID)
+        case .mostFrequentlyUsed:
+            BookmarkUsageRanking.mostFrequentlyUsedSorted(among: bookmarks, usage: usageByBookmarkID)
         }
     }
 
@@ -458,12 +460,12 @@ final class BookmarksModel {
 
     func openBookmark(_ bookmark: Bookmark) {
         guard let url = URL(string: bookmark.url) else { return }
+        guard NSWorkspace.shared.open(url) else { return }
         if bookmark.archivedAt != nil {
             try? store.setArchived(false, ids: [bookmark.id])
         }
         try? store.database.recordUsage(bookmarkID: bookmark.id, at: Date())
         reload()
-        NSWorkspace.shared.open(url)
     }
 
     func openArchivedBookmark(_ bookmark: Bookmark) {

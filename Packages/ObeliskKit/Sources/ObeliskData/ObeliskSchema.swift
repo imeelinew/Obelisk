@@ -32,6 +32,14 @@ public enum ObeliskSchema {
         migrator.registerMigration("2026-09-add-collection-colors") { database in
             try migrateCollectionColors(database)
         }
+        migrator.registerMigration("2026-09-bookmark-trash") { database in
+            try database.execute(sql: """
+                ALTER TABLE bookmarks ADD COLUMN trashed_at TEXT;
+                UPDATE bookmarks SET field_versions = json_set(field_versions, '$.trashed_at',
+                    json('{"milliseconds":0,"counter":0,"deviceID":"00000000-0000-0000-0000-000000000000"}'));
+                DELETE FROM sync_state WHERE id = 'cursor';
+                """)
+        }
         return migrator
     }
 

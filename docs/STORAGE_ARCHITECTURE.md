@@ -72,6 +72,14 @@ resurrect old data.
   `position_key` is their only ordering field. Pinning and per-collection menu
   visibility are not domain state.
 - `usage_events` are immutable and deduplicated by id.
+- Bookmarks enter the trash via versioned `trashed_at`. Trash retains collection,
+  hidden and archive state and sorts by this timestamp descending. Restore clears
+  only `trashed_at`; permanent removal writes `deleted_at`. Trash is excluded
+  from ordinary UI, search and title processing. There is no automatic expiry.
+  Restoring a duplicate active URL fails without overwriting either bookmark.
+  Trash containing hidden bookmarks requires the existing authentication gate.
+  Apply D1 migration `0005_bookmark_trash.sql` with the updated Worker before
+  enabling sync from clients using the trash field.
 - Deletion of bookmarks and collections is a soft delete via `deleted_at`;
   snapshots filter deleted rows.
 - Cloud sync is optional. Disabling it stops the engine; local writes keep

@@ -13,6 +13,7 @@ public struct Bookmark: Codable, Identifiable, Equatable, Sendable {
     public var createdAt: Date
     public var titleOptimizationState: TitleOptimizationState
     public var isHidden: Bool
+    public var trashedAt: Date?
     public var archivedAt: Date?
     public var originalTitle: String?
 
@@ -24,6 +25,7 @@ public struct Bookmark: Codable, Identifiable, Equatable, Sendable {
         titleOptimizationState: TitleOptimizationState = .notAttempted,
         isHidden: Bool = false,
         archivedAt: Date? = nil,
+        trashedAt: Date? = nil,
         originalTitle: String? = nil
     ) {
         self.id = id
@@ -33,6 +35,7 @@ public struct Bookmark: Codable, Identifiable, Equatable, Sendable {
         self.titleOptimizationState = titleOptimizationState
         self.isHidden = isHidden
         self.archivedAt = archivedAt
+        self.trashedAt = trashedAt
         self.originalTitle = originalTitle
     }
 }

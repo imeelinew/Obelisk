@@ -345,6 +345,16 @@ extension BookmarkManagerView {
     @ToolbarContentBuilder
     var settingsToolbar: some ToolbarContent {
         switch settingsPage {
+        case .trash:
+            ToolbarItem {
+                Button("清空废纸篓", systemImage: "trash") {
+                    deleteConfirmation = DeleteConfirmation(ids: Set(model.trashedBookmarks.map(\.id)), isEmptyingTrash: true)
+                }
+                .labelStyle(.iconOnly)
+                .foregroundStyle(.red)
+                .help("清空废纸篓")
+                .disabled(model.trashedBookmarks.isEmpty || trashNeedsUnlock)
+            }
         case .bookmarks:
             ToolbarItem { addBookmarkButton(isHidden: false, collectionID: nil, help: "添加书签") }
         case .collections:

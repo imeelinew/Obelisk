@@ -8,7 +8,7 @@ const pageLimit = 1000;
 const rowQueries: Record<string, string> = {
   collections: `SELECT id, name, position_key, color, field_versions, created_at, updated_at, deleted_at, seq
        FROM collections WHERE seq > ? ORDER BY seq LIMIT ${pageLimit}`,
-  bookmarks: `SELECT id, collection_id, title, url, title_optimization_state, is_hidden, archived_at,
+  bookmarks: `SELECT id, collection_id, title, url, title_optimization_state, is_hidden, archived_at, trashed_at,
        original_title, position_key, field_versions, created_at, updated_at, deleted_at, seq
        FROM bookmarks WHERE seq > ? ORDER BY seq LIMIT ${pageLimit}`,
   usage_events: `SELECT id, bookmark_id, device_id, occurred_at, created_at, seq

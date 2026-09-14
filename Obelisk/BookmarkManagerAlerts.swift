@@ -11,7 +11,7 @@ struct HiddenBookmarksLockingModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: settingsPage) { oldPage, newPage in
-                if oldPage == .hiddenBookmarks, newPage != .hiddenBookmarks {
+                if oldPage == .hiddenBookmarks || oldPage == .trash, newPage != oldPage {
                     hiddenBookmarksUnlocked = false
                 }
                 selection.removeAll()
@@ -22,7 +22,7 @@ struct HiddenBookmarksLockingModifier: ViewModifier {
                 }
             }
             .onChange(of: scenePhase) { _, newPhase in
-                if newPhase != .active, settingsPage == .hiddenBookmarks {
+                if newPhase != .active, settingsPage == .hiddenBookmarks || (settingsPage == .trash && hiddenBookmarksUnlocked) {
                     lockHiddenBookmarks()
                 }
             }

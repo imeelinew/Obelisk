@@ -91,7 +91,7 @@ public final class BookmarkStore {
 
         let current = try snapshot()
         let target = Self.normalizedURL(trimmedURL)
-        if current.bookmarks.contains(where: { Self.normalizedURL($0.url) == target }) {
+        if current.bookmarks.contains(where: { $0.trashedAt == nil && Self.normalizedURL($0.url) == target }) {
             throw BookmarkStoreError.duplicateURL(trimmedURL)
         }
 
@@ -132,7 +132,7 @@ public final class BookmarkStore {
             throw BookmarkStoreError.invalidTitle
         }
 
-        guard current.bookmarks.contains(where: { $0.id == bookmark.id }) else {
+        guard current.bookmarks.contains(where: { $0.id == bookmark.id && $0.trashedAt == nil }) else {
             throw BookmarkStoreError.missingBookmark
         }
         if let collectionID,
@@ -140,7 +140,7 @@ public final class BookmarkStore {
             throw BookmarkStoreError.missingCollection
         }
         let target = Self.normalizedURL(trimmedURL)
-        if current.bookmarks.contains(where: { $0.id != bookmark.id && Self.normalizedURL($0.url) == target }) {
+        if current.bookmarks.contains(where: { $0.id != bookmark.id && $0.trashedAt == nil && Self.normalizedURL($0.url) == target }) {
             throw BookmarkStoreError.duplicateURL(trimmedURL)
         }
 
@@ -155,14 +155,27 @@ public final class BookmarkStore {
     }
 
     public func delete(ids: Set<UUID>) throws {
-        for id in ids {
-            try database.deleteBookmark(id: id)
+        try database.setBookmarkTrash(ids: ids, trashed: true)
+    }
+
+    public func restore(ids: Set<UUID>) throws {
+        let current = try snapshot()
+        var urls = Set(current.bookmarks.filter { $0.trashedAt == nil }.map { Self.normalizedURL($0.url) })
+        for bookmark in current.bookmarks where ids.contains(bookmark.id) && bookmark.trashedAt != nil {
+            guard urls.insert(Self.normalizedURL(bookmark.url)).inserted else {
+                throw BookmarkStoreError.duplicateURL(bookmark.url)
+            }
         }
+        try database.setBookmarkTrash(ids: ids, trashed: false)
+    }
+
+    public func permanentlyDelete(ids: Set<UUID>) throws {
+        try database.setBookmarkTrash(ids: ids, trashed: true, permanently: true)
     }
 
     public func setArchived(_ isArchived: Bool, ids: Set<UUID>, at date: Date = Date()) throws {
         let current = try snapshot()
-        for var bookmark in current.bookmarks where ids.contains(bookmark.id) {
+        for var bookmark in current.bookmarks where bookmark.trashedAt == nil && ids.contains(bookmark.id) {
             bookmark.archivedAt = isArchived ? date : nil
             try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
         }
@@ -239,7 +252,7 @@ public final class BookmarkStore {
     public func applyTitleOptimizations(_ optimizedTitles: [UUID: String]) throws -> Int {
         let current = try snapshot()
         var count = 0
-        for var bookmark in current.bookmarks {
+        for var bookmark in current.bookmarks where bookmark.trashedAt == nil {
             guard
                 bookmark.titleOptimizationState != .succeeded,
                 let title = optimizedTitles[bookmark.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -263,7 +276,7 @@ public final class BookmarkStore {
         let current = try snapshot()
         var count = 0
         for var bookmark in current.bookmarks
-        where ids.contains(bookmark.id) && bookmark.titleOptimizationState == .succeeded {
+        where bookmark.trashedAt == nil && ids.contains(bookmark.id) && bookmark.titleOptimizationState == .succeeded {
             guard let title = bookmark.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
                 continue
             }
@@ -279,7 +292,7 @@ public final class BookmarkStore {
     public func applyOriginalTitles(_ titles: [UUID: String], forceApplyDisplay: Bool = false) throws -> Int {
         let current = try snapshot()
         var count = 0
-        for var bookmark in current.bookmarks {
+        for var bookmark in current.bookmarks where bookmark.trashedAt == nil {
             guard let title = titles[bookmark.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
                 continue
             }
@@ -299,7 +312,7 @@ public final class BookmarkStore {
         let current = try snapshot()
         var count = 0
         for var bookmark in current.bookmarks
-        where ids.contains(bookmark.id) && bookmark.titleOptimizationState != .succeeded {
+        where bookmark.trashedAt == nil && ids.contains(bookmark.id) && bookmark.titleOptimizationState != .succeeded {
             bookmark.titleOptimizationState = .failed
             try database.saveBookmark(bookmark, collectionID: current.collectionByBookmarkID[bookmark.id])
             count += 1

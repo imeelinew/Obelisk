@@ -167,6 +167,7 @@ struct BookmarkManagerView: View {
         case search
         case hiddenBookmarks
         case archive
+        case trash
         case appearance
         case menuBar
         case shortcuts
@@ -195,7 +196,7 @@ struct BookmarkManagerView: View {
 
         var group: Group {
             switch self {
-            case .bookmarks, .collections, .search, .hiddenBookmarks, .archive: return .content
+            case .bookmarks, .collections, .search, .hiddenBookmarks, .archive, .trash: return .content
             case .appearance, .menuBar, .shortcuts:     return .preferences
             case .ai, .cloudSync, .privacy, .settings:  return .advanced
             }
@@ -208,6 +209,7 @@ struct BookmarkManagerView: View {
             case .collections:     return "分组".obeliskLocalized
             case .hiddenBookmarks: return "隐藏书签".obeliskLocalized
             case .archive:         return "归档".obeliskLocalized
+            case .trash:           return "废纸篓".obeliskLocalized
             case .appearance:      return "外观".obeliskLocalized
             case .menuBar:         return "菜单栏".obeliskLocalized
             case .shortcuts:       return "快捷键".obeliskLocalized
@@ -226,6 +228,7 @@ struct BookmarkManagerView: View {
             case .collections:     return "folder.fill"
             case .hiddenBookmarks: return "eye.slash.fill"
             case .archive:         return "archivebox.fill"
+            case .trash:           return "trash"
             case .appearance:      return "paintpalette.fill"
             case .menuBar:         return "menubar.rectangle"
             case .shortcuts:       return "command"
@@ -243,6 +246,7 @@ struct BookmarkManagerView: View {
             case .collections:     return "folder-bookmark"
             case .hiddenBookmarks: return "eye-off"
             case .archive:         return "archive"
+            case .trash:           return "trash"
             case .appearance:      return "palette"
             case .menuBar:         return "app-window"
             case .shortcuts:       return "command"
@@ -263,6 +267,7 @@ struct BookmarkManagerView: View {
 
     struct DeleteConfirmation: Identifiable {
         let ids: Set<Bookmark.ID>
+        var isEmptyingTrash = false
 
         var id: String {
             ids.map(\.uuidString).sorted().joined(separator: ",")
@@ -593,12 +598,45 @@ struct BookmarkManagerView: View {
 
     func requestDelete(ids: Set<Bookmark.ID>) {
         guard !ids.isEmpty else { return }
-        deleteConfirmation = DeleteConfirmation(ids: ids)
+        if settingsPage == .trash {
+            deleteConfirmation = DeleteConfirmation(ids: ids)
+        } else if let error = model.delete(ids: ids) {
+            showToast(error, kind: .error)
+        } else {
+            selection.subtract(ids)
+            showToast("已移入废纸篓")
+        }
+    }
+
+    func restoreTrash(ids: Set<UUID>) {
+        if let error = model.restoreFromTrash(ids: ids) {
+            showToast(error, kind: .error)
+        } else {
+            selection.subtract(ids)
+            let destinations = Set(model.bookmarks.filter { ids.contains($0.id) }.map { bookmark in
+                if bookmark.isHidden { return "隐藏书签".obeliskLocalized }
+                if model.isEffectivelyArchived(bookmark) { return "归档".obeliskLocalized }
+                if let collectionID = model.collectionId(for: bookmark.id),
+                   let collection = model.collections.first(where: { $0.id == collectionID }) {
+                    return collection.name
+                }
+                return "未分组".obeliskLocalized
+            })
+            if destinations.count == 1, let destination = destinations.first {
+                showToast(String(format: "已恢复到「%@」".obeliskLocalized, destination))
+            } else {
+                showToast("已恢复书签")
+            }
+        }
     }
 
     func confirmDelete(_ confirmation: DeleteConfirmation) {
-        model.delete(ids: confirmation.ids)
-        selection.subtract(confirmation.ids)
+        if let error = model.permanentlyDelete(ids: confirmation.ids) {
+            showToast(error, kind: .error)
+        } else {
+            selection.subtract(confirmation.ids)
+            showToast(model.trashedBookmarks.isEmpty ? "废纸篓已清空" : "已彻底删除")
+        }
     }
 
     func requestHiddenFromContextMenu(ids: Set<Bookmark.ID>, isHidden: Bool) {
@@ -1111,19 +1149,19 @@ struct BookmarkManagerView: View {
             Text(message)
         }
         .alert(
-            "删除书签?",
+            deleteConfirmation?.isEmptyingTrash == true ? "清空废纸篓" : "彻底删除书签?",
             isPresented: deleteConfirmationBinding,
             presenting: deleteConfirmation
         ) { confirmation in
             Button("取消", role: .cancel) {
                 deleteConfirmation = nil
             }
-            Button("删除", role: .destructive) {
+            Button(confirmation.isEmptyingTrash ? "清空废纸篓" : "彻底删除", role: .destructive) {
                 confirmDelete(confirmation)
                 deleteConfirmation = nil
             }
         } message: { confirmation in
-            Text("共计删除 \(confirmation.count) 个书签")
+            Text("将彻底删除 \(confirmation.count) 个书签，无法恢复")
         }
         .alert(
             contextMenuConfirmation?.title ?? "",
@@ -1235,6 +1273,8 @@ struct BookmarkManagerView: View {
             return hiddenBookmarks.count
         case .archive:
             return archivedBookmarks.count
+        case .trash:
+            return model.trashedBookmarks.count
         default:
             return nil
         }
@@ -1254,6 +1294,8 @@ struct BookmarkManagerView: View {
                 hiddenBookmarkManagementPage
             case .archive:
                 archivePage
+            case .trash:
+                trashPage
             case .appearance:
                 appearancePage
             case .menuBar:

@@ -56,6 +56,7 @@ export const bookmarksTable: VersionedTable = {
     },
     is_hidden: requiredBoolean,
     archived_at: optionalTime,
+    trashed_at: optionalTime,
     original_title: optionalString,
     position_key: requiredString,
     deleted_at: optionalTime,

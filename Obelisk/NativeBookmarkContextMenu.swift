@@ -3,6 +3,7 @@ import ObeliskCore
 
 @MainActor
 struct NativeBookmarkContextMenuConfiguration {
+    var isTrash = false
     var onOpen: (() -> Void)? = nil
     var onCopyURL: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
@@ -71,6 +72,14 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
 
         let menu = NSMenu()
         menu.delegate = self
+
+        if configuration.isTrash {
+            menu.addItem(menuItem(title: "恢复".obeliskLocalized, systemSymbolName: "arrow.uturn.backward", action: #selector(setArchived(_:))))
+            menu.addItem(menuItem(title: "复制 URL".obeliskLocalized, systemSymbolName: "doc.on.doc", action: #selector(copyURL(_:))))
+            menu.addItem(.separator())
+            menu.addItem(destructiveMenuItem(title: "trash.permanentDelete.menu".obeliskLocalized, systemSymbolName: "trash", action: #selector(delete(_:))))
+            return menu
+        }
 
         appendItem(
             title: "打开".obeliskLocalized,
@@ -154,7 +163,7 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
 
         if configuration.onDelete != nil {
             appendSeparator(to: menu)
-            menu.addItem(destructiveMenuItem(
+            menu.addItem(menuItem(
                 title: "删除".obeliskLocalized,
                 systemSymbolName: "trash",
                 action: #selector(delete(_:))

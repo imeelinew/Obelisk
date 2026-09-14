@@ -52,7 +52,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 database,
                 sql: """
                 SELECT id, collection_id, title, url, title_optimization_state, is_hidden,
-                       archived_at, original_title, created_at
+                       archived_at, trashed_at, original_title, created_at
                 FROM bookmarks
                 WHERE deleted_at IS NULL
                 ORDER BY position_key, id
@@ -203,14 +203,13 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 Self.markChange("is_hidden", current["is_hidden"] as Bool, bookmark.isHidden, timestamp, &versions, &changed)
                 Self.markChange("archived_at", current["archived_at"] as String?, archived, timestamp, &versions, &changed)
                 Self.markChange("original_title", current["original_title"] as String?, bookmark.originalTitle, timestamp, &versions, &changed)
-                Self.markChange("deleted_at", current["deleted_at"] as String?, nil as String?, timestamp, &versions, &changed)
-                guard changed else { return }
+                guard current["deleted_at"] == nil, changed else { return }
                 try database.execute(
                     sql: """
                     UPDATE bookmarks SET
                         collection_id = ?, title = ?, url = ?, title_optimization_state = ?,
                         is_hidden = ?, archived_at = ?, original_title = ?,
-                        field_versions = ?, updated_at = ?, deleted_at = NULL
+                        field_versions = ?, updated_at = ?
                     WHERE id = ?
                     """,
                     arguments: [
@@ -231,7 +230,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 let position = Self.bookmarkPosition(bookmark)
                 let versionedFields = [
                     "collection_id", "title", "url", "title_optimization_state", "is_hidden",
-                    "archived_at", "original_title", "position_key", "deleted_at",
+                    "archived_at", "trashed_at", "original_title", "position_key", "deleted_at",
                 ]
                 let versions = Dictionary(uniqueKeysWithValues: versionedFields.map { ($0, timestamp) })
                 try database.execute(
@@ -363,31 +362,26 @@ public final class ObeliskDatabase: @unchecked Sendable {
         }
     }
 
-    public func deleteBookmark(id: UUID, at date: Date = Date()) throws {
+    /// Trash, restore and permanent removal each update only their own HLC field
+    /// A batch commits atomically and enqueues all changed rows together
+    public func setBookmarkTrash(ids: Set<UUID>, trashed: Bool, permanently: Bool = false, at date: Date = Date()) throws {
         try pool.write { database in
-            let rowID = id.uuidString.lowercased()
-            guard let rawVersions = try String.fetchOne(
-                database,
-                sql: "SELECT field_versions FROM bookmarks WHERE id = ? AND deleted_at IS NULL",
-                arguments: [rowID]
-            ) else { return }
-            var versions = try Self.decodeVersions(rawVersions)
-            let timestamp = try self.nextTimestamp(database, observing: Array(versions.values), now: date)
-            versions["deleted_at"] = timestamp
-            try database.execute(
-                sql: """
-                UPDATE bookmarks
-                SET deleted_at = ?, updated_at = ?, field_versions = ?
-                WHERE id = ? AND deleted_at IS NULL
-                """,
-                arguments: [
-                    Self.encodeDate(date),
-                    Self.encodeDate(date),
-                    try Self.encodeVersions(versions),
-                    rowID,
-                ]
-            )
-            try Self.enqueueOutbox(database, table: "bookmarks", rowID: rowID, now: date)
+            for id in ids {
+                let rowID = id.uuidString.lowercased()
+                guard let row = try Row.fetchOne(database,
+                    sql: "SELECT field_versions, trashed_at FROM bookmarks WHERE id = ? AND deleted_at IS NULL",
+                    arguments: [rowID]) else { continue }
+                let existing: String? = row["trashed_at"]
+                guard permanently ? existing != nil : (trashed != (existing != nil)) else { continue }
+                var versions = try Self.decodeVersions(row["field_versions"])
+                let field = permanently ? "deleted_at" : "trashed_at"
+                versions[field] = try self.nextTimestamp(database, observing: Array(versions.values), now: date)
+                try database.execute(
+                    sql: "UPDATE bookmarks SET \(field) = ?, updated_at = ?, field_versions = ? WHERE id = ?",
+                    arguments: [trashed || permanently ? Self.encodeDate(date) : nil,
+                        Self.encodeDate(date), try Self.encodeVersions(versions), rowID])
+                try Self.enqueueOutbox(database, table: "bookmarks", rowID: rowID, now: date)
+            }
         }
     }
 
@@ -574,7 +568,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     id: entry.rowID,
                     fields: [
                         "collection_id", "title", "url", "title_optimization_state", "is_hidden",
-                        "archived_at", "original_title", "position_key", "deleted_at",
+                        "archived_at", "trashed_at", "original_title", "position_key", "deleted_at",
                     ]
                 )
             case "collections":
@@ -721,7 +715,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     table: "bookmarks",
                     fields: [
                         "collection_id", "title", "url", "title_optimization_state", "is_hidden",
-                        "archived_at", "original_title", "position_key", "deleted_at",
+                        "archived_at", "trashed_at", "original_title", "position_key", "deleted_at",
                     ],
                     row: row
                 )
@@ -918,6 +912,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
             titleOptimizationState: optimizationState,
             isHidden: row["is_hidden"],
             archivedAt: rawArchivedAt.flatMap(decodeDate),
+            trashedAt: (row["trashed_at"] as String?).flatMap(decodeDate),
             originalTitle: row["original_title"]
         )
     }

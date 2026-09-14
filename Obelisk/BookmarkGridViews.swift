@@ -234,6 +234,7 @@ struct BookmarkSectionGridView: View {
     ) -> NativeBookmarkContextMenuConfiguration {
         let targets = targetBookmarks(contextBookmark: bookmark)
         var configuration = NativeBookmarkContextMenuConfiguration()
+        configuration.isTrash = bookmark.trashedAt != nil
 
         configuration.onOpen = {
             onOpen(targetBookmarks(contextBookmark: bookmark))

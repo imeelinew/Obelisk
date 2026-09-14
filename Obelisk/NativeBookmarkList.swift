@@ -222,6 +222,7 @@ struct NativeBookmarkList: NSViewRepresentable {
 
             let targets = targetBookmarks(contextBookmark: bookmark)
             var configuration = NativeBookmarkContextMenuConfiguration()
+            configuration.isTrash = bookmark.trashedAt != nil
 
             if parent.onOpen != nil {
                 configuration.onOpen = { [weak self] in

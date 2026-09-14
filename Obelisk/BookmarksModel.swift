@@ -13,15 +13,13 @@ struct CollectionAssignmentFeedback: Equatable {
     enum Target: Hashable {
         case collection(UUID)
         case ungrouped
+        case trash
+        case archive
+        case hidden
     }
 
     let token: UUID
     let destination: Target
-    let sources: Set<Target>
-
-    var animatedTargets: Set<Target> {
-        sources.union([destination])
-    }
 }
 
 @MainActor
@@ -40,6 +38,7 @@ final class BookmarksModel {
     private(set) var collections: [BookmarkCollection] = []
     private(set) var visibleBookmarksSnapshot: [Bookmark] = []
     private(set) var hiddenBookmarksSnapshot: [Bookmark] = []
+    private(set) var trashedBookmarks: [Bookmark] = []
     private(set) var archivedBookmarksSnapshot: [Bookmark] = []
     private(set) var visibleBookmarksByCollectionID: [UUID: [Bookmark]] = [:]
     private(set) var visibleUngroupedBookmarks: [Bookmark] = []
@@ -108,7 +107,11 @@ final class BookmarksModel {
     func reload() {
         do {
             let snapshot = try store.snapshot()
-            let all = snapshot.bookmarks
+            trashedBookmarks = snapshot.bookmarks.filter { $0.trashedAt != nil }.sorted {
+                if $0.trashedAt != $1.trashedAt { return $0.trashedAt! > $1.trashedAt! }
+                return $0.id.uuidString < $1.id.uuidString
+            }
+            let all = snapshot.bookmarks.filter { $0.trashedAt == nil }
             bookmarks = all
             usageByBookmarkID = snapshot.usageByBookmarkID
             searchIndex = BookmarkSearchIndex(bookmarks: all)
@@ -116,7 +119,7 @@ final class BookmarksModel {
             membershipByBookmarkID = Self.prunedMembership(
                 snapshot.collectionByBookmarkID,
                 collections: collections,
-                bookmarkIDs: Set(all.map(\.id))
+                bookmarkIDs: Set(snapshot.bookmarks.map(\.id))
             )
             recomputePreparedContent()
             let priorLoadError = loadErrorMessage
@@ -175,8 +178,7 @@ final class BookmarksModel {
             if !isHidden {
                 pendingAssignmentFeedback = CollectionAssignmentFeedback(
                     token: UUID(),
-                    destination: collectionID.map { .collection($0) } ?? .ungrouped,
-                    sources: []
+                    destination: collectionID.map { .collection($0) } ?? .ungrouped
                 )
             }
             reload()
@@ -254,12 +256,36 @@ final class BookmarksModel {
     func delete(ids: Set<UUID>) -> String? {
         do {
             try store.delete(ids: ids)
+            pendingAssignmentFeedback = CollectionAssignmentFeedback(token: UUID(), destination: .trash)
             reload()
             return nil
         } catch {
-            errorMessage = error.localizedDescription
             return error.localizedDescription
         }
+    }
+
+    func restoreFromTrash(ids: Set<UUID>) -> String? {
+        do {
+            let restored = trashedBookmarks.filter { ids.contains($0.id) }
+            try store.restore(ids: ids)
+            reload()
+            if let first = restored.first {
+                let destination: CollectionAssignmentFeedback.Target
+                if first.isHidden { destination = .hidden }
+                else if isEffectivelyArchived(first) { destination = .archive }
+                else { destination = membershipByBookmarkID[first.id].map { .collection($0) } ?? .ungrouped }
+                lastCollectionAssignmentFeedback = CollectionAssignmentFeedback(token: UUID(), destination: destination)
+            }
+            return nil
+        } catch { return error.localizedDescription }
+    }
+
+    func permanentlyDelete(ids: Set<UUID>) -> String? {
+        do {
+            try store.permanentlyDelete(ids: ids)
+            reload()
+            return nil
+        } catch { return error.localizedDescription }
     }
 
     func recordUsage(for bookmark: Bookmark) {
@@ -385,20 +411,17 @@ final class BookmarksModel {
         do {
             let validIDs = bookmarkIds.intersection(Set(bookmarks.map(\.id)))
             let destination: CollectionAssignmentFeedback.Target = collectionId.map { .collection($0) } ?? .ungrouped
-            var sources: Set<CollectionAssignmentFeedback.Target> = []
             var didMoveVisible = false
             for id in validIDs {
                 guard let current = visibleCollectionAssignmentTarget(for: id) else { continue }
                 if current == destination { continue }
                 didMoveVisible = true
-                sources.insert(current)
             }
             try store.setCollection(collectionId, for: validIDs)
             if didMoveVisible {
                 pendingAssignmentFeedback = CollectionAssignmentFeedback(
                     token: UUID(),
-                    destination: destination,
-                    sources: sources
+                    destination: destination
                 )
             }
             reload()

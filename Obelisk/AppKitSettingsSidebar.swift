@@ -109,7 +109,6 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             let nextItems = parent.items
             let rowsChanged = nextItems != items
             let feedback = takeNewAssignmentFeedback()
-            let animateScopes = assignmentAnimateScopes(for: feedback)
 
             guard let tableView else { return }
             if rowsChanged {
@@ -138,7 +137,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                         tableView.removeRows(at: changedRows, withAnimation: [.effectFade, .slideUp])
                     }
                     tableView.endUpdates()
-                    reloadVisibleRows(in: tableView, animateScopes: animateScopes)
+                    reloadVisibleRows(in: tableView)
                 } else {
                     items = nextItems
                     tableView.reloadData()
@@ -157,7 +156,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                 if let destinationRow = assignmentDestinationRow(for: feedback) {
                     tableView.scrollRowToVisible(destinationRow)
                 }
-                reloadVisibleRows(in: tableView, animateScopes: animateScopes)
+                reloadVisibleRows(in: tableView)
                 playAssignmentGlow(for: feedback, in: tableView)
             }
             syncSelection(in: tableView)
@@ -351,8 +350,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
         }
 
         private func reloadVisibleRows(
-            in tableView: NSTableView,
-            animateScopes: Set<BookmarkManagerView.CollectionScope> = []
+            in tableView: NSTableView
         ) {
             let visibleRows = tableView.rows(in: tableView.visibleRect)
             guard visibleRows.location != NSNotFound else { return }
@@ -373,12 +371,6 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     iconStyle: parent.iconStyle
                 )
                 guard let presentation else { continue }
-                let animateBadge: Bool
-                if case .scope(let scope) = item {
-                    animateBadge = animateScopes.contains(scope)
-                } else {
-                    animateBadge = false
-                }
                 cell.configure(
                     page: presentation.page,
                     title: presentation.title,
@@ -396,7 +388,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     disclosureExpanded: presentation.disclosureExpanded,
                     isSelected: tableView.selectedRow == row,
                     itemKey: item.assignmentAnimationKey,
-                    animateBadge: animateBadge
+                    animateBadge: true
                 )
             }
         }
@@ -452,18 +444,18 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             return feedback
         }
 
-        private func assignmentAnimateScopes(
-            for feedback: CollectionAssignmentFeedback?
-        ) -> Set<BookmarkManagerView.CollectionScope> {
-            guard parent.collectionsExpanded, let feedback else { return [] }
-            return Set(feedback.animatedTargets.map(\.sidebarScope))
-        }
-
         private func assignmentDestinationRow(
             for feedback: CollectionAssignmentFeedback?
         ) -> Int? {
-            guard parent.collectionsExpanded, let feedback else { return nil }
-            return items.firstIndex(of: .scope(feedback.destination.sidebarScope))
+            guard let feedback else { return nil }
+            switch feedback.destination {
+            case .trash: return items.firstIndex(of: .page(.trash))
+            case .archive: return items.firstIndex(of: .page(.archive))
+            case .hidden: return items.firstIndex(of: .page(.hiddenBookmarks))
+            case .collection, .ungrouped:
+                guard parent.collectionsExpanded, let scope = feedback.destination.sidebarScope else { return nil }
+                return items.firstIndex(of: .scope(scope))
+            }
         }
 
         private func playAssignmentGlow(
@@ -1298,7 +1290,7 @@ private extension BookmarkManagerView.SettingsPage {
             return [Self.rgb(0.52, 0.72, 0.98), Self.rgb(0.22, 0.48, 0.88)]
         case .hiddenBookmarks:
             return [Self.rgb(0.58, 0.66, 0.80), Self.rgb(0.34, 0.44, 0.62)]
-        case .archive:
+        case .trash, .archive:
             return [Self.rgb(0.66, 0.72, 0.80), Self.rgb(0.38, 0.46, 0.56)]
         case .appearance:
             return [Self.rgb(0.46, 0.82, 0.50), Self.rgb(0.14, 0.62, 0.30)]
@@ -1388,10 +1380,11 @@ private extension BookmarkManagerView.SettingsPage {
 }
 
 private extension CollectionAssignmentFeedback.Target {
-    var sidebarScope: BookmarkManagerView.CollectionScope {
+    var sidebarScope: BookmarkManagerView.CollectionScope? {
         switch self {
         case .collection(let id): .collection(id)
         case .ungrouped: .ungrouped
+        case .trash, .archive, .hidden: nil
         }
     }
 }

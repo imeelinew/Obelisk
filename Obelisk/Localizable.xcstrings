@@ -1043,6 +1043,23 @@
         }
       }
     },
+    "trash.permanentDelete.menu" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Permanently…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "彻底删除..."
+          }
+        }
+      }
+    },
     "Undo" : {
       "comment" : "Edit menu",
       "localizations" : {
@@ -1571,9 +1588,6 @@
         }
       }
     },
-    "共计删除 %lld 个书签" : {
-
-    },
     "内容" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1777,6 +1791,7 @@
 
     },
     "删除书签?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2271,6 +2286,23 @@
         }
       }
     },
+    "将彻底删除 %lld 个书签，无法恢复" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permanently delete %lld bookmarks，this cannot be undone"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将彻底删除 %lld 个书签，无法恢复"
+          }
+        }
+      }
+    },
     "将选中的书签移到其他分组" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2450,6 +2482,23 @@
         }
       }
     },
+    "已彻底删除" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permanently deleted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已彻底删除"
+          }
+        }
+      }
+    },
     "已恢复" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2463,6 +2512,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已恢复"
+          }
+        }
+      }
+    },
+    "已恢复书签" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmarks restored"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已恢复书签"
+          }
+        }
+      }
+    },
+    "已恢复到「%@」" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restored to “%@”"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已恢复到「%@」"
           }
         }
       }
@@ -2497,6 +2580,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已放入分组的书签在「分组」页查看"
+          }
+        }
+      }
+    },
+    "已移入废纸篓" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moved to Trash"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已移入废纸篓"
           }
         }
       }
@@ -2548,6 +2648,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已重命名分组"
+          }
+        }
+      }
+    },
+    "废纸篓" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trash"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "废纸篓"
+          }
+        }
+      }
+    },
+    "废纸篓为空" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trash is empty"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "废纸篓为空"
+          }
+        }
+      }
+    },
+    "废纸篓包含隐藏书签" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trash contains hidden bookmarks"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "废纸篓包含隐藏书签"
+          }
+        }
+      }
+    },
+    "废纸篓已清空" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trash emptied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "废纸篓已清空"
           }
         }
       }
@@ -2802,6 +2970,40 @@
         }
       }
     },
+    "彻底删除" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Permanently"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "彻底删除"
+          }
+        }
+      }
+    },
+    "彻底删除书签?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permanently delete bookmarks?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "彻底删除书签?"
+          }
+        }
+      }
+    },
     "快捷键" : {
       "localizations" : {
         "en" : {
@@ -2814,6 +3016,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快捷键"
+          }
+        }
+      }
+    },
+    "恢复" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复"
           }
         }
       }
@@ -3785,6 +4004,23 @@
         }
       }
     },
+    "清空废纸篓" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empty Trash"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清空废纸篓"
+          }
+        }
+      }
+    },
     "灰色" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4335,6 +4571,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "蓝色"
+          }
+        }
+      }
+    },
+    "解锁废纸篓" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlock Trash"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "解锁废纸篓"
           }
         }
       }

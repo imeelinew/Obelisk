@@ -102,6 +102,40 @@ extension BookmarkManagerView {
         .navigationTitle("隐藏书签")
     }
 
+    var trashNeedsUnlock: Bool {
+        !hiddenBookmarksUnlocked && model.trashedBookmarks.contains(where: \.isHidden)
+    }
+
+    @ViewBuilder
+    var trashPage: some View {
+        if trashNeedsUnlock {
+            VStack(spacing: 12) {
+                Label("废纸篓包含隐藏书签", systemImage: "lock")
+                Button("解锁废纸篓") {
+                    Task {
+                        if await AuthenticationGate.authenticate(reason: "查看隐藏书签") {
+                            hiddenBookmarksUnlocked = true
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("废纸篓")
+        } else {
+            bookmarkResults(
+                bookmarks: model.trashedBookmarks,
+                emptyTitle: "废纸篓为空",
+                emptyDescription: nil,
+                emptySystemImage: "trash",
+                preservesInputOrder: true,
+                onOpen: { _ in },
+                archiveStateActionTitle: "恢复".obeliskLocalized,
+                onSetArchived: restoreTrash
+            )
+            .navigationTitle("废纸篓")
+        }
+    }
+
     var archivePage: some View {
         bookmarkResults(
             bookmarks: archivedBookmarks,
@@ -150,7 +184,7 @@ extension BookmarkManagerView {
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: onOpen,
                     onCopyURL: copyURLs,
-                    onEdit: { presentation = .edit($0) },
+                    onEdit: { if $0.trashedAt == nil { presentation = .edit($0) } },
                     onDelete: requestDelete,
                     hiddenStateActionTitle: hiddenStateActionTitle,
                     onSetHidden: onSetHidden,
@@ -171,7 +205,7 @@ extension BookmarkManagerView {
                     showsURLHostOnly: showsURLHostOnly,
                     onOpen: onOpen,
                     onCopyURL: copyURLs,
-                    onEdit: { presentation = .edit($0) },
+                    onEdit: { if $0.trashedAt == nil { presentation = .edit($0) } },
                     onDelete: requestDelete,
                     hiddenStateActionTitle: hiddenStateActionTitle,
                     onSetHidden: onSetHidden,

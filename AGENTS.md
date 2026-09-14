@@ -1,62 +1,65 @@
-# Obelisk Engineering Guide
+# Obelisk
 
-## Project boundaries
+Obelisk is a macOS-only bookmark application. Prefer native Apple controls and macOS conventions.
 
-- Obelisk is a macOS-only application.
-- Put platform-independent code in `Packages/ObeliskKit`:
-  - `ObeliskCore`: domain models and deterministic business rules.
-  - `ObeliskData`: SQLite schema, queries, and local transactions.
-  - `ObeliskSync`: authentication, session handling, and PowerSync integration.
-- Keep macOS UI and system integrations in `Obelisk/`.
-- Keep the Cloudflare Worker sync backend in `Server/worker/`.
-- Never import AppKit or UIKit into `ObeliskKit`. Keep UI and system integrations in the macOS app target.
+## Code ownership
 
-## Product decisions
+- `Obelisk/`: macOS UI and system integrations
+- `Packages/ObeliskKit/Sources/ObeliskCore`: domain models and deterministic business rules
+- `Packages/ObeliskKit/Sources/ObeliskData`: SQLite schema, queries, and local transactions
+- `Packages/ObeliskKit/Sources/ObeliskSync`: authentication, sessions, and PowerSync integration
+- `Server/worker/`: Cloudflare Worker sync backend
 
-- Prefer native Apple controls and macOS platform conventions.
-- Browser-history collection and the global quick-search panel have been removed. Keep ordinary bookmark search and quick-add shortcuts.
-- User-facing copy must not contain sentence-ending periods. Commas are allowed only as full-width Chinese commas (`，`), never ASCII commas.
+Keep domain, data, and sync logic in the package. AppKit and UIKit do not belong in `ObeliskKit`. UI code accesses storage and sync through the package, without issuing SQL, calling sync endpoints, or accessing the access key directly.
 
-## macOS window lifecycle
+## Product constraints
 
-- Obelisk is a regular Dock application (`LSUIElement` is `false`). Keep the menu bar item as a secondary entry point; it must not replace or intercept normal Dock activation.
-- Let AppKit manage application activation, Dock reopen events, Spaces, hiding, minimizing, and window ordering. Do not override `applicationShouldHandleReopen`, defer Dock activation through queues or tasks, force windows onto the active Space, or use unconditional frontmost ordering.
-- Use the standard untitled-window delegate path to create the primary window when none exists. Showing an explicitly requested window may use ordinary `makeKeyAndOrderFront` and application activation APIs.
-- Do not add speculative macOS window-lifecycle workarounds. Require a reproducible failure and verify the fix against native AppKit behavior before introducing custom lifecycle code.
+- Browser-history collection and the global quick-search panel were removed. Preserve ordinary bookmark search and quick-add shortcuts.
+- User-facing copy has no sentence-ending periods. Use full-width Chinese commas (`，`), never ASCII commas.
+- Cloud sync is optional. All writes work offline and while sync is disabled.
+- Keychain stores the sync access key and explicit secrets only. Do not introduce application-level database encryption or database keys.
 
-## Storage and sync contract
+## Storage and synchronization
 
-- Follow `docs/STORAGE_ARCHITECTURE.md` as the canonical storage and synchronization specification.
-- SQLite is the local source used by every UI. All writes are local-first and must work while offline or while cloud sync is disabled.
-- UI code must not issue SQL, call sync endpoints, or access the access key directly. Route those operations through `ObeliskData` and `ObeliskSync`.
-- Maintain one domain model and one canonical schema across macOS and the Worker's D1 database. Do not add a parallel persistence path.
-- Synchronization is state-based: clients upload full row state from the outbox and the server merges per-field HLC versions. Never reintroduce a replayed operation queue, and never let one bad row block other uploads.
-- Preserve the HLC field-version conflict rules, soft-delete model, immutable usage events, and idempotent request handling.
-- Cloud sync remains optional. Re-enabling it must upload queued local changes and converge with remote state.
-- When cloud sync is enabled, every local create, update, delete, and usage write must begin uploading immediately, and every active device must converge automatically without a manual sync action. Foreground activation and network recovery must resume synchronization automatically.
-- Keychain is for the sync access key and explicit secrets only. Do not add application-level database encryption or database keys to Keychain.
+For storage or sync changes, consult `docs/STORAGE_ARCHITECTURE.md`, the canonical specification. Preserve these invariants:
 
-## Change policy
+- SQLite is the local source for every UI. Writes are local-first, with one domain model and one canonical schema shared by macOS and the Worker's D1 database. No parallel persistence path.
+- Sync uploads full row state from the outbox and merges per-field HLC versions. Preserve field-version conflict rules, soft deletes, immutable usage events, and idempotent requests. Do not replace state-based sync with operation replay; a bad row must not block other uploads.
+- With sync enabled, every local create, update, delete, and usage write begins uploading immediately. Active devices converge automatically without manual sync.
+- Re-enabling sync uploads queued local changes and converges with remote state. Foreground activation and network recovery resume sync automatically.
 
-- Keep the implementation direct and current. Do not retain obsolete code, legacy formats, compatibility shims, old migrations, or speculative fallbacks unless explicitly requested.
-- Keep domain, data, and sync logic in the package instead of duplicating it in UI code.
-- Prefer small, focused types and clear ownership over indirection or defensive scaffolding.
-- Use Swift 6 concurrency rules: isolate UI state on the main actor, use structured concurrency, and make cross-actor values safely transferable.
-- Validate data at real trust boundaries such as user input, network responses, and database constraints. Do not scatter redundant checks through internal code.
-- Do not add a dependency when the platform SDK or an existing dependency already provides the required capability.
-- Never commit credentials, tokens, signing material, local databases, generated apps, archives, or server runtime data.
+## macOS windows
 
-## Verification
+Obelisk is a regular Dock application (`LSUIElement = false`). The menu bar item is a secondary entry point.
 
-The repository does not maintain test targets or test source files. Do not add,
-restore, or run tests. Verify changes with the affected target's build and
-static checks only.
+Let AppKit manage activation, Dock reopen events, Spaces, hiding, minimizing, and window ordering. Do not override `applicationShouldHandleReopen`, defer Dock activation through queues or tasks, force windows onto the active Space, or use unconditional frontmost ordering.
 
-```sh
-xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug -destination 'platform=macOS' build
-(cd Server/worker && npm run typecheck)
-```
+Create the primary window through the standard untitled-window delegate path when none exists. Explicit window requests may use ordinary `makeKeyAndOrderFront` and application activation APIs. Introduce custom lifecycle behavior only for a reproducible failure verified against native AppKit behavior.
 
-- Build the macOS app after UI or shared-code changes.
-- Run the Worker type checker after changing endpoints, the D1 schema, or merge behavior.
-- Before finishing, review the complete diff, remove dead code and temporary artifacts, and report exactly what was tested.
+## Implementation choices
+
+- Keep the implementation current. Remove obsolete code, legacy formats, compatibility shims, old migrations, and speculative fallbacks in the affected scope unless explicitly requested otherwise.
+- Prefer focused types with clear ownership. Validate at trust boundaries: user input, network responses, and database constraints.
+- Follow Swift 6 concurrency: main-actor UI state, structured concurrency, and safely transferable cross-actor values.
+- Use platform SDKs and existing dependencies when they provide the needed capability.
+- Keep credentials, tokens, signing material, local databases, generated apps, archives, and server runtime data out of commits.
+
+## Completion and verification
+
+Carry the requested change through implementation and relevant verification. Fix failures caused by the change and rerun the affected check without asking for approval at each step. Finish when the requested behavior is implemented and applicable checks pass, or report a concrete blocker.
+
+This repository has no test targets or test source files. Do not add, restore, or run tests. Use builds and static checks:
+
+- After macOS UI or shared-package changes:
+
+  ```sh
+  xcodebuild -project Obelisk.xcodeproj -scheme Obelisk -configuration Debug -destination 'platform=macOS' build
+  ```
+
+- After Worker endpoint, D1 schema, or merge-behavior changes:
+
+  ```sh
+  (cd Server/worker && npm run typecheck)
+  ```
+
+Documentation-only changes do not require either command. Review the complete diff for the requested change and remove dead code and temporary artifacts introduced by it. Report what changed, exactly which checks ran, and any remaining blocker.

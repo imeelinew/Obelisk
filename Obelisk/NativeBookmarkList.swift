@@ -690,22 +690,71 @@ class BookmarkMenuTableView: NSTableView {
 }
 
 final class HoverableRowView: NSTableRowView {
+    private let hoverLayer = CALayer()
+
+    // The custom neutral selection does not use AppKit's white emphasized text
+    override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
+
     var isHovered = false {
         didSet {
             guard isHovered != oldValue else { return }
-            needsDisplay = true
+            updateHover(animated: true)
         }
     }
 
-    override func drawBackground(in dirtyRect: NSRect) {
-        super.drawBackground(in: dirtyRect)
-        guard isHovered, !isSelected else { return }
-        drawRoundedBackground(color: NSColor.labelColor.withAlphaComponent(0.08))
+    override var isSelected: Bool {
+        didSet { updateHover(animated: false) }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        hoverLayer.cornerRadius = 8
+        hoverLayer.opacity = 0
+        layer?.insertSublayer(hoverLayer, at: 0)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        hoverLayer.frame = bounds.insetBy(dx: 10, dy: 2)
+        hoverLayer.backgroundColor = NSColor.labelColor.withAlphaComponent(0.04).cgColor
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsLayout = true
+    }
+
+    private func updateHover(animated: Bool) {
+        let target: Float = isHovered && !isSelected ? 1 : 0
+        let current = hoverLayer.presentation()?.opacity ?? hoverLayer.opacity
+        hoverLayer.removeAnimation(forKey: "hover")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        hoverLayer.opacity = target
+        CATransaction.commit()
+
+        guard animated, !isSelected,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = current
+        animation.toValue = target
+        animation.duration = isHovered ? 0.14 : 0.18
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        hoverLayer.add(animation, forKey: "hover")
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
-        drawRoundedBackground(color: .unemphasizedSelectedContentBackgroundColor)
+        drawRoundedBackground(color: NSColor.labelColor.withAlphaComponent(0.10))
     }
 
     private func drawRoundedBackground(color: NSColor) {
@@ -861,8 +910,7 @@ final class BookmarkTableCellView: NSTableCellView {
     }
 
     private func applyNativeTextColors() {
-        let selected = backgroundStyle == .emphasized
-        titleField.textColor = selected ? .alternateSelectedControlTextColor : .labelColor
-        urlField.textColor = selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
+        titleField.textColor = .labelColor
+        urlField.textColor = .secondaryLabelColor
     }
 }

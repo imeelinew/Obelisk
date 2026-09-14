@@ -471,7 +471,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             in tableView: NSTableView
         ) {
             guard let row = assignmentDestinationRow(for: feedback) else { return }
-            let play = {
+            let play: @MainActor @Sendable () -> Void = {
                 guard let cell = tableView.view(
                     atColumn: 0,
                     row: row,

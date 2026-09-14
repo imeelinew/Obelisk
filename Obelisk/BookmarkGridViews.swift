@@ -410,10 +410,10 @@ struct BookmarkGridCard: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(bookmark.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                SelectedBookmarkTitle(
+                    title: bookmark.title,
+                    isSelected: isSelected
+                )
 
                 Text(displayURL)
                     .font(.system(size: 11))
@@ -479,6 +479,110 @@ struct BookmarkGridCard: View {
         return host
     }
 
+}
+
+private struct SelectedBookmarkTitle: View {
+    let title: String
+    let isSelected: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var containerWidth: CGFloat = 0
+    @State private var titleWidth: CGFloat = 0
+    @State private var offset: CGFloat = 0
+
+    private var shouldScroll: Bool {
+        isSelected
+            && !accessibilityReduceMotion
+            && containerWidth > 0
+            && titleWidth > containerWidth + 1
+    }
+
+    private var playbackConfiguration: PlaybackConfiguration {
+        PlaybackConfiguration(
+            title: title,
+            isActive: shouldScroll,
+            containerWidth: containerWidth,
+            titleWidth: titleWidth
+        )
+    }
+
+    var body: some View {
+        Text(title)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(.primary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(shouldScroll ? 0 : 1)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            guard abs(containerWidth - width) > 0.5 else { return }
+            containerWidth = width
+        }
+        .overlay(alignment: .leading) {
+            GeometryReader { viewport in
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { width in
+                        guard abs(titleWidth - width) > 0.5 else { return }
+                        titleWidth = width
+                    }
+                    .offset(x: offset)
+                    .frame(width: viewport.size.width, height: viewport.size.height, alignment: .leading)
+                    .clipped()
+                    .opacity(shouldScroll ? 1 : 0)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        .task(id: playbackConfiguration) {
+            await playTitleIfNeeded()
+        }
+    }
+
+    private func playTitleIfNeeded() async {
+        resetOffset()
+        guard shouldScroll else { return }
+
+        do {
+            try await Task.sleep(for: .milliseconds(650))
+            while !Task.isCancelled {
+                let distance = titleWidth - containerWidth
+                guard distance > 1 else { return }
+                let duration = max(2.2, Double(distance / 28))
+
+                withAnimation(.linear(duration: duration)) {
+                    offset = -distance
+                }
+                try await Task.sleep(for: .seconds(duration))
+                try await Task.sleep(for: .seconds(1))
+                resetOffset()
+                try await Task.sleep(for: .milliseconds(650))
+            }
+        } catch {
+            resetOffset()
+        }
+    }
+
+    private func resetOffset() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            offset = 0
+        }
+    }
+
+    private struct PlaybackConfiguration: Equatable {
+        let title: String
+        let isActive: Bool
+        let containerWidth: CGFloat
+        let titleWidth: CGFloat
+    }
 }
 
 private struct BookmarkGridFaviconView: View {

@@ -6,6 +6,14 @@
     <description>Sparkle appcast for Obelisk</description>
     <language>en</language>
     <item>
+      <title>1.10.3</title>
+      <pubDate>Mon, 14 Sep 2026 01:25:35 +0000</pubDate>
+      <sparkle:version>70</sparkle:version>
+      <sparkle:shortVersionString>1.10.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.6</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/imeelinew/Obelisk/releases/download/v1.10.3/Obelisk-1.10.3.zip" length="6995946" type="application/octet-stream" sparkle:edSignature="v4d3DK8r9PsXf7L70LMuC0DYfDRi3eWsGwzWVhU4D+5TQ8nzTu3Bg/1Qp12jv5AT5xn47BElO4PP5FQn7y9tCQ==" />
+    </item>
+    <item>
       <title>Obelisk 1.9.1</title>
       <link>https://github.com/imeelinew/Obelisk/releases/tag/v1.9.1</link>
       <sparkle:version>10</sparkle:version>

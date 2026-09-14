@@ -30,6 +30,13 @@ export const collectionsTable: VersionedTable = {
   fields: {
     name: requiredString,
     position_key: requiredString,
+    color: (value) => {
+      const color = requiredString(value) as string;
+      if (!["red", "orange", "yellow", "green", "blue", "purple", "pink", "gray"].includes(color)) {
+        throw new ValidationError("color is invalid");
+      }
+      return color;
+    },
     deleted_at: optionalTime,
   },
 };

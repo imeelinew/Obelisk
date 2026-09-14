@@ -68,9 +68,9 @@ resurrect old data.
 
 - Bookmark presentation state is canonical across client, D1, and wire rows.
   Bookmarks use `title_optimization_state` (`not_attempted`, `succeeded`, or
-  `failed`); collections use the synchronized `position_key` as their only
-  ordering field. Pinning and per-collection menu visibility are not domain
-  state.
+  `failed`); collections use synchronized `position_key` and `color` fields.
+  `position_key` is their only ordering field. Pinning and per-collection menu
+  visibility are not domain state.
 - `usage_events` are immutable and deduplicated by id.
 - Deletion of bookmarks and collections is a soft delete via `deleted_at`;
   snapshots filter deleted rows.

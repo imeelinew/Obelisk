@@ -200,6 +200,20 @@ public final class BookmarkStore {
         try database.deleteCollection(id: id)
     }
 
+    @discardableResult
+    public func setCollectionColor(
+        id: UUID,
+        color: BookmarkCollectionColor
+    ) throws -> BookmarkCollection {
+        let current = try snapshot()
+        guard var collection = current.collections.first(where: { $0.id == id }) else {
+            throw BookmarkStoreError.missingCollection
+        }
+        collection.color = color
+        try database.saveCollection(collection)
+        return collection
+    }
+
     public func reorderCollections(_ orderedIDs: [UUID]) throws {
         let current = try snapshot()
         guard Set(orderedIDs) == Set(current.collections.map(\.id)), orderedIDs.count == current.collections.count else {

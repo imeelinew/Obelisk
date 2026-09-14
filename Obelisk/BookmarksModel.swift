@@ -356,6 +356,16 @@ final class BookmarksModel {
         }
     }
 
+    func setCollectionColor(id: UUID, color: BookmarkCollectionColor) -> String? {
+        do {
+            try store.setCollectionColor(id: id, color: color)
+            reload()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func reorderCollections(_ orderedIDs: [UUID]) -> String? {
         do {
             try store.reorderCollections(orderedIDs)

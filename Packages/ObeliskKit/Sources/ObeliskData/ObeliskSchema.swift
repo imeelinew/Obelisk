@@ -29,6 +29,9 @@ public enum ObeliskSchema {
         migrator.registerMigration("2026-09-unify-bookmark-presentation") { database in
             try migrateUnifiedBookmarkPresentation(database)
         }
+        migrator.registerMigration("2026-09-add-collection-colors") { database in
+            try migrateCollectionColors(database)
+        }
         return migrator
     }
 
@@ -39,6 +42,50 @@ public enum ObeliskSchema {
         counter: 0,
         deviceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
     )
+    private static let collectionColorMigrationDate = "2026-09-14T00:00:00.000Z"
+    private static let collectionColorMigrationTimestamp = LogicalTimestamp(
+        milliseconds: 1_789_344_000_000,
+        counter: 0,
+        deviceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    )
+
+    private static func migrateCollectionColors(_ database: Database) throws {
+        try database.execute(sql: """
+            ALTER TABLE collections
+            ADD COLUMN color TEXT NOT NULL DEFAULT 'blue'
+            """)
+
+        let rows = try Row.fetchAll(database, sql: "SELECT id, field_versions FROM collections")
+        for row in rows {
+            var versions = try ObeliskDatabase.decodeVersions(row["field_versions"])
+            versions["color"] = collectionColorMigrationTimestamp
+            try database.execute(
+                sql: """
+                UPDATE collections
+                SET field_versions = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                arguments: [
+                    try ObeliskDatabase.encodeVersions(versions),
+                    collectionColorMigrationDate,
+                    row["id"] as String,
+                ]
+            )
+        }
+
+        try database.execute(
+            sql: """
+            INSERT INTO outbox (table_name, row_id, queued_at, attempts, last_error)
+            SELECT 'collections', id, ?, 0, NULL FROM collections WHERE TRUE
+            ON CONFLICT (table_name, row_id) DO UPDATE SET
+                queued_at = excluded.queued_at,
+                attempts = 0,
+                last_error = NULL
+            """,
+            arguments: [collectionColorMigrationDate]
+        )
+        try database.execute(sql: "DELETE FROM sync_state WHERE id = 'cursor'")
+    }
 
     private static func migrateUnifiedBookmarkPresentation(_ database: Database) throws {
         let hasPinnedBookmarks = try Bool.fetchOne(

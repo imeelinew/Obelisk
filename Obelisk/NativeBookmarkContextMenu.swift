@@ -1,4 +1,5 @@
 import AppKit
+import ObeliskCore
 
 @MainActor
 struct NativeBookmarkContextMenuConfiguration {
@@ -20,8 +21,10 @@ struct NativeBookmarkContextMenuConfiguration {
 
 @MainActor
 struct NativeCollectionContextMenuConfiguration {
+    var selectedColor: BookmarkCollectionColor = .blue
     var onRename: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
+    var onColorChange: ((BookmarkCollectionColor) -> Void)? = nil
 }
 
 @MainActor
@@ -257,52 +260,49 @@ final class NativeBookmarkContextMenuController: NSObject, NSMenuDelegate {
 }
 
 @MainActor
-final class NativeCollectionContextMenuController: NSObject, NSMenuDelegate {
+final class NativeCollectionContextMenuController: NSObject {
     private var configuration: NativeCollectionContextMenuConfiguration?
 
     func makeMenu(configuration: NativeCollectionContextMenuConfiguration) -> NSMenu? {
         self.configuration = configuration
 
         let menu = NSMenu()
-        menu.delegate = self
 
         if configuration.onRename != nil {
             let item = NSMenuItem(
-                title: "重命名分组".obeliskLocalized,
+                title: "重命名".obeliskLocalized,
                 action: #selector(rename(_:)),
                 keyEquivalent: ""
             )
             item.target = self
-            item.image = NativeContextMenuAppearance.menuSymbolImage("pencil")
             menu.addItem(item)
         }
 
         if configuration.onDelete != nil {
-            if !menu.items.isEmpty {
-                menu.addItem(.separator())
-            }
             let item = NSMenuItem(
-                title: "删除分组".obeliskLocalized,
+                title: "删除...".obeliskLocalized,
                 action: #selector(delete(_:)),
                 keyEquivalent: ""
             )
             item.target = self
-            item.identifier = NativeContextMenuAppearance.destructiveMenuItemIdentifier
-            NativeContextMenuAppearance.applyDestructiveStyle(to: item, highlighted: false)
+            menu.addItem(item)
+        }
+
+        if configuration.onColorChange != nil {
+            if !menu.items.isEmpty {
+                menu.addItem(.separator())
+            }
+            let item = NSMenuItem()
+            item.view = CollectionColorPickerMenuView(
+                selectedColor: configuration.selectedColor,
+                onSelect: { [weak self] color in
+                    self?.configuration?.onColorChange?(color)
+                }
+            )
             menu.addItem(item)
         }
 
         return menu.items.isEmpty ? nil : menu
-    }
-
-    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-        for menuItem in menu.items
-        where menuItem.identifier == NativeContextMenuAppearance.destructiveMenuItemIdentifier {
-            NativeContextMenuAppearance.applyDestructiveStyle(
-                to: menuItem,
-                highlighted: menuItem === item
-            )
-        }
     }
 
     @objc private func rename(_ sender: NSMenuItem) {
@@ -311,5 +311,141 @@ final class NativeCollectionContextMenuController: NSObject, NSMenuDelegate {
 
     @objc private func delete(_ sender: NSMenuItem) {
         configuration?.onDelete?()
+    }
+}
+
+extension BookmarkCollectionColor {
+    var appKitColor: NSColor {
+        switch self {
+        case .red: .systemRed
+        case .orange: .systemOrange
+        case .yellow: .systemYellow
+        case .green: .systemGreen
+        case .blue: .systemBlue
+        case .purple: .systemPurple
+        case .pink: .systemPink
+        case .gray: .systemGray
+        }
+    }
+
+    var localizedName: String {
+        switch self {
+        case .red: "红色".obeliskLocalized
+        case .orange: "橙色".obeliskLocalized
+        case .yellow: "黄色".obeliskLocalized
+        case .green: "绿色".obeliskLocalized
+        case .blue: "蓝色".obeliskLocalized
+        case .purple: "紫色".obeliskLocalized
+        case .pink: "粉色".obeliskLocalized
+        case .gray: "灰色".obeliskLocalized
+        }
+    }
+}
+
+@MainActor
+private final class CollectionColorPickerMenuView: NSView {
+    private let colors = BookmarkCollectionColor.allCases
+    private let onSelect: (BookmarkCollectionColor) -> Void
+    private var buttons: [CollectionColorSwatchButton] = []
+
+    init(
+        selectedColor: BookmarkCollectionColor,
+        onSelect: @escaping (BookmarkCollectionColor) -> Void
+    ) {
+        self.onSelect = onSelect
+        super.init(frame: NSRect(x: 0, y: 0, width: 214, height: 42))
+
+        let stackView = NSStackView()
+        stackView.orientation = .horizontal
+        stackView.alignment = .centerY
+        stackView.distribution = .fillEqually
+        stackView.spacing = 2
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stackView)
+
+        buttons = colors.enumerated().map { index, color in
+            let button = CollectionColorSwatchButton(
+                color: color.appKitColor,
+                isSelected: color == selectedColor
+            )
+            button.tag = index
+            button.target = self
+            button.action = #selector(selectColor(_:))
+            button.toolTip = color.localizedName
+            button.setAccessibilityLabel(color.localizedName)
+            button.setAccessibilityRole(.radioButton)
+            button.setAccessibilityValue(color == selectedColor ? 1 : 0)
+            stackView.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: 23).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 23).isActive = true
+            return button
+        }
+
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func selectColor(_ sender: NSButton) {
+        guard colors.indices.contains(sender.tag) else { return }
+        let selectedColor = colors[sender.tag]
+        for (button, color) in zip(buttons, colors) {
+            let isSelected = color == selectedColor
+            button.isSwatchSelected = isSelected
+            button.setAccessibilityValue(isSelected ? 1 : 0)
+        }
+        onSelect(selectedColor)
+        enclosingMenuItem?.menu?.cancelTracking()
+    }
+}
+
+@MainActor
+private final class CollectionColorSwatchButton: NSButton {
+    let swatchColor: NSColor
+    var isSwatchSelected: Bool {
+        didSet { needsDisplay = true }
+    }
+
+    init(color: NSColor, isSelected: Bool) {
+        self.swatchColor = color
+        self.isSwatchSelected = isSelected
+        super.init(frame: .zero)
+        title = ""
+        isBordered = false
+        focusRingType = .none
+        setButtonType(.momentaryChange)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let center = NSPoint(x: bounds.midX, y: bounds.midY)
+        if isSwatchSelected {
+            let ringRect = NSRect(x: center.x - 10, y: center.y - 10, width: 20, height: 20)
+            let ring = NSBezierPath(ovalIn: ringRect)
+            NSColor.separatorColor.setStroke()
+            ring.lineWidth = 1.5
+            ring.stroke()
+        }
+
+        let swatchRect = NSRect(x: center.x - 7, y: center.y - 7, width: 14, height: 14)
+        let swatch = NSBezierPath(ovalIn: swatchRect)
+        swatchColor.withAlphaComponent(isHighlighted ? 0.72 : 1).setFill()
+        swatch.fill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 }

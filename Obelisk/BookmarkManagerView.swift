@@ -829,6 +829,12 @@ struct BookmarkManagerView: View {
         collectionToDelete = collection
     }
 
+    func setCollectionColor(id: UUID, color: BookmarkCollectionColor) {
+        if let error = model.setCollectionColor(id: id, color: color) {
+            showToast(error, kind: .error)
+        }
+    }
+
     func addHiddenBookmarkExcludedURLKeyword() {
         let keyword = newHiddenBookmarkExcludedURLKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return }
@@ -1187,6 +1193,7 @@ struct BookmarkManagerView: View {
             },
             onRenameCollection: beginRenameCollection,
             onDeleteCollection: beginDeleteCollection,
+            onSetCollectionColor: setCollectionColor,
             onReorderSections: saveMenuBarSectionOrder,
             iconTheme: sidebarIconTheme,
             iconStyle: sidebarIconStyle,

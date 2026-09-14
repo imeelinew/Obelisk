@@ -6,7 +6,7 @@ import { currentCursor, jsonError } from "./push";
 const pageLimit = 1000;
 
 const rowQueries: Record<string, string> = {
-  collections: `SELECT id, name, position_key, field_versions, created_at, updated_at, deleted_at, seq
+  collections: `SELECT id, name, position_key, color, field_versions, created_at, updated_at, deleted_at, seq
        FROM collections WHERE seq > ? ORDER BY seq LIMIT ${pageLimit}`,
   bookmarks: `SELECT id, collection_id, title, url, title_optimization_state, is_hidden, archived_at,
        original_title, position_key, field_versions, created_at, updated_at, deleted_at, seq

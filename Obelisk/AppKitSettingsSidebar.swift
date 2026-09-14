@@ -14,6 +14,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
     var onCreateCollection: () -> Void
     var onRenameCollection: (UUID) -> Void
     var onDeleteCollection: (UUID) -> Void
+    var onSetCollectionColor: (UUID, BookmarkCollectionColor) -> Void
     var onReorderSections: ([BookmarkMenuSectionID]) -> Void
     var iconTheme: SidebarIconTheme
     var iconStyle: SidebarIconStyle
@@ -225,6 +226,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     professionalIconSize: parent.professionalIconSize,
                     showsIcon: true,
                     iconResourceName: nil,
+                    collectionColor: nil,
                     disclosureExpanded: nil,
                     isSelected: tableView.selectedRow == row,
                     itemKey: SettingsSidebarItem.page(page).assignmentAnimationKey,
@@ -241,6 +243,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     indentation: 0,
                     showsIcon: true,
                     iconResourceName: nil,
+                    collectionColor: nil,
                     disclosureExpanded: expanded,
                     itemKey: SettingsSidebarItem.collectionsDisclosure(expanded).assignmentAnimationKey
                 )
@@ -254,6 +257,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     indentation: 14,
                     showsIcon: scope.showsSidebarIcon,
                     iconResourceName: scope.sidebarIconResourceName(for: parent.iconStyle),
+                    collectionColor: scope.collectionColor(in: parent.collections),
                     disclosureExpanded: nil,
                     itemKey: SettingsSidebarItem.scope(scope).assignmentAnimationKey
                 )
@@ -388,6 +392,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                     professionalIconSize: parent.professionalIconSize,
                     showsIcon: presentation.showsIcon,
                     iconResourceName: presentation.iconResourceName,
+                    collectionColor: presentation.collectionColor,
                     disclosureExpanded: presentation.disclosureExpanded,
                     isSelected: tableView.selectedRow == row,
                     itemKey: item.assignmentAnimationKey,
@@ -405,6 +410,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
             indentation: CGFloat,
             showsIcon: Bool,
             iconResourceName: String?,
+            collectionColor: BookmarkCollectionColor?,
             disclosureExpanded: Bool?,
             itemKey: String?
         ) -> NSView {
@@ -425,6 +431,7 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                 professionalIconSize: parent.professionalIconSize,
                 showsIcon: showsIcon,
                 iconResourceName: iconResourceName,
+                collectionColor: collectionColor,
                 disclosureExpanded: disclosureExpanded,
                 isSelected: tableView.selectedRow == row,
                 itemKey: itemKey,
@@ -506,10 +513,17 @@ struct AppKitSettingsSidebar: NSViewRepresentable {
                 menu.addItem(item)
                 return menu
             case .scope(.collection(let id)):
+                guard let collection = parent.collections.first(where: { $0.id == id }) else {
+                    return nil
+                }
                 let controller = NativeCollectionContextMenuController()
                 let menu = controller.makeMenu(configuration: NativeCollectionContextMenuConfiguration(
+                    selectedColor: collection.color,
                     onRename: { [weak self] in self?.parent.onRenameCollection(id) },
-                    onDelete: { [weak self] in self?.parent.onDeleteCollection(id) }
+                    onDelete: { [weak self] in self?.parent.onDeleteCollection(id) },
+                    onColorChange: { [weak self] color in
+                        self?.parent.onSetCollectionColor(id, color)
+                    }
                 ))
                 collectionContextMenuController = controller
                 return menu
@@ -636,6 +650,7 @@ private enum SettingsSidebarItem: Equatable {
                 indentation: 0,
                 showsIcon: true,
                 iconResourceName: nil,
+                collectionColor: nil,
                 disclosureExpanded: nil,
                 badge: .page(page)
             )
@@ -646,6 +661,7 @@ private enum SettingsSidebarItem: Equatable {
                 indentation: 0,
                 showsIcon: true,
                 iconResourceName: nil,
+                collectionColor: nil,
                 disclosureExpanded: expanded,
                 badge: .collections
             )
@@ -656,6 +672,7 @@ private enum SettingsSidebarItem: Equatable {
                 indentation: 14,
                 showsIcon: scope.showsSidebarIcon,
                 iconResourceName: scope.sidebarIconResourceName(for: iconStyle),
+                collectionColor: scope.collectionColor(in: collections),
                 disclosureExpanded: nil,
                 badge: .scope(scope)
             )
@@ -677,6 +694,7 @@ private struct SidebarItemPresentation {
     var indentation: CGFloat
     var showsIcon: Bool
     var iconResourceName: String?
+    var collectionColor: BookmarkCollectionColor?
     var disclosureExpanded: Bool?
     var badge: Badge
 
@@ -707,6 +725,11 @@ private extension BookmarkManagerView.CollectionScope {
         case (.ungrouped, .lucide): "bookmark-minus"
         case (.ungrouped, .tabler): "folder-open-filled"
         }
+    }
+
+    func collectionColor(in collections: [BookmarkCollection]) -> BookmarkCollectionColor? {
+        guard case .collection(let id) = self else { return nil }
+        return collections.first(where: { $0.id == id })?.color
     }
 
     var showsSidebarIcon: Bool {
@@ -770,6 +793,39 @@ private final class SidebarPassthroughView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+private final class SettingsSidebarCollectionColorView: NSView {
+    private var color: BookmarkCollectionColor?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        layer?.cornerRadius = 5
+        layer?.cornerCurve = .continuous
+        isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(color: BookmarkCollectionColor?) {
+        self.color = color
+        isHidden = color == nil
+        updateColor()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColor()
+    }
+
+    private func updateColor() {
+        layer?.backgroundColor = color?.appKitColor.cgColor
+    }
+}
+
 private final class SettingsSidebarRowView: NSTableRowView {
     override var isSelected: Bool {
         didSet {
@@ -828,6 +884,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
     private let disclosureImageView = NSImageView()
     private let colorfulIconView = SettingsSidebarColorIconView()
     private let professionalIconView = NSImageView()
+    private let collectionColorView = SettingsSidebarCollectionColorView()
     private let titleField = NSTextField(labelWithString: "")
     private let badgeField = NSTextField(labelWithString: "")
     private let glowHost = SidebarPassthroughView()
@@ -842,6 +899,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
     private var titleWithoutIcon: NSLayoutConstraint!
     private var colorfulIconLeading: NSLayoutConstraint!
     private var professionalIconLeading: NSLayoutConstraint!
+    private var collectionColorLeading: NSLayoutConstraint!
     private var isSelected = false
 
     override init(frame frameRect: NSRect) {
@@ -856,6 +914,8 @@ private final class SettingsSidebarPageCell: NSTableCellView {
 
         professionalIconView.imageScaling = .scaleProportionallyDown
         professionalIconView.translatesAutoresizingMaskIntoConstraints = false
+
+        collectionColorView.translatesAutoresizingMaskIntoConstraints = false
 
         titleField.font = .systemFont(ofSize: NSFont.systemFontSize)
         titleField.lineBreakMode = .byTruncatingTail
@@ -878,6 +938,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         addSubview(disclosureImageView)
         addSubview(colorfulIconView)
         addSubview(professionalIconView)
+        addSubview(collectionColorView)
         addSubview(titleField)
         addSubview(badgeField)
 
@@ -900,6 +961,10 @@ private final class SettingsSidebarPageCell: NSTableCellView {
 
         colorfulIconLeading = colorfulIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.leadingInset)
         professionalIconLeading = professionalIconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.leadingInset)
+        collectionColorLeading = collectionColorView.leadingAnchor.constraint(
+            equalTo: leadingAnchor,
+            constant: Self.leadingInset
+        )
 
         NSLayoutConstraint.activate([
             glowHost.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -921,6 +986,11 @@ private final class SettingsSidebarPageCell: NSTableCellView {
             professionalIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             professionalIconWidth,
             professionalIconHeight,
+
+            collectionColorLeading,
+            collectionColorView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            collectionColorView.widthAnchor.constraint(equalToConstant: 10),
+            collectionColorView.heightAnchor.constraint(equalToConstant: 10),
 
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: badgeField.leadingAnchor, constant: -8),
@@ -951,6 +1021,7 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         professionalIconSize: CGFloat,
         showsIcon: Bool,
         iconResourceName: String?,
+        collectionColor: BookmarkCollectionColor?,
         disclosureExpanded: Bool?,
         isSelected: Bool,
         itemKey: String?,
@@ -965,6 +1036,12 @@ private final class SettingsSidebarPageCell: NSTableCellView {
         let disclosureOffset: CGFloat = disclosureExpanded == nil ? 0 : 20
         colorfulIconLeading.constant = Self.leadingInset + indentation + disclosureOffset
         professionalIconLeading.constant = Self.leadingInset + indentation + disclosureOffset
+        let markerSlotWidth = theme == .colorful ? colorfulIconSize : professionalIconSize + 3
+        collectionColorLeading.constant = Self.leadingInset
+            + indentation
+            + disclosureOffset
+            + max(0, (markerSlotWidth - 10) / 2)
+        collectionColorView.configure(color: collectionColor)
         applySelectionStyle(isSelected: isSelected)
         configureDisclosure(expanded: disclosureExpanded)
         applyBadge(badgeCount, animated: animateBadge)

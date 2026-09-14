@@ -61,7 +61,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
             let collectionRows = try Row.fetchAll(
                 database,
                 sql: """
-                SELECT id, name, position_key
+                SELECT id, name, position_key, color
                 FROM collections
                 WHERE deleted_at IS NULL
                 ORDER BY position_key, id
@@ -269,7 +269,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
             let current = try Row.fetchOne(
                 database,
                 sql: """
-                SELECT name, position_key, field_versions, deleted_at
+                SELECT name, position_key, color, field_versions, deleted_at
                 FROM collections
                 WHERE id = ?
                 """,
@@ -282,18 +282,20 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 var changed = false
                 Self.markChange("name", current["name"] as String, collection.name, timestamp, &versions, &changed)
                 Self.markChange("position_key", current["position_key"] as String, position, timestamp, &versions, &changed)
+                Self.markChange("color", current["color"] as String, collection.color.rawValue, timestamp, &versions, &changed)
                 Self.markChange("deleted_at", current["deleted_at"] as String?, nil as String?, timestamp, &versions, &changed)
                 guard changed else { return }
                 try database.execute(
                     sql: """
                     UPDATE collections SET
-                        name = ?, position_key = ?,
+                        name = ?, position_key = ?, color = ?,
                         field_versions = ?, updated_at = ?, deleted_at = NULL
                     WHERE id = ?
                     """,
                     arguments: [
                         collection.name,
                         position,
+                        collection.color.rawValue,
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
                         id,
@@ -301,19 +303,20 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 )
             } else {
                 let timestamp = try self.nextTimestamp(database, now: now)
-                let versionedFields = ["name", "position_key", "deleted_at"]
+                let versionedFields = ["name", "position_key", "color", "deleted_at"]
                 let versions = Dictionary(uniqueKeysWithValues: versionedFields.map { ($0, timestamp) })
                 try database.execute(
                     sql: """
                     INSERT INTO collections (
-                        id, name, position_key,
+                        id, name, position_key, color,
                         field_versions, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     arguments: [
                         id,
                         collection.name,
                         position,
+                        collection.color.rawValue,
                         try Self.encodeVersions(versions),
                         Self.encodeDate(now),
                         Self.encodeDate(now),
@@ -579,7 +582,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                     database,
                     table: "collections",
                     id: entry.rowID,
-                    fields: ["name", "position_key", "deleted_at"]
+                    fields: ["name", "position_key", "color", "deleted_at"]
                 )
             case "usage_events":
                 guard let row = try Row.fetchOne(
@@ -708,7 +711,7 @@ public final class ObeliskDatabase: @unchecked Sendable {
                 try Self.applyRemoteVersionedRow(
                     database,
                     table: "collections",
-                    fields: ["name", "position_key", "deleted_at"],
+                    fields: ["name", "position_key", "color", "deleted_at"],
                     row: row
                 )
             }
@@ -924,10 +927,15 @@ public final class ObeliskDatabase: @unchecked Sendable {
             throw ObeliskDatabaseError.invalidRow("collections")
         }
         let position: String = row["position_key"]
+        let rawColor: String = row["color"]
+        guard let color = BookmarkCollectionColor(rawValue: rawColor) else {
+            throw ObeliskDatabaseError.invalidRow("collections")
+        }
         return BookmarkCollection(
             id: id,
             name: row["name"],
-            sortOrder: Int(position) ?? fallbackOrder
+            sortOrder: Int(position) ?? fallbackOrder,
+            color: color
         )
     }
 

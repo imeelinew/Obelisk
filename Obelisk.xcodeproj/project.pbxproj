@@ -58,16 +58,6 @@
 			path = Obelisk;
 			sourceTree = "<group>";
 		};
-		45B26F262FC4874D009BAE8A /* ObeliskTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ObeliskTests;
-			sourceTree = "<group>";
-		};
-		45B26F302FC4874D009BAE8A /* ObeliskUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ObeliskUITests;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -105,8 +95,6 @@
 			children = (
 				C1C0A0022FC4A00000000002 /* Obelisk.icon */,
 				45B26F182FC4874D009BAE8A /* Obelisk */,
-				45B26F262FC4874D009BAE8A /* ObeliskTests */,
-				45B26F302FC4874D009BAE8A /* ObeliskUITests */,
 				45B26F172FC4874D009BAE8A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -164,9 +152,6 @@
 			dependencies = (
 				45B26F252FC4874D009BAE8A /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				45B26F262FC4874D009BAE8A /* ObeliskTests */,
-			);
 			name = ObeliskTests;
 			packageProductDependencies = (
 			);
@@ -186,9 +171,6 @@
 			);
 			dependencies = (
 				45B26F2F2FC4874D009BAE8A /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				45B26F302FC4874D009BAE8A /* ObeliskUITests */,
 			);
 			name = ObeliskUITests;
 			packageProductDependencies = (

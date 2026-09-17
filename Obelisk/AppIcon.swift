@@ -26,7 +26,7 @@ enum AppIcon {
         let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .medium))
             ?? resourceImage(name: "PyramidSymbol", extension: "svg")
-            ?? image(size: iconSize)
+        guard let symbol else { return NSImage(size: iconSize) }
         let icon = symbol.copy() as? NSImage ?? symbol
         icon.size = iconSize
         icon.isTemplate = true
@@ -44,18 +44,6 @@ enum AppIcon {
         canvas.size = canvasSize
         canvas.isTemplate = true
         return canvas
-    }
-
-    static func image(size: NSSize? = nil) -> NSImage {
-        let base = resourceImage(name: "AppIcon", extension: "png")
-            ?? generatedAppMark(size: size ?? NSSize(width: 18, height: 18))
-
-        guard let size else { return base }
-
-        let copy = base.copy() as? NSImage ?? base
-        copy.size = size
-        copy.isTemplate = false
-        return copy
     }
 
     static func faviconPlaceholder(size: NSSize) -> NSImage {
@@ -118,36 +106,5 @@ enum AppIcon {
     private static func resourceImage(name: String, extension pathExtension: String) -> NSImage? {
         (Bundle.main.resourceURL?.appendingPathComponent("\(name).\(pathExtension)"))
             .flatMap(NSImage.init(contentsOf:))
-            ?? packageResourceURL(name: name, extension: pathExtension)
-            .flatMap(NSImage.init(contentsOf:))
-    }
-
-    private static func packageResourceURL(name: String, extension pathExtension: String) -> URL? {
-        #if SWIFT_PACKAGE
-        Bundle.module.url(forResource: name, withExtension: pathExtension)
-        #else
-        nil
-        #endif
-    }
-
-    private static func generatedAppMark(size: NSSize) -> NSImage {
-        let image = NSImage(size: size)
-        image.lockFocus()
-
-        NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
-        NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: size.width * 0.2, yRadius: size.height * 0.2).fill()
-
-        NSColor.controlAccentColor.setFill()
-        let inset = min(size.width, size.height) * 0.24
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: size.width / 2, y: size.height - inset))
-        path.line(to: NSPoint(x: size.width - inset, y: inset))
-        path.line(to: NSPoint(x: inset, y: inset))
-        path.close()
-        path.fill()
-
-        image.unlockFocus()
-        image.isTemplate = false
-        return image
     }
 }

@@ -250,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleManagerWindowClosed() {
+        NSApp.setActivationPolicy(.accessory)
         faviconLoader.releaseTransientMemory()
         DispatchQueue.main.async {
             _ = malloc_zone_pressure_relief(nil, 0)
@@ -258,6 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openManager() {
         guard store != nil else { return }
+        NSApp.setActivationPolicy(.regular)
         managerWindow.show()
     }
 

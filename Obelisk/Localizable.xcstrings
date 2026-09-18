@@ -1434,22 +1434,6 @@
         }
       }
     },
-    "你确定吗？开启自定义透明度可能会大幅降低可读性" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Are you sure? Custom opacity can greatly reduce readability"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你确定吗？开启自定义透明度可能会大幅降低可读性"
-          }
-        }
-      }
-    },
     "使用无痕窗口打开隐藏书签" : {
       "localizations" : {
         "en" : {
@@ -2786,23 +2770,6 @@
         }
       }
     },
-    "开启后可手动调整窗口透明度" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When enabled, you can manually adjust window opacity"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开启后可手动调整窗口透明度"
-          }
-        }
-      }
-    },
     "开启后将自动使用配置的模型优化新添加的书签标题" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2833,22 +2800,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开启后将自动使用配置的模型把新添加的可见书签归入合适分组"
-          }
-        }
-      }
-    },
-    "开启自定义透明度?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enable Custom Opacity?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开启自定义透明度?"
           }
         }
       }
@@ -2933,22 +2884,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当前浏览器没有可读取的窗口"
-          }
-        }
-      }
-    },
-    "当前透明度" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Current Opacity"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前透明度"
           }
         }
       }
@@ -4523,22 +4458,6 @@
         }
       }
     },
-    "自定义透明度" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Custom Opacity"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自定义透明度"
-          }
-        }
-      }
-    },
     "菜单栏" : {
       "localizations" : {
         "en" : {
@@ -5029,22 +4948,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "透明 + 标题栏透明"
-          }
-        }
-      }
-    },
-    "透明度" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opacity"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "透明度"
           }
         }
       }

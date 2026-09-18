@@ -66,10 +66,6 @@ struct BookmarkManagerView: View {
     @AppStorage(BookmarkMenuSectionOrder.storageKey) var menuBarSectionOrderRaw = ""
     @AppStorage(BookmarkMenuExpansionPreferences.storageKey) var menuBarExpandedSectionsRaw = "\u{0}"
     @AppStorage(BookmarkListSortPreferences.storageKey) var bookmarkListSortModesRaw = ""
-    // 0 = 完全不透明（默认毛玻璃材质满强度）；上限 0.5（再透可读性会崩）。
-    @AppStorage("windowSeeThrough") var windowSeeThrough: Double = 0.0
-    @AppStorage("customTransparencyEnabled") var customTransparencyEnabled = false
-    @State var showCustomTransparencyAlert = false
     @State var showNewCollectionDialog = false
     @State var newCollectionName = ""
     @State var collectionToRename: BookmarkCollection?
@@ -97,11 +93,6 @@ struct BookmarkManagerView: View {
         default:
             return Color.black.opacity(0.04)
         }
-    }
-
-    var effectiveBlurAlpha: Double {
-        guard windowTransparencyEnabled else { return 1.0 }
-        return 1.0 - min(0.5, max(0.0, windowSeeThrough))
     }
 
     struct Toast: Equatable, Identifiable {
@@ -901,20 +892,6 @@ struct BookmarkManagerView: View {
         )
     }
 
-    var customTransparencyBinding: Binding<Bool> {
-        Binding(
-            get: { customTransparencyEnabled },
-            set: { newValue in
-                if newValue {
-                    showCustomTransparencyAlert = true
-                } else {
-                    customTransparencyEnabled = false
-                    windowSeeThrough = 0.0
-                }
-            }
-        )
-    }
-
     var sidebarIconTheme: SidebarIconTheme {
         SidebarIconTheme(rawValue: sidebarIconThemeRaw) ?? .professional
     }
@@ -1015,13 +992,6 @@ struct BookmarkManagerView: View {
         )
     }
 
-    var customTransparencyAlertBinding: Binding<Bool> {
-        Binding(
-            get: { showCustomTransparencyAlert },
-            set: { if !$0 { showCustomTransparencyAlert = false } }
-        )
-    }
-
     var settingsPageBinding: Binding<SettingsPage?> {
         Binding<SettingsPage?>(
             get: { settingsPage },
@@ -1077,7 +1047,7 @@ struct BookmarkManagerView: View {
                 .frame(width: 0, height: 0)
 
             if windowTransparencyEnabled {
-                WindowBackgroundBlur(materialAlpha: effectiveBlurAlpha)
+                WindowBackgroundBlur()
                     .ignoresSafeArea()
             }
         }
@@ -1182,9 +1152,6 @@ struct BookmarkManagerView: View {
             ))
         }
         .modifier(ExtraAlerts(
-            customTransparencyAlertBinding: customTransparencyAlertBinding,
-            showCustomTransparencyAlert: $showCustomTransparencyAlert,
-            customTransparencyEnabled: $customTransparencyEnabled,
             showNewCollectionDialog: $showNewCollectionDialog,
             newCollectionName: $newCollectionName,
             createCollection: createCollection,

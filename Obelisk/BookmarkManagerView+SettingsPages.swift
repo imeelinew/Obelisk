@@ -44,19 +44,6 @@ extension BookmarkManagerView {
 
             Section("窗口") {
                 Toggle("启用窗口透明效果", isOn: $windowTransparencyEnabled)
-                if windowTransparencyEnabled {
-                    Toggle("自定义透明度", isOn: customTransparencyBinding)
-                    if customTransparencyEnabled {
-                        Slider(value: $windowSeeThrough, in: 0...0.5, step: 0.05) {
-                            Text("透明度")
-                        } minimumValueLabel: {
-                            Text("0%")
-                        } maximumValueLabel: {
-                            Text("50%")
-                        }
-                        LabeledContent("当前透明度", value: "\(Int(windowSeeThrough * 100))%")
-                    }
-                }
             }
 
             Section("域名显示") {

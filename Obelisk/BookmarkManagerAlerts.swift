@@ -38,9 +38,6 @@ struct HiddenBookmarksLockingModifier: ViewModifier {
 // MARK: - Extra Alerts (split out to keep the main body type-checkable)
 
 struct ExtraAlerts: ViewModifier {
-    let customTransparencyAlertBinding: Binding<Bool>
-    @Binding var showCustomTransparencyAlert: Bool
-    @Binding var customTransparencyEnabled: Bool
     @Binding var showNewCollectionDialog: Bool
     @Binding var newCollectionName: String
     let createCollection: () -> Void
@@ -73,20 +70,6 @@ struct ExtraAlerts: ViewModifier {
                 Button("删除", role: .destructive, action: deleteCollection)
             } message: { collection in
                 Text("删除「\(collection.name)」后，其中的书签将移到未分组")
-            }
-            .alert(
-                "开启自定义透明度?",
-                isPresented: customTransparencyAlertBinding
-            ) {
-                Button("取消", role: .cancel) {
-                    showCustomTransparencyAlert = false
-                }
-                Button("确定") {
-                    customTransparencyEnabled = true
-                    showCustomTransparencyAlert = false
-                }
-            } message: {
-                Text("你确定吗？开启自定义透明度可能会大幅降低可读性")
             }
     }
 }

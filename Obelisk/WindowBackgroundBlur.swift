@@ -9,8 +9,6 @@ import SwiftUI
 /// - 调用方需要先把宿主 NSWindow 设成 `isOpaque = false` 且
 ///   `backgroundColor = .clear`，否则不透明的窗口背景会盖住效果。
 struct WindowBackgroundBlur: NSViewRepresentable {
-    /// 0 = 视图完全透明（直接看到桌面）；1 = 材质满强度（默认毛玻璃外观）。
-    var materialAlpha: Double
     var material: NSVisualEffectView.Material = .hudWindow
 
     func makeNSView(context: Context) -> NSVisualEffectView {
@@ -18,13 +16,11 @@ struct WindowBackgroundBlur: NSViewRepresentable {
         view.blendingMode = .behindWindow
         view.state = .active
         view.material = material
-        view.alphaValue = CGFloat(materialAlpha)
         return view
     }
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
         view.material = material
-        view.alphaValue = CGFloat(max(0, min(1, materialAlpha)))
     }
 }
 

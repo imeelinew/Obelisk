@@ -111,7 +111,8 @@ public final class CloudSyncController {
         applyEnabledState()
     }
 
-    /// Saves the service address and access key, then starts a full sync.
+    /// Saves the service address and access key. Switching servers starts a
+    /// full convergence; saving the current server preserves sync progress.
     /// An empty key keeps the previously saved one.
     public func saveService(serverURL: String, accessKey: String) async throws {
         let trimmedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -126,6 +127,7 @@ public final class CloudSyncController {
         guard !effectiveKey.isEmpty else {
             throw ObeliskSyncError.notConfigured
         }
+        let serverChanged = Self.serviceIdentity(self.serverURL) != Self.serviceIdentity(url)
 
         isPerformingAction = true
         defer { isPerformingAction = false }
@@ -140,9 +142,15 @@ public final class CloudSyncController {
         try accessKeyStore.save(effectiveKey)
         hasAccessKey = true
         syncError = nil
-        try database.resetSyncCursor()
+        if serverChanged {
+            try database.resetSyncCursor()
+        }
         await reloadEngineCredentials()
         applyEnabledState()
+    }
+
+    public func savedAccessKey() -> String {
+        (try? accessKeyStore.load()) ?? ""
     }
 
     public func resume() {
@@ -309,6 +317,10 @@ public final class CloudSyncController {
         } else {
             phase = .waiting
         }
+    }
+
+    private static func serviceIdentity(_ url: URL?) -> String? {
+        url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 }
 

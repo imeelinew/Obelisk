@@ -1274,7 +1274,12 @@ struct BookmarkManagerView: View {
                     showToast(message, kind: isError ? .error : .success)
                 }, settings: intelligenceSettings)
             case .cloudSync:
-                CloudSyncSettingsView(cloudSync: cloudSync)
+                CloudSyncSettingsView(
+                    cloudSync: cloudSync,
+                    onMessage: { message, isError in
+                        showToast(message, kind: isError ? .error : .success)
+                    }
+                )
             case .privacy:
                 privacyPage
             case .settings:

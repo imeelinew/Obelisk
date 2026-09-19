@@ -3,12 +3,12 @@ import SwiftUI
 
 struct CloudSyncSettingsView: View {
     @Bindable var cloudSync: CloudSyncController
+    let onMessage: (String, Bool) -> Void
 
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
     @State private var serverURL = ""
     @State private var accessKey = ""
     @State private var serviceError: String?
-    @State private var serviceSaved = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,6 +39,7 @@ struct CloudSyncSettingsView: View {
         .navigationTitle("云同步")
         .onAppear {
             serverURL = cloudSync.serverURLString
+            accessKey = cloudSync.savedAccessKey()
         }
     }
 
@@ -75,11 +76,7 @@ struct CloudSyncSettingsView: View {
             TextField("服务地址", text: $serverURL, prompt: Text(verbatim: "https://obelisk-sync.example.workers.dev"))
                 .autocorrectionDisabled()
 
-            SecureField(
-                "访问密钥",
-                text: $accessKey,
-                prompt: Text(cloudSync.hasAccessKey ? "已保存，输入新密钥可更换" : "部署 Worker 时设置的密钥")
-            )
+            SecureField("访问密钥", text: $accessKey)
 
             if let serviceError {
                 Text(serviceError)
@@ -88,19 +85,14 @@ struct CloudSyncSettingsView: View {
             }
 
             HStack(spacing: 12) {
+                Spacer(minLength: 0)
+
                 Button(cloudSync.isTestingConnection ? "测试中…" : "测试连接") {
                     Task { await cloudSync.testConnection() }
                 }
                 .disabled(cloudSync.isTestingConnection || cloudSync.serverURLString.isEmpty)
 
-                Spacer(minLength: 0)
-
-                if serviceSaved {
-                    Text("已保存")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Button(cloudSync.isPerformingAction ? "请稍候…" : "保存并同步") {
+                Button(cloudSync.isPerformingAction ? "请稍候…" : "保存") {
                     saveService()
                 }
                 .buttonStyle(.borderedProminent)
@@ -141,12 +133,10 @@ struct CloudSyncSettingsView: View {
 
     private func saveService() {
         serviceError = nil
-        serviceSaved = false
         Task {
             do {
                 try await cloudSync.saveService(serverURL: serverURL, accessKey: accessKey)
-                accessKey = ""
-                serviceSaved = true
+                onMessage("已保存", false)
             } catch {
                 serviceError = error.localizedDescription
             }

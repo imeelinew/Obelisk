@@ -51,6 +51,11 @@ resurrect old data.
   serialized sync task.
 - First contact with a server (cursor 0) enqueues a full push of every local
   row; combined with a full pull, both sides converge deterministically.
+  Saving credentials for the current server preserves the cursor and pending
+  queue; only switching server addresses starts a new full convergence.
+- Transient HTTP 429, 502, 503, and 504 responses are retried with a short
+  backoff. State uploads and incremental pulls are idempotent, so replay is
+  safe.
 
 ## Server (Cloudflare Worker + D1)
 

@@ -71,11 +71,18 @@ public struct ObeliskSyncClient: Sendable {
         if authorized {
             request.setValue("Bearer \(accessKey)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ObeliskSyncError.invalidServerResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
+        for attempt in 0..<3 {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw ObeliskSyncError.invalidServerResponse
+            }
+            if (200..<300).contains(http.statusCode) {
+                return data
+            }
+            if Self.transientStatusCodes.contains(http.statusCode), attempt < 2 {
+                try await Task.sleep(for: .seconds(attempt + 1))
+                continue
+            }
             let message = (try? JSONDecoder().decode(ErrorResponse.self, from: data).error)
                 ?? "Server returned HTTP \(http.statusCode)"
             if http.statusCode == 401 {
@@ -83,8 +90,10 @@ public struct ObeliskSyncClient: Sendable {
             }
             throw ObeliskSyncError.server(message)
         }
-        return data
+        throw ObeliskSyncError.invalidServerResponse
     }
+
+    private static let transientStatusCodes: Set<Int> = [429, 502, 503, 504]
 
     private static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral

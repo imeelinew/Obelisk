@@ -18,7 +18,9 @@ struct CloudSyncSettingsView: View {
 
                     if cloudSync.isEnabled {
                         syncStatus
-                        if cloudSync.phase == .failed {
+                        if cloudSync.phase == .failed
+                            || (cloudSync.phase == .waiting && cloudSync.pendingUploadCount > 0)
+                        {
                             Button("重试同步") {
                                 Task { await cloudSync.retry() }
                             }

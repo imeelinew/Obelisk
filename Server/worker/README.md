@@ -33,8 +33,8 @@ npx wrangler d1 migrations apply obelisk-sync --remote
 # 4. Set the access key (generate one, e.g. `openssl rand -base64 32`)
 npx wrangler secret put SYNC_ACCESS_KEY
 
-# 5. Deploy
-npx wrangler deploy
+# 5. Deploy (applies any pending D1 migrations before publishing the Worker)
+npm run deploy
 ```
 
 The deploy output prints the Worker URL, e.g.
@@ -50,3 +50,6 @@ npx wrangler dev      # local server on http://localhost:8787
 ```
 
 Local dev needs `.dev.vars` with `SYNC_ACCESS_KEY=<key>`.
+
+Use `npm run deploy` for later releases as well. It applies pending remote D1
+migrations before publishing code that depends on the new schema.

@@ -151,7 +151,14 @@ public final class CloudSyncController {
     }
 
     public func retry() async {
-        syncError = nil
+        do {
+            try database.resetOutboxFailures()
+            syncError = nil
+        } catch {
+            syncError = error.localizedDescription
+            refreshPhase()
+            return
+        }
         refreshPhase()
         requestSync()
     }

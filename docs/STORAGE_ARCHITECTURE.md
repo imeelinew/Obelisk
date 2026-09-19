@@ -44,7 +44,8 @@ resurrect old data.
   re-enter the outbox.
 - A row rejected by the server records `attempts`/`last_error` on its outbox
   entry and is skipped after 5 attempts. **One bad row never blocks the
-  queue.**
+  queue.** An explicit manual retry clears failure counters so rows rejected
+  by a previously incompatible server become eligible again.
 - Triggers: outbox growth (debounced by the observation), a 30-second timer,
   app activation, and network-path recovery. All funnel into a single
   serialized sync task.

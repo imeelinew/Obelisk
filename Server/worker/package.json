@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler d1 migrations apply obelisk-sync --remote && wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -666,6 +666,20 @@ public final class ObeliskDatabase: @unchecked Sendable {
         }
     }
 
+    /// Makes previously rejected rows eligible for another explicit sync
+    /// attempt after the server-side problem has been corrected.
+    public func resetOutboxFailures() throws {
+        try pool.write { database in
+            try database.execute(
+                sql: """
+                UPDATE outbox
+                SET attempts = 0, last_error = NULL
+                WHERE attempts > 0 OR last_error IS NOT NULL
+                """
+            )
+        }
+    }
+
     // MARK: - Remote apply
 
     public func syncCursor() throws -> Int64 {

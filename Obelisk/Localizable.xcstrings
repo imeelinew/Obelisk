@@ -7,12 +7,6 @@
     "%lld" : {
 
     },
-    "0%" : {
-
-    },
-    "50%" : {
-
-    },
     "About Obelisk" : {
       "comment" : "App menu",
       "localizations" : {
@@ -1502,9 +1496,6 @@
         }
       }
     },
-    "保存并同步" : {
-
-    },
     "偏好" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2339,12 +2330,6 @@
       }
     },
     "展开" : {
-
-    },
-    "已保存" : {
-
-    },
-    "已保存，输入新密钥可更换" : {
 
     },
     "已关闭" : {
@@ -4042,6 +4027,7 @@
       }
     },
     "确定" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4968,9 +4954,6 @@
           }
         }
       }
-    },
-    "部署 Worker 时设置的密钥" : {
-
     },
     "重命名" : {
       "extractionState" : "stale",

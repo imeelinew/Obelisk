@@ -171,13 +171,16 @@ public final class CloudSyncController {
         requestSync()
     }
 
-    public func testConnection() async {
+    public func testConnection() async -> String? {
         guard let url = serverURL else {
-            syncError = ObeliskSyncError.notConfigured.errorDescription
-            return
+            let message = ObeliskSyncError.notConfigured.errorDescription
+            syncError = message
+            refreshPhase()
+            return message
         }
         isTestingConnection = true
         defer { isTestingConnection = false }
+        let result: String?
         do {
             let key = (try? accessKeyStore.load()) ?? ""
             let client = ObeliskSyncClient(baseURL: url, accessKey: key)
@@ -185,10 +188,14 @@ public final class CloudSyncController {
             // Health check passes without auth; exercise the key as well.
             _ = try await client.changes(since: Int64(9_007_199_254_740_991))
             syncError = nil
+            result = nil
         } catch {
-            syncError = error.localizedDescription
+            let message = error.localizedDescription
+            syncError = message
+            result = message
         }
         refreshPhase()
+        return result
     }
 
     // MARK: - Engine wiring

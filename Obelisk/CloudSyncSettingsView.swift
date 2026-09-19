@@ -88,7 +88,13 @@ struct CloudSyncSettingsView: View {
                 Spacer(minLength: 0)
 
                 Button(cloudSync.isTestingConnection ? "测试中…" : "测试连接") {
-                    Task { await cloudSync.testConnection() }
+                    Task {
+                        if let error = await cloudSync.testConnection() {
+                            onMessage(error, true)
+                        } else {
+                            onMessage("连接成功", false)
+                        }
+                    }
                 }
                 .disabled(cloudSync.isTestingConnection || cloudSync.serverURLString.isEmpty)
 

@@ -1,0 +1,19 @@
+{
+  "app": "DerivedData/Build/Products/Release/Obelisk.app",
+  "bundle_id": "com.eli.Obelisk",
+  "build": [
+    "xcodebuild",
+    "-project",
+    "Obelisk.xcodeproj",
+    "-scheme",
+    "Obelisk",
+    "-configuration",
+    "Release",
+    "-destination",
+    "generic/platform=macOS",
+    "-derivedDataPath",
+    "DerivedData",
+    "build"
+  ],
+  "output": "/Applications/Obelisk.app"
+}

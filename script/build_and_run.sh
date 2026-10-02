@@ -9,7 +9,10 @@ DERIVED_DATA_DIR="$ROOT_DIR/.build/DerivedData"
 APP_BUNDLE="$DERIVED_DATA_DIR/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+case "$MODE" in
+  run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify|--build|build) ;;
+  *) echo "usage: $0 [run|--build|--debug|--logs|--telemetry|--verify]" >&2; exit 2 ;;
+esac
 
 xcodebuild \
   -project "$ROOT_DIR/Obelisk.xcodeproj" \
@@ -18,6 +21,13 @@ xcodebuild \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED_DATA_DIR" \
   build
+
+"$ROOT_DIR/script/sign.sh" --app "$APP_BUNDLE" --output "$APP_BUNDLE"
+codesign --verify --all-architectures --deep --strict "$APP_BUNDLE"
+if [[ "$MODE" == --build || "$MODE" == build ]]; then
+  exit 0
+fi
+pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
@@ -44,7 +54,7 @@ case "$MODE" in
     pgrep -x "$APP_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--build|--debug|--logs|--telemetry|--verify]" >&2
     exit 2
     ;;
 esac

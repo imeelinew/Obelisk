@@ -182,6 +182,7 @@ extension BookmarkManagerView {
                     selection: $selection,
                     faviconLoader: faviconLoader,
                     showsURLHostOnly: showsURLHostOnly,
+                    windowTransparencyEnabled: windowTransparencyEnabled,
                     onOpen: onOpen,
                     onCopyURL: copyURLs,
                     onEdit: { if $0.trashedAt == nil { presentation = .edit($0) } },

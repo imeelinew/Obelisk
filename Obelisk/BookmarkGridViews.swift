@@ -77,6 +77,7 @@ struct BookmarkSectionGridView: View {
     @Binding var selection: Set<Bookmark.ID>
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
+    let windowTransparencyEnabled: Bool
     let onOpen: ([Bookmark]) -> Void
     let onCopyURL: ([Bookmark]) -> Void
     let onEdit: (Bookmark) -> Void
@@ -118,6 +119,7 @@ struct BookmarkSectionGridView: View {
                                     isSelected: selection.contains(bookmark.id),
                                     faviconLoader: faviconLoader,
                                     showsURLHostOnly: showsURLHostOnly,
+                                    windowTransparencyEnabled: windowTransparencyEnabled,
                                     onSelect: {
                                         selectBookmark(bookmark)
                                     },
@@ -384,9 +386,11 @@ struct BookmarkGridCard: View {
     let isSelected: Bool
     let faviconLoader: FaviconLoader
     let showsURLHostOnly: Bool
+    let windowTransparencyEnabled: Bool
     let onSelect: () -> Void
     let onOpenCard: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isPressed = false
     @State private var isHovered = false
 
@@ -452,15 +456,26 @@ struct BookmarkGridCard: View {
     private var cardBackground: some View {
         let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
 
-        return shape
-            .fill(.thinMaterial)
+        return Group {
+            if usesOpaqueLightBackground {
+                shape.fill(Color(nsColor: .controlBackgroundColor))
+            } else {
+                shape.fill(.thinMaterial)
+            }
+        }
             .overlay {
                 shape.fill(
                     isSelected
                         ? Color.accentColor.opacity(0.14)
-                        : Color.primary.opacity(isHovered ? 0.08 : 0.018)
+                        : Color.primary.opacity(
+                            isHovered ? (usesOpaqueLightBackground ? 0.04 : 0.08) : 0.018
+                        )
                 )
             }
+    }
+
+    private var usesOpaqueLightBackground: Bool {
+        colorScheme == .light && !windowTransparencyEnabled
     }
 
     private var cardBorder: some View {

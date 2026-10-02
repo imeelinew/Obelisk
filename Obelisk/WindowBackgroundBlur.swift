@@ -48,12 +48,15 @@ struct WindowTransparencyConfigurator: NSViewRepresentable {
         if enabled {
             window.isOpaque = false
             window.backgroundColor = .clear
-            window.titlebarAppearsTransparent = true
         } else {
             window.isOpaque = true
             window.backgroundColor = .windowBackgroundColor
-            window.titlebarAppearsTransparent = false
         }
+        // 标题栏永远透明：窗口是手工创建的 NSWindow + NSHostingController，
+        // SwiftUI 的 toolbarBackgroundVisibility 在这里不生效；只有让标题栏
+        // 不自绘背景，BookmarkPageBackground 才能在所有内容页延伸到顶部，
+        // 而不是只有顶部恰好是滚动列表的「全部」页看起来正常。
+        window.titlebarAppearsTransparent = true
         // 触发标题栏/边框立即重绘，避免切换瞬间残留旧外观。
         window.invalidateShadow()
         window.contentView?.needsDisplay = true

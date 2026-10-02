@@ -1035,10 +1035,6 @@ struct BookmarkManagerView: View {
             ToolbarSpacer(.flexible)
             settingsToolbar
         }
-        .toolbarBackgroundVisibility(
-            windowTransparencyEnabled ? .hidden : .automatic,
-            for: .windowToolbar
-        )
         .overlay(alignment: .top) {
             toastView
         }
@@ -1247,51 +1243,65 @@ struct BookmarkManagerView: View {
         }
     }
 
-    @ViewBuilder
     var settingsDetail: some View {
         NavigationStack {
-            switch settingsPage {
-            case .bookmarks:
-                bookmarkManagementPage
-            case .search:
-                searchPage
-            case .collections:
-                collectionsManagementPage
-            case .hiddenBookmarks:
-                hiddenBookmarkManagementPage
-            case .archive:
-                archivePage
-            case .trash:
-                trashPage
-            case .appearance:
-                appearancePage
-            case .menuBar:
-                menuBarPage
-            case .shortcuts:
-                shortcutsPage
-            case .ai:
-                IntelligenceSettingsView(onMessage: { message, isError in
-                    showToast(message, kind: isError ? .error : .success)
-                }, settings: intelligenceSettings)
-            case .cloudSync:
-                CloudSyncSettingsView(
-                    cloudSync: cloudSync,
-                    onMessage: { message, isError in
-                        showToast(message, kind: isError ? .error : .success)
-                    }
+            settingsDetailContent
+                .toolbarBackgroundVisibility(
+                    windowTransparencyEnabled || settingsPage.group == .content ? .hidden : .automatic,
+                    for: .windowToolbar
                 )
-            case .privacy:
-                privacyPage
-            case .settings:
-                GeneralSettingsView(
-                    autoArchiveEnabled: $autoArchiveEnabled,
-                    archiveAfterDays: $archiveAfterDays,
-                    onArchiveSettingsChanged: syncArchiveSettings
-                ) { message, isError in
-                    showToast(message, kind: isError ? .error : .success)
-                }
+        }
+        .background {
+            if settingsPage.group == .content {
+                BookmarkPageBackground(windowTransparencyEnabled: windowTransparencyEnabled)
+                    .ignoresSafeArea()
             }
         }
         .navigationTitle(settingsPage.title)
+    }
+
+    @ViewBuilder
+    private var settingsDetailContent: some View {
+        switch settingsPage {
+        case .bookmarks:
+            bookmarkManagementPage
+        case .search:
+            searchPage
+        case .collections:
+            collectionsManagementPage
+        case .hiddenBookmarks:
+            hiddenBookmarkManagementPage
+        case .archive:
+            archivePage
+        case .trash:
+            trashPage
+        case .appearance:
+            appearancePage
+        case .menuBar:
+            menuBarPage
+        case .shortcuts:
+            shortcutsPage
+        case .ai:
+            IntelligenceSettingsView(onMessage: { message, isError in
+                showToast(message, kind: isError ? .error : .success)
+            }, settings: intelligenceSettings)
+        case .cloudSync:
+            CloudSyncSettingsView(
+                cloudSync: cloudSync,
+                onMessage: { message, isError in
+                    showToast(message, kind: isError ? .error : .success)
+                }
+            )
+        case .privacy:
+            privacyPage
+        case .settings:
+            GeneralSettingsView(
+                autoArchiveEnabled: $autoArchiveEnabled,
+                archiveAfterDays: $archiveAfterDays,
+                onArchiveSettingsChanged: syncArchiveSettings
+            ) { message, isError in
+                showToast(message, kind: isError ? .error : .success)
+            }
+        }
     }
 }

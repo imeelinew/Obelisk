@@ -5,8 +5,7 @@ MODE="${1:-run}"
 APP_NAME="Obelisk"
 BUNDLE_ID="com.eli.Obelisk"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DERIVED_DATA_DIR="$ROOT_DIR/.build/DerivedData"
-APP_BUNDLE="$DERIVED_DATA_DIR/Build/Products/Debug/$APP_NAME.app"
+APP_BUNDLE="$(python3 "$ROOT_DIR/scripts/xcode-path.py" Debug)"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 case "$MODE" in
@@ -19,10 +18,9 @@ xcodebuild \
   -scheme "$APP_NAME" \
   -configuration Debug \
   -destination 'platform=macOS' \
-  -derivedDataPath "$DERIVED_DATA_DIR" \
   build
 
-"$ROOT_DIR/script/sign.sh" --app "$APP_BUNDLE" --output "$APP_BUNDLE"
+"$ROOT_DIR/scripts/sign.sh" --app "$APP_BUNDLE" --output "$APP_BUNDLE"
 codesign --verify --all-architectures --deep --strict "$APP_BUNDLE"
 if [[ "$MODE" == --build || "$MODE" == build ]]; then
   exit 0

@@ -24,8 +24,9 @@ trap cleanup EXIT
     print -u2 "Installed application must not be a symlink: $installed_app"
     exit 65
 }
-mkdir -p "$repo_root/DerivedData"
-stage_dir=$(mktemp -d "$repo_root/DerivedData/.install.XXXXXX")
+derived_data=$(python3 "$script_dir/xcode-path.py" Release --derived-data)
+mkdir -p "$derived_data"
+stage_dir=$(mktemp -d "$derived_data/.install.XXXXXX")
 staged_app="$stage_dir/${app_name}.app"
 
 print "Building and signing Release"
@@ -67,7 +68,7 @@ fi
 
 print "Installing verified Release"
 "$script_dir/sign.sh" --app "$staged_app" --output "$installed_app" \
-    --report "${MAC_SIGN_REPORT:-$repo_root/DerivedData/local-signing.json}"
+    --report "${MAC_SIGN_REPORT:-$derived_data/local-signing.json}"
 codesign --verify --all-architectures --deep --strict "$installed_app"
 print "Launching $app_name"
 /usr/bin/open "$installed_app"

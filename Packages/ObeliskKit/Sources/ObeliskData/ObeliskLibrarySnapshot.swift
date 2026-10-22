@@ -1,7 +1,7 @@
 import Foundation
 import ObeliskCore
 
-public struct ObeliskLibrarySnapshot: Equatable, Sendable {
+public struct ObeliskLibrarySnapshot: Codable, Equatable, Sendable {
     public var bookmarks: [Bookmark]
     public var collections: [BookmarkCollection]
     public var collectionByBookmarkID: [UUID: UUID]

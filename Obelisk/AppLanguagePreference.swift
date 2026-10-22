@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ObeliskSync
+import ObeliskRuntime
 
 enum AppLanguagePreference: String, CaseIterable, Identifiable {
     case auto
@@ -54,6 +55,12 @@ enum AppLanguagePreference: String, CaseIterable, Identifiable {
 enum AppRelauncher {
     @MainActor
     static func relaunch() {
+        #if OBELISK_UI
+        Task {
+            await UIRuntime.shared.flush()
+            let _: Bool? = try? await UIRuntime.shared.client?.request(RuntimeRequest(.relaunch))
+        }
+        #else
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         configuration.createsNewApplicationInstance = true
@@ -69,6 +76,7 @@ enum AppRelauncher {
                 NSApp.terminate(nil)
             }
         }
+        #endif
     }
 }
 

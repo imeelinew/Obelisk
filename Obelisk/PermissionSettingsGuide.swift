@@ -18,8 +18,8 @@ enum PermissionSettingsDestination: Equatable {
 enum PermissionSettingsGuide {
     static func open(_ destination: PermissionSettingsDestination) {
         guard let url = destination.url else { return }
-        DispatchQueue.main.async {
-            NSWorkspace.shared.open(url)
+        Task { @MainActor in
+            await RuntimePlatform.open(url)
         }
     }
 }

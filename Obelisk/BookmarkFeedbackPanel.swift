@@ -1,174 +1,117 @@
 import AppKit
-import SwiftUI
+import QuartzCore
 
 enum BookmarkFeedbackKind: Equatable {
-    case success
-    case hidden
-    case intelligence
-    case error
-
-    var dismissalDelay: TimeInterval { 5 }
+  case success, hidden, intelligence, error
+  var dismissalDelay: TimeInterval { 5 }
 }
-
 struct BookmarkFeedbackPresentation: Equatable {
-    let title: String
-    let subtitle: String
-    let kind: BookmarkFeedbackKind
+  let title: String
+  let subtitle: String
+  let kind: BookmarkFeedbackKind
 }
 
-enum BookmarkFeedbackPanelLayout {
-    static let contentWidth: CGFloat = 280
-}
-
-/// The exact notification content used by the former menu-bar popover.
-@MainActor
-struct BookmarkAddedNotificationView: View {
-    let title: String
-    let subtitle: String
-    let kind: BookmarkFeedbackKind
-
-    private var iconName: String {
-        switch kind {
-        case .success: "checkmark.circle.fill"
-        case .hidden: "eye.slash.circle.fill"
-        case .intelligence: IntelligenceSymbolIcon.symbolName
-        case .error: "xmark.circle.fill"
-        }
-    }
-
-    private var iconGradient: LinearGradient {
-        switch kind {
-        case .success:
-            LinearGradient(
-                colors: [
-                    Color(red: 0.18, green: 0.78, blue: 0.35),
-                    Color(red: 0.12, green: 0.64, blue: 0.28)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .hidden:
-            LinearGradient(
-                colors: [
-                    Color.primary.opacity(0.42),
-                    Color.primary.opacity(0.28)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .intelligence:
-            LinearGradient(
-                colors: [Color.clear, Color.clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .error:
-            LinearGradient(
-                colors: [
-                    Color(red: 0.94, green: 0.27, blue: 0.22),
-                    Color(red: 0.82, green: 0.18, blue: 0.15)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            iconView
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                Text(verbatim: subtitle)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(width: BookmarkFeedbackPanelLayout.contentWidth, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private var iconView: some View {
-        if kind == .intelligence {
-            IntelligenceSymbolIcon(size: 26, weight: .medium)
-                .frame(width: 32, height: 32)
-        } else {
-            Image(systemName: iconName)
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(iconGradient)
-                .frame(width: 32, height: 32)
-        }
-    }
-}
-
+/// Quick-add feedback stays in AppKit so it never starts the UI extension
 @MainActor
 final class BookmarkFeedbackPanelController {
-    private let anchorView: () -> NSView?
-    private var popover: NSPopover?
-    private var dismissWorkItem: DispatchWorkItem?
+  private let anchorView: () -> NSView?
+  private var popover: NSPopover?
+  private var dismissWorkItem: DispatchWorkItem?
+  init(anchorView: @escaping () -> NSView?) { self.anchorView = anchorView }
+  func show(_ presentation: BookmarkFeedbackPresentation) {
+    dismiss()
+    guard let anchor = anchorView() else { return }
+    let content = NSViewController()
+    let icon = FeedbackSymbolView(kind: presentation.kind)
+    let title = NSTextField(labelWithString: presentation.title)
+    title.font = .systemFont(ofSize: 13, weight: .semibold)
+    let subtitle = NSTextField(wrappingLabelWithString: presentation.subtitle)
+    subtitle.font = .systemFont(ofSize: 12)
+    subtitle.textColor = .secondaryLabelColor
+    subtitle.maximumNumberOfLines = 2
+    subtitle.lineBreakMode = .byTruncatingTail
+    let labels = NSStackView(views: [title, subtitle])
+    labels.orientation = .vertical
+    labels.alignment = .leading
+    labels.spacing = 3
+    let row = NSStackView(views: [icon, labels])
+    row.orientation = .horizontal
+    row.alignment = .centerY
+    row.spacing = 10
+    row.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+    NSLayoutConstraint.activate([
+      icon.widthAnchor.constraint(equalToConstant: 32),
+      icon.heightAnchor.constraint(equalToConstant: 32),
+      row.widthAnchor.constraint(equalToConstant: 280),
+    ])
+    content.view = row
+    row.layoutSubtreeIfNeeded()
+    let popover = NSPopover()
+    popover.behavior = .applicationDefined
+    popover.animates = true
+    popover.contentViewController = content
+    popover.contentSize = row.fittingSize
+    self.popover = popover
+    popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+    let work = DispatchWorkItem { [weak self] in self?.dismiss() }
+    dismissWorkItem = work
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + presentation.kind.dismissalDelay, execute: work)
+  }
+  func hide() { dismiss() }
+  private func dismiss() {
+    dismissWorkItem?.cancel()
+    dismissWorkItem = nil
+    popover?.performClose(nil)
+    popover?.close()
+    popover = nil
+  }
+}
 
-    init(anchorView: @escaping () -> NSView?) {
-        self.anchorView = anchorView
+private final class FeedbackSymbolView: NSView {
+  private let kind: BookmarkFeedbackKind
+  init(kind: BookmarkFeedbackKind) {
+    self.kind = kind
+    super.init(frame: NSRect(x: 0, y: 0, width: 32, height: 32))
+  }
+  required init?(coder: NSCoder) { nil }
+  override func draw(_ dirtyRect: NSRect) {
+    if kind == .intelligence {
+      NSImage(named: "FeedbackIntelligence")?.draw(in: bounds)
+      return
     }
-
-    func show(_ presentation: BookmarkFeedbackPresentation) {
-        dismiss()
-        guard let anchorView = anchorView() else { return }
-
-        let contentView = BookmarkAddedNotificationView(
-            title: presentation.title,
-            subtitle: presentation.subtitle,
-            kind: presentation.kind
-        )
-        let hosting = NSHostingController(rootView: contentView)
-        hosting.view.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: BookmarkFeedbackPanelLayout.contentWidth,
-            height: 200
-        )
-        hosting.view.layoutSubtreeIfNeeded()
-        let fitted = hosting.view.fittingSize
-
-        let popover = NSPopover()
-        popover.behavior = .applicationDefined
-        popover.animates = true
-        popover.contentViewController = hosting
-        popover.contentSize = NSSize(
-            width: BookmarkFeedbackPanelLayout.contentWidth,
-            height: fitted.height
-        )
-        self.popover = popover
-
-        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
-
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.dismiss()
-        }
-        dismissWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + presentation.kind.dismissalDelay,
-            execute: workItem
-        )
+    let name: String
+    let colors: [NSColor]
+    switch kind {
+    case .success:
+      name = "checkmark.circle.fill"
+      colors = [
+        .init(red: 0.18, green: 0.78, blue: 0.35, alpha: 1),
+        .init(red: 0.12, green: 0.64, blue: 0.28, alpha: 1),
+      ]
+    case .hidden:
+      name = "eye.slash.circle.fill"
+      colors = [.labelColor.withAlphaComponent(0.42), .labelColor.withAlphaComponent(0.28)]
+    case .intelligence:
+      return
+    case .error:
+      name = "xmark.circle.fill"
+      colors = [
+        .init(red: 0.94, green: 0.27, blue: 0.22, alpha: 1),
+        .init(red: 0.82, green: 0.18, blue: 0.15, alpha: 1),
+      ]
     }
-
-    func hide() {
-        dismiss()
+    guard
+      let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+        .withSymbolConfiguration(.init(pointSize: 26, weight: .medium))
+    else { return }
+    let tinted = NSImage(size: bounds.size, flipped: false) { rect in
+      guard let context = NSGraphicsContext.current else { return false }
+      image.draw(in: rect.insetBy(dx: 3, dy: 3))
+      context.compositingOperation = .sourceIn
+      NSGradient(colors: colors)?.draw(in: rect, angle: -90)
+      return true
     }
-
-    private func dismiss() {
-        dismissWorkItem?.cancel()
-        dismissWorkItem = nil
-        popover?.performClose(nil)
-        popover?.close()
-        popover = nil
-    }
+    tinted.draw(in: bounds)
+  }
 }

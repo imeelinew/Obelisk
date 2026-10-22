@@ -1,13 +1,14 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import ObeliskRuntime
 
-enum BrowserAutomationPermission: Equatable {
+enum BrowserAutomationPermission: Codable, Equatable {
     case accessibility
     case appleEvents
 }
 
-enum PrivateBrowserOpenResult: Equatable {
+enum PrivateBrowserOpenResult: Codable, Equatable {
     case opened
     case unsupportedBrowser
     case invalidURL
@@ -43,7 +44,11 @@ enum PrivateBrowserOpener {
     private static let diaIncognitoWindowIDKey = "diaIncognitoWindowID"
     private static let chromeIncognitoWindowIDKeyPrefix = "chromeIncognitoWindowID."
 
-    static func openIncognito(urlString: String) -> PrivateBrowserOpenResult {
+    @MainActor static func openIncognito(urlString: String) async -> PrivateBrowserOpenResult {
+        #if OBELISK_UI
+        var request = RuntimeRequest(.openPrivateURL); request.url = urlString
+        return (try? await UIRuntime.shared.client?.request(request)) ?? .openFailed
+        #else
         guard let url = URL(string: urlString) else {
             return .invalidURL
         }
@@ -64,6 +69,7 @@ enum PrivateBrowserOpener {
         case .unsupported:
             return .unsupportedBrowser
         }
+        #endif
     }
 
     static func strategy(forBundleID bundleID: String) -> PrivateBrowserOpenStrategy {

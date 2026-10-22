@@ -1,8 +1,9 @@
 import ObeliskSync
+import ObeliskRuntime
 import SwiftUI
 
 struct CloudSyncSettingsView: View {
-    @Bindable var cloudSync: CloudSyncController
+    @Bindable var cloudSync: CloudSyncClient
     let onMessage: (String, Bool) -> Void
 
     @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false

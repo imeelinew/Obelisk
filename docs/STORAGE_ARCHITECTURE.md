@@ -57,6 +57,30 @@ resurrect old data.
   backoff. State uploads and incremental pulls are idempotent, so replay is
   safe.
 
+## Runtime process ownership
+
+- The regular AppKit application owns the only `BookmarkStore`, SQLite pool,
+  Keychain access, local transactions, outbox observer, and `CloudSyncController`.
+  Closing or hiding the bookmark window never suspends these services.
+- The embedded ExtensionKit UI runs in `ObeliskUI.appex`. It uses
+  `ObeliskRuntime.LibraryClient` over a host-created XPC connection for reads and
+  writes. It never opens SQLite or starts a sync engine. IPC transports the same
+  canonical domain values; it adds no persistence format or sync protocol.
+- Library commits invalidate the active UI projection. The UI rebuilds its
+  presentation and search index from a fresh SQLite snapshot through the host.
+  Sync state and preferences are mirrored over the same connection. Only the
+  host registers global shortcuts or performs browser automation.
+- Closing the last window flushes pending preferences, ends the UI session,
+  exits its process, and releases the host's extension connections. Minimizing
+  and hiding retain the UI session. The next explicit window request creates
+  a fresh session in the existing application-owned `NSWindow` lifecycle.
+  Application termination also waits for any closing UI sessions to finish
+  flushing preferences before AppKit completes the quit request.
+- Favicon files remain disposable caches. Window-driven downloads run in the UI
+  process with at most four concurrent requests and 48-pixel decoded images.
+  The host serves compressed cache files without starting window downloads.
+  Status-menu content and images are built when opened and released when closed.
+
 ## Server (Cloudflare Worker + D1)
 
 - `POST /v1/push`: up to 500 rows. Each row is validated and merged

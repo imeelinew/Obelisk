@@ -1,6 +1,7 @@
 import AppKit
 import ObeliskCore
 import ObeliskSync
+import ObeliskRuntime
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -28,7 +29,7 @@ enum BookmarkDisplayMode: String, CaseIterable, Identifiable {
 struct BookmarkManagerView: View {
     @Environment(\.colorScheme) var colorScheme
     @Bindable var model: BookmarksModel
-    @Bindable var cloudSync: CloudSyncController
+    @Bindable var cloudSync: CloudSyncClient
     let faviconLoader: FaviconLoader
     let addRequest: AddBookmarkRequest
     @State var selection: Set<Bookmark.ID> = []
@@ -378,7 +379,6 @@ struct BookmarkManagerView: View {
                 for: currentCollectionScopeSectionID,
                 in: bookmarkListSortModesRaw
             )
-            model.notifyMenuPresentationChanged()
         }
     }
 
@@ -404,7 +404,6 @@ struct BookmarkManagerView: View {
         if let error = model.reorderCollections(collectionIDs) {
             showToast(error, kind: .error)
         }
-        model.notifyMenuPresentationChanged()
     }
 
     @available(macOS 27.0, *)
@@ -740,6 +739,10 @@ struct BookmarkManagerView: View {
     }
 
     func openHiddenBookmarks(_ bookmarks: [Bookmark]) {
+        Task { await openHiddenBookmarksSequentially(bookmarks) }
+    }
+
+    private func openHiddenBookmarksSequentially(_ bookmarks: [Bookmark]) async {
         guard !bookmarks.isEmpty else { return }
         for bookmark in bookmarks {
             if faviconLoader.image(for: bookmark.url) == nil {
@@ -747,13 +750,13 @@ struct BookmarkManagerView: View {
             }
             guard openHiddenBookmarksIncognito else {
                 guard let url = URL(string: bookmark.url) else { continue }
-                if NSWorkspace.shared.open(url) {
+                if await RuntimePlatform.open(url) {
                     model.recordUsage(for: bookmark)
                 }
                 continue
             }
 
-            switch PrivateBrowserOpener.openIncognito(urlString: bookmark.url) {
+            switch await PrivateBrowserOpener.openIncognito(urlString: bookmark.url) {
             case .opened:
                 model.recordUsage(for: bookmark)
             case .unsupportedBrowser:
@@ -1015,33 +1018,27 @@ struct BookmarkManagerView: View {
         )
     }
 
+    private func publishWindowState() {
+        UIRuntime.shared.publishWindowState(RuntimeWindowState(
+            title: settingsPage == .collections ? currentCollectionScopeTitle : settingsPage.title,
+            canAdd: [.bookmarks, .collections, .hiddenBookmarks].contains(settingsPage),
+            addIsHidden: settingsPage == .hiddenBookmarks,
+            canEmptyTrash: !model.trashedBookmarks.isEmpty && !trashNeedsUnlock,
+            showsTrash: settingsPage == .trash,
+            transparent: windowTransparencyEnabled
+        ))
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             settingsSidebar
         } detail: {
             settingsDetail
         }
-        .toolbar(removing: .sidebarToggle)
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button("侧边栏", systemImage: "sidebar.left") {
-                    withAnimation {
-                        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-                    }
-                }
-                .help("显示或隐藏侧边栏")
-                .accessibilityIdentifier("sidebarToggle")
-            }
-            ToolbarSpacer(.flexible)
-            settingsToolbar
-        }
         .overlay(alignment: .top) {
             toastView
         }
         .background {
-            WindowTransparencyConfigurator(enabled: windowTransparencyEnabled)
-                .frame(width: 0, height: 0)
-
             if windowTransparencyEnabled {
                 WindowBackgroundBlur()
                     .ignoresSafeArea()
@@ -1066,6 +1063,15 @@ struct BookmarkManagerView: View {
             }
         }
         .onAppear {
+            UIRuntime.shared.onAction = { action in
+                switch action {
+                case "sidebar": withAnimation { columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly }
+                case "add": presentation = .add(seq: 0, prefilledURL: nil, prefilledTitle: nil, prefilledIsHidden: settingsPage == .hiddenBookmarks, collectionID: settingsPage == .collections ? currentCollectionScopeCollectionID : nil)
+                case "emptyTrash": deleteConfirmation = DeleteConfirmation(ids: Set(model.trashedBookmarks.map(\.id)), isEmptyingTrash: true)
+                default: break
+                }
+            }
+            publishWindowState()
             intelligenceSettings.load()
             syncMenuGroupLimits()
             // First-launch path: the hotkey may have already bumped seq before
@@ -1080,7 +1086,12 @@ struct BookmarkManagerView: View {
         .onChange(of: addRequest.seq) { _, _ in
             consumePendingAddRequestIfNeeded()
         }
+        .onChange(of: currentCollectionScopeTitle) { _, _ in publishWindowState() }
+        .onChange(of: windowTransparencyEnabled) { _, _ in publishWindowState() }
+        .onChange(of: model.trashedBookmarks) { _, _ in publishWindowState() }
+        .onChange(of: hiddenBookmarksUnlocked) { _, _ in publishWindowState() }
         .onChange(of: settingsPage) { _, selectedPage in
+            publishWindowState()
             searchFocusRequest = SearchFocusRequestResolver.resolve(
                 current: searchFocusRequest,
                 selectedPage: selectedPage

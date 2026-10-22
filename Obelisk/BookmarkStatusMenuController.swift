@@ -1,5 +1,6 @@
 import AppKit
 import ObeliskCore
+import ObeliskRuntime
 
 @MainActor
 final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
@@ -24,13 +25,14 @@ final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
         (statusItem.view as? NSStatusBarButton) ?? statusItem.button
     }
     var feedbackAnchorView: NSView? { statusBarButton }
-    private let bookmarksModel: BookmarksModel
+    private let library: LibraryClient
+    private var isTracking = false
     private let faviconLoader: FaviconLoader
     private var statusMenu: NSMenu?
     private var rebuildDebounce: DispatchWorkItem?
 
-    init(model: BookmarksModel, faviconLoader: FaviconLoader) {
-        self.bookmarksModel = model
+    init(library: LibraryClient, faviconLoader: FaviconLoader) {
+        self.library = library
         self.faviconLoader = faviconLoader
         super.init()
         configureStatusItemAppearance()
@@ -47,10 +49,11 @@ final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
     }
 
     func scheduleRebuild() {
-        guard statusMenu != nil else { return }
+        guard isTracking else { return }
         rebuildDebounce?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.rebuildMenu()
+            guard let self, self.isTracking, let menu = self.statusMenu else { return }
+            self.populate(menu)
         }
         rebuildDebounce = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
@@ -58,12 +61,34 @@ final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
 
     @discardableResult
     func rebuildMenu() -> NSMenu {
-        bookmarksModel.applyAutoArchiveIfNeeded()
-
-        let menu = NSMenu()
+        let menu = statusMenu ?? NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
+        statusMenu = menu
+        statusItem.menu = menu
+        if menu.items.isEmpty { menu.addItem(NSMenuItem(title: "书签", action: nil, keyEquivalent: "")) }
+        return menu
+    }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        isTracking = true
+        populate(menu)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        isTracking = false
+        rebuildDebounce?.cancel()
+        DispatchQueue.main.async { [weak self, weak menu] in
+            guard let self, !self.isTracking else { return }
+            menu?.removeAllItems()
+            menu?.addItem(NSMenuItem(title: "书签", action: nil, keyEquivalent: ""))
+            self.faviconLoader.releaseTransientMemory()
+        }
+    }
+
+    private func populate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let bookmarksModel = BookmarksModel(store: library)
         let renderSections = bookmarksModel.menuRenderSections()
 
         if let error = bookmarksModel.loadErrorMessage {
@@ -101,7 +126,6 @@ final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
 
         statusMenu = menu
         statusItem.menu = menu
-        return menu
     }
 
     private func appendSection(title: String, bookmarks: [Bookmark], to menu: NSMenu) {
@@ -195,7 +219,9 @@ final class BookmarkStatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func openBookmark(_ sender: NSMenuItem) {
         guard let bookmark = sender.representedObject as? Bookmark else { return }
-        bookmarksModel.openBookmark(bookmark)
+        guard let url = URL(string: bookmark.url), NSWorkspace.shared.open(url) else { return }
+        if bookmark.archivedAt != nil { try? library.setArchived(false, ids: [bookmark.id]) }
+        try? library.recordUsage(bookmarkID: bookmark.id, at: Date())
     }
 
     @objc private func quit() {

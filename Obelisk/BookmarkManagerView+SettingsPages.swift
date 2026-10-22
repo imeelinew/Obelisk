@@ -252,7 +252,6 @@ extension BookmarkManagerView {
                     expanded.remove(id)
                 }
                 menuBarExpandedSectionsRaw = BookmarkMenuExpansionPreferences.encoded(expanded)
-                model.notifyMenuPresentationChanged()
             }
         )
     }
@@ -329,57 +328,9 @@ extension BookmarkManagerView {
         .navigationTitle("隐私")
     }
 
-    @ToolbarContentBuilder
-    var settingsToolbar: some ToolbarContent {
-        switch settingsPage {
-        case .trash:
-            ToolbarItem {
-                Button("清空废纸篓", systemImage: "trash") {
-                    deleteConfirmation = DeleteConfirmation(ids: Set(model.trashedBookmarks.map(\.id)), isEmptyingTrash: true)
-                }
-                .labelStyle(.iconOnly)
-                .foregroundStyle(.red)
-                .help("清空废纸篓")
-                .disabled(model.trashedBookmarks.isEmpty || trashNeedsUnlock)
-            }
-        case .bookmarks:
-            ToolbarItem { addBookmarkButton(isHidden: false, collectionID: nil, help: "添加书签") }
-        case .collections:
-            ToolbarItem {
-                addBookmarkButton(
-                    isHidden: false,
-                    collectionID: currentCollectionScopeCollectionID,
-                    help: "添加书签"
-                )
-            }
-        case .hiddenBookmarks:
-            ToolbarItem { addBookmarkButton(isHidden: true, collectionID: nil, help: "添加隐藏书签") }
-        default:
-            ToolbarItemGroup {}
-        }
-    }
-
     var currentCollectionScopeCollectionID: UUID? {
         guard case .collection(let id) = collectionScope else { return nil }
         return id
     }
 
-    private func addBookmarkButton(
-        isHidden: Bool,
-        collectionID: UUID?,
-        help: LocalizedStringKey
-    ) -> some View {
-        Button {
-            presentation = .add(
-                seq: 0,
-                prefilledURL: nil,
-                prefilledTitle: nil,
-                prefilledIsHidden: isHidden,
-                collectionID: collectionID
-            )
-        } label: {
-            Label("添加", systemImage: "plus")
-        }
-        .help(help)
-    }
 }

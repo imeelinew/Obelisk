@@ -34,15 +34,17 @@ print "Building and signing Release"
 codesign --verify --all-architectures --deep --strict "$staged_app"
 python3 - "$staged_app" <<'PYCODE'
 import plistlib, subprocess, sys
-app = sys.argv[1]
-r = subprocess.run(["codesign", "-d", "--entitlements", "-", "--xml", app],
-                   capture_output=True, check=True)
-entitlements = plistlib.loads(r.stdout) if r.stdout.strip() else {}
-if entitlements.get("com.apple.security.get-task-allow"):
-    raise SystemExit("Release unexpectedly permits debugging; installation stopped")
-r = subprocess.run(["codesign", "-dvv", app], capture_output=True, check=True)
-if b"(runtime)" not in r.stderr:
-    raise SystemExit("Release does not enable Hardened Runtime; installation stopped")
+from pathlib import Path
+app = Path(sys.argv[1])
+for bundle in [app, *app.rglob("*.appex")]:
+    r = subprocess.run(["codesign", "-d", "--entitlements", "-", "--xml", str(bundle)],
+                       capture_output=True, check=True)
+    entitlements = plistlib.loads(r.stdout) if r.stdout.strip() else {}
+    if entitlements.get("com.apple.security.get-task-allow"):
+        raise SystemExit(f"{bundle.name} unexpectedly permits debugging; installation stopped")
+    r = subprocess.run(["codesign", "-dvv", str(bundle)], capture_output=True, check=True)
+    if b"(runtime)" not in r.stderr:
+        raise SystemExit(f"{bundle.name} does not enable Hardened Runtime; installation stopped")
 PYCODE
 
 if pgrep -xq "$app_name"; then

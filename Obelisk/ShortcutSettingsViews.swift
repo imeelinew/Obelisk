@@ -8,7 +8,11 @@ struct ShortcutRecorderRow: View {
 
     var body: some View {
         LabeledContent {
-            KeyboardShortcuts.Recorder(for: name)
+            KeyboardShortcuts.Recorder(for: name) { _ in
+                // Only the containing app owns global registrations
+                KeyboardShortcuts.disable(name)
+                Task { await UIRuntime.shared.flush() }
+            }
         } label: {
             if let description {
                 VStack(alignment: .leading, spacing: 4) {

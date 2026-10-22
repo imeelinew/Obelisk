@@ -2,8 +2,8 @@ import Foundation
 import ObeliskCore
 import Observation
 
-struct TitleOptimizationOutcome: Equatable {
-    enum Status: Equatable {
+struct TitleOptimizationOutcome: Codable, Equatable {
+    enum Status: String, Codable, Equatable {
         case changed
         case noChange
         case failed

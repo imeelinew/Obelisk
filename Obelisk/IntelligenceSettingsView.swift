@@ -1,5 +1,6 @@
 import ObeliskCore
 import ObeliskSync
+import ObeliskRuntime
 import SwiftUI
 
 struct IntelligenceSettingsView: View {
@@ -134,49 +135,30 @@ struct IntelligenceSettingsView: View {
 final class IntelligenceSettingsModel {
     var llmProfiles = LLMProfilesSettings()
     var isTestingLLMConfig = false
-    private var pendingLLMConfigSaveTask: Task<Void, Never>?
-
-    private var llmConfigStore: LLMConfigStore {
-        LLMConfigStore()
-    }
 
     func load() {
-        llmProfiles = llmConfigStore.loadProfiles()
+        llmProfiles = (try? UIRuntime.shared.client?.request(RuntimeRequest(.intelligenceProfiles))) ?? LLMProfilesSettings()
     }
-
     func persist(_ profiles: LLMProfilesSettings) {
         llmProfiles = profiles
-        pendingLLMConfigSaveTask?.cancel()
-        pendingLLMConfigSaveTask = Task {
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
-            await Task.detached(priority: .utility) {
-                try? LLMConfigStore().save(profiles)
-            }.value
-        }
+        // Persist while editing so closing the process cannot lose the last keystroke
+        flush()
     }
-
     func testConnection(onMessage: @escaping (String, Bool) -> Void) {
-        guard !isTestingLLMConfig else { return }
+        guard !isTestingLLMConfig, let client = UIRuntime.shared.client else { return }
         isTestingLLMConfig = true
-        let config = llmProfiles.activeConfig
         Task {
+            defer { isTestingLLMConfig = false }
             do {
-                _ = try await TitleOptimizer().benchmark(config: config)
+                var r = RuntimeRequest(.benchmark); r.data = try RuntimeCoding.encode(llmProfiles.activeConfig)
+                let _: Bool = try await client.request(r)
                 onMessage("连接成功", false)
-            } catch {
-                onMessage("连接失败", true)
-            }
-            isTestingLLMConfig = false
+            } catch { onMessage("连接失败", true) }
         }
     }
-
     func flush() {
-        pendingLLMConfigSaveTask?.cancel()
-        let profiles = llmProfiles
-        Task.detached(priority: .utility) {
-            try? LLMConfigStore().save(profiles)
-        }
+        guard let client = UIRuntime.shared.client, let data = try? RuntimeCoding.encode(llmProfiles) else { return }
+        var r = RuntimeRequest(.saveIntelligenceProfiles); r.data = data
+        let _: Bool? = try? client.request(r)
     }
-
 }

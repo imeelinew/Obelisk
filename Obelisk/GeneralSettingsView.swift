@@ -94,17 +94,19 @@ struct GeneralSettingsView: View {
         let previousValue = launchAtLoginEnabled
         launchAtLoginEnabled = isEnabled
 
-        do {
-            try LoginItemController.setEnabled(isEnabled)
-            refreshLaunchAtLoginState()
-            if launchAtLoginEnabled == isEnabled {
-                onMessage(isEnabled ? "已开启登录时启动" : "已关闭登录时启动", false)
-            } else {
-                onMessage("请在系统设置中允许 Obelisk 登录时启动", true)
+        Task {
+            do {
+                try await LoginItemController.setEnabled(isEnabled)
+                refreshLaunchAtLoginState()
+                if launchAtLoginEnabled == isEnabled {
+                    onMessage(isEnabled ? "已开启登录时启动" : "已关闭登录时启动", false)
+                } else {
+                    onMessage("请在系统设置中允许 Obelisk 登录时启动", true)
+                }
+            } catch {
+                launchAtLoginEnabled = previousValue
+                onMessage(error.localizedDescription, true)
             }
-        } catch {
-            launchAtLoginEnabled = previousValue
-            onMessage(error.localizedDescription, true)
         }
     }
 

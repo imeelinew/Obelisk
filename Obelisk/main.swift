@@ -1,297 +1,197 @@
 import AppKit
-import Darwin
-import KeyboardShortcuts
 import Foundation
+import KeyboardShortcuts
 import ObeliskCore
 import ObeliskData
+import ObeliskRuntime
 import ObeliskSync
 import Sparkle
 
-private let isUITesting = CommandLine.arguments.contains("-uiTesting")
-private let isUnitTesting = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-    || ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
-
-private func configureTestingEnvironmentIfNeeded() {
-    guard isUITesting || isUnitTesting else { return }
-
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("ObeliskTests-\(UUID().uuidString)", isDirectory: true)
-    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    setenv("OBELISK_HOME", root.path, 1)
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private lazy var menuBar = BookmarkStatusMenuController(
-        model: bookmarksModel,
-        faviconLoader: faviconLoader
-    )
-    private var store: BookmarkStore!
-    private var cloudSync: CloudSyncController!
-    private var databaseWatchTask: Task<Void, Never>?
-    private lazy var bookmarksModel = BookmarksModel(
-        store: store,
-        recentGroupLimit: UserDefaults.standard.object(forKey: "menuRecentGroupLimit") as? Int ?? 5
-    )
-    private let addRequest = AddBookmarkRequest()
-    private lazy var managerWindow = BookmarkManagerWindowController(
-        model: bookmarksModel,
-        cloudSync: cloudSync,
-        faviconLoader: faviconLoader,
-        addRequest: addRequest,
-        onWindowClosed: { [weak self] in
-            self?.handleManagerWindowClosed()
-        }
-    )
-    private lazy var bookmarkFeedbackPanel = BookmarkFeedbackPanelController { [weak self] in
-        self?.menuBar.feedbackAnchorView
+  private var store: BookmarkStore!
+  private var cloudSync: CloudSyncController!
+  private var runtime: RuntimeHost!
+  private var managerWindow: BookmarkManagerWindowController!
+  private lazy var faviconLoader = FaviconLoader(rootDirectory: store.rootDirectory)
+  private lazy var menuBar = BookmarkStatusMenuController(
+    library: LibraryClient(store: store), faviconLoader: faviconLoader)
+  private lazy var bookmarkFeedbackPanel = BookmarkFeedbackPanelController { [weak self] in
+    self?.menuBar.feedbackAnchorView
+  }
+  private lazy var updaterController = SPUStandardUpdaterController(
+    startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+  private var aiFeaturesEnabled: Bool {
+    UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
+  }
+
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    ApplicationMenu.install(
+      updaterController: updaterController, target: self, openManager: #selector(openManager),
+      newBookmark: #selector(newBookmarkFromMenu(_:)),
+      toggleHiddenBookmarksSidebar: #selector(toggleHiddenBookmarksSidebarFromMenu(_:)))
+    Task { await startApplication() }
+  }
+  private func startApplication() async {
+    do { store = try BookmarkStore.open(deviceID: ObeliskDeviceIdentity.current()) } catch {
+      let alert = NSAlert()
+      alert.alertStyle = .critical
+      alert.messageText = "Obelisk 无法启动"
+      alert.informativeText = error.localizedDescription
+      alert.addButton(withTitle: "退出")
+      alert.runModal()
+      NSApp.terminate(nil)
+      return
     }
-    private lazy var faviconLoader: FaviconLoader = {
-        let loader = FaviconLoader(rootDirectory: store.rootDirectory)
-        loader.onIconLoaded = { [weak self] in
-            self?.menuBar.scheduleRebuild()
-        }
-        return loader
-    }()
-    private var aiFeaturesEnabled: Bool {
-        UserDefaults.standard.object(forKey: BookmarksModel.aiFeaturesEnabledKey) as? Bool ?? true
+    cloudSync = CloudSyncController(database: store.database)
+    await cloudSync.start()
+    runtime = RuntimeHost(store: store, sync: cloudSync, icons: faviconLoader)
+    runtime.onRelaunch = { AppRelauncher.relaunch() }
+    managerWindow = BookmarkManagerWindowController(runtime: runtime)
+    faviconLoader.onIconLoaded = { [weak self] key in
+      self?.menuBar.scheduleRebuild()
+      self?.managerWindow.send(RuntimeEvent(.favicon, value: key))
     }
-    private lazy var updaterController = SPUStandardUpdaterController(
-        startingUpdater: !isUITesting && !isUnitTesting,
-        updaterDelegate: nil,
-        userDriverDelegate: nil
-    )
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        ApplicationMenu.install(
-            updaterController: updaterController,
-            target: self,
-            openManager: #selector(openManager),
-            newBookmark: #selector(newBookmarkFromMenu(_:)),
-            toggleHiddenBookmarksSidebar: #selector(toggleHiddenBookmarksSidebarFromMenu(_:))
-        )
-        guard !isUnitTesting else { return }
-        Task {
-            await startApplication()
-        }
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(defaultsDidChange(_:)), name: UserDefaults.didChangeNotification,
+      object: UserDefaults.standard)
+    installKeyboardShortcutHandlers()
+    menuBar.rebuildMenu()
+    _ = applicationOpenUntitledFile(NSApp)
+  }
+  func applicationDidBecomeActive(_ notification: Notification) { cloudSync?.resume() }
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    guard
+      managerWindow?.prepareToTerminate(completion: {
+        Task { @MainActor in sender.reply(toApplicationShouldTerminate: true) }
+      }) == true
+    else { return .terminateNow }
+    return .terminateLater
+  }
+  func applicationWillTerminate(_ notification: Notification) {
+    NotificationCenter.default.removeObserver(self)
+    runtime?.stop()
+  }
+  @objc nonisolated private func defaultsDidChange(_ notification: Notification) {
+    Task { @MainActor [weak self] in
+      guard let self, runtime != nil else { return }
+      menuBar.configureStatusItemAppearance()
+      menuBar.scheduleRebuild()
+      managerWindow.send(RuntimeEvent(.preferences, data: RuntimeHost.preferencesData()))
     }
-
-    private func startApplication() async {
-        do {
-            store = try BookmarkStore.open(
-                deviceID: ObeliskDeviceIdentity.current()
-            )
-        } catch {
-            presentStartupError(error)
-            return
-        }
-
-        if isUITesting {
-            // UI tests use an isolated database and must never read production
-            // credentials or upload their fixtures to the configured server.
-            cloudSync = CloudSyncController(
-                database: store.database,
-                defaults: UserDefaults(suiteName: store.rootDirectory.lastPathComponent)!
-            )
-        } else {
-            cloudSync = CloudSyncController(database: store.database)
-            await cloudSync.start()
-        }
-
-        installDefaultsObserver()
-        bookmarksModel.onChange = { [weak self] in
-            self?.menuBar.scheduleRebuild()
-        }
-        installKeyboardShortcutHandlers()
-        menuBar.rebuildMenu()
-        startDatabaseWatch()
-
-        openManager()
+  }
+  private func addBookmark(title: String, url: String, isHidden: Bool) -> Result<
+    Bookmark, any Error
+  > {
+    do {
+      guard isHidden || !HiddenBookmarkKeywordExclusion.matches(url: url) else {
+        throw RuntimeError.remote(HiddenBookmarkKeywordExclusion.blockedBookmarkMessage)
+      }
+      let bookmark = try LibraryClient(store: store).add(title: title, url: url, isHidden: isHidden)
+      cloudSync.resume()
+      return .success(bookmark)
+    } catch { return .failure(error) }
+  }
+  /// Global shortcuts fetch the frontmost browser tab without opening the UI
+  private func installKeyboardShortcutHandlers() {
+    KeyboardShortcuts.onKeyUp(for: .addBookmark) { [weak self] in
+      self?.handleGlobalHotkey(isHidden: false)
     }
-
-    func applicationDidBecomeActive(_ notification: Notification) {
-        guard !isUITesting else { return }
-        cloudSync?.resume()
+    KeyboardShortcuts.onKeyUp(for: .addHiddenBookmark) { [weak self] in
+      self?.handleGlobalHotkey(isHidden: true)
     }
-
-    private func presentStartupError(_ error: Error) {
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = "Obelisk 无法启动"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "退出")
-        alert.runModal()
-        NSApp.terminate(nil)
+    KeyboardShortcuts.onKeyUp(for: .toggleHiddenBookmarksSidebar) { [weak self] in
+      self?.toggleHiddenBookmarksSidebarFromMenu(nil)
     }
+  }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
-        databaseWatchTask?.cancel()
+  private func handleGlobalHotkey(isHidden: Bool) {
+    Task { [weak self] in
+      let currentTab = await BrowserCurrentTab.fetch()
+      self?.handleResolvedHotkeyTab(currentTab, isHidden: isHidden)
     }
+  }
 
-    private func installDefaultsObserver() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(defaultsDidChange(_:)),
-            name: UserDefaults.didChangeNotification,
-            object: UserDefaults.standard
-        )
-    }
-
-    @objc nonisolated private func defaultsDidChange(_ notification: Notification) {
-        Task { @MainActor [weak self] in
-            self?.menuBar.configureStatusItemAppearance()
-            self?.menuBar.scheduleRebuild()
-        }
-    }
-
-    /// Global shortcuts (user-customizable in Settings) fetch the frontmost
-    /// browser tab via AppleScript, or fall back to a clipboard http(s) URL.
-    private func installKeyboardShortcutHandlers() {
-        KeyboardShortcuts.onKeyUp(for: .addBookmark) { [weak self] in
-            self?.handleGlobalHotkey(isHidden: false)
-        }
-        KeyboardShortcuts.onKeyUp(for: .addHiddenBookmark) { [weak self] in
-            self?.handleGlobalHotkey(isHidden: true)
-        }
-        KeyboardShortcuts.onKeyUp(for: .toggleHiddenBookmarksSidebar) { [weak self] in
-            self?.toggleHiddenBookmarksSidebarFromMenu(nil)
-        }
-    }
-
-    private func handleGlobalHotkey(isHidden: Bool) {
-        Task { [weak self] in
-            let currentTab = await BrowserCurrentTab.fetch()
-            self?.handleResolvedHotkeyTab(currentTab, isHidden: isHidden)
-        }
-    }
-
-    private func handleResolvedHotkeyTab(_ currentTab: BrowserCurrentTabResult, isHidden: Bool) {
-        let resolved = HotkeyBookmarkResolver.resolve(currentTab: currentTab)
-        guard case let .resolved(url, title) = resolved else {
-            if case let .failed(message, settingsDestination) = resolved {
-                showBookmarkFeedback(
-                    title: "无法添加书签",
-                    subtitle: message,
-                    kind: .error
-                )
-                if let settingsDestination {
-                    PermissionSettingsGuide.open(settingsDestination)
-                }
-            }
-            return
-        }
-
-        handleHotkeyAdd(url: url, title: title, isHidden: isHidden)
-    }
-
-    private func handleHotkeyAdd(url: String, title: String?, isHidden: Bool) {
-        let resolvedTitle = (title?.isEmpty == false) ? title! : url
-        let bookmark: Bookmark
-        switch bookmarksModel.addBookmark(title: resolvedTitle, url: url, isHidden: isHidden) {
-        case .success(let addedBookmark):
-            bookmark = addedBookmark
-        case .failure(let error):
-            showBookmarkFeedback(
-                title: "添加失败",
-                subtitle: error.localizedDescription,
-                kind: .error
-            )
-            return
-        }
-
-        let bookmarkType = bookmark.isHidden ? "隐藏书签" : "书签"
+  private func handleResolvedHotkeyTab(_ currentTab: BrowserCurrentTabResult, isHidden: Bool) {
+    let resolved = HotkeyBookmarkResolver.resolve(currentTab: currentTab)
+    guard case .resolved(let url, let title) = resolved else {
+      if case .failed(let message, let settingsDestination) = resolved {
         showBookmarkFeedback(
-            title: "已添加\(bookmarkType)",
-            subtitle: resolvedTitle,
-            kind: bookmark.isHidden ? .hidden : .success
+          title: "无法添加书签",
+          subtitle: message,
+          kind: .error
         )
-
-        guard aiFeaturesEnabled else { return }
-
-        guard TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark) else { return }
-
-        Task { [weak self] in
-            guard let self else { return }
-            let outcome = await bookmarksModel.enqueueTitleOptimization(bookmarkIds: [bookmark.id])
-            showBookmarkFeedback(
-                title: "Intelligence 书签优化",
-                subtitle: outcome.summary,
-                kind: outcome.didChange ? .intelligence : .error
-            )
+        if let settingsDestination {
+          PermissionSettingsGuide.open(settingsDestination)
         }
+      }
+      return
     }
 
-    private func showBookmarkFeedback(
-        title: String,
-        subtitle: String,
-        kind: BookmarkFeedbackKind
-    ) {
-        bookmarkFeedbackPanel.show(BookmarkFeedbackPresentation(
-            title: title,
-            subtitle: subtitle,
-            kind: kind
-        ))
+    handleHotkeyAdd(url: url, title: title, isHidden: isHidden)
+  }
+
+  private func handleHotkeyAdd(url: String, title: String?, isHidden: Bool) {
+    let resolvedTitle = (title?.isEmpty == false) ? title! : url
+    let bookmark: Bookmark
+    switch addBookmark(title: resolvedTitle, url: url, isHidden: isHidden) {
+    case .success(let addedBookmark):
+      bookmark = addedBookmark
+    case .failure(let error):
+      showBookmarkFeedback(
+        title: "添加失败",
+        subtitle: error.localizedDescription,
+        kind: .error
+      )
+      return
     }
 
-    private func startDatabaseWatch() {
-        databaseWatchTask?.cancel()
-        let database = store.database
-        databaseWatchTask = Task { [weak self] in
-            do {
-                for try await _ in database.libraryChanges() {
-                    guard !Task.isCancelled else { return }
-                    self?.bookmarksModel.reload()
-                }
-            } catch {
-                self?.bookmarksModel.errorMessage = error.localizedDescription
-            }
-        }
-    }
+    let bookmarkType = bookmark.isHidden ? "隐藏书签" : "书签"
+    showBookmarkFeedback(
+      title: "已添加\(bookmarkType)",
+      subtitle: resolvedTitle,
+      kind: bookmark.isHidden ? .hidden : .success
+    )
 
-    private func handleManagerWindowClosed() {
-        NSApp.setActivationPolicy(.accessory)
-        faviconLoader.releaseTransientMemory()
-        DispatchQueue.main.async {
-            _ = malloc_zone_pressure_relief(nil, 0)
-        }
-    }
+    guard aiFeaturesEnabled else { return }
 
-    @objc private func openManager() {
-        guard store != nil else { return }
-        NSApp.setActivationPolicy(.regular)
-        managerWindow.show()
-    }
+    guard TitleOptimizationPreferences.allowsAutoOptimization(for: bookmark) else { return }
 
-    /// File menu → 新建书签. Mirrors the manager window toolbar "添加" button:
-    /// opens the manager (if needed) and presents the add-bookmark sheet with
-    /// empty fields, via the same AddBookmarkRequest channel the toolbar uses.
-    @objc private func newBookmarkFromMenu(_ sender: Any?) {
-        openManager()
-        addRequest.request(url: nil, title: nil, isHidden: false)
+    Task { [weak self] in
+      guard let self else { return }
+      let outcome = await runtime.optimize(ids: [bookmark.id])
+      showBookmarkFeedback(
+        title: "Intelligence 书签优化",
+        subtitle: outcome.summary,
+        kind: outcome.didChange ? .intelligence : .error
+      )
     }
+  }
 
-    @objc private func toggleHiddenBookmarksSidebarFromMenu(_ sender: Any?) {
-        ObeliskAppDefaults.toggleShowHiddenBookmarksPage()
-    }
-
-    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        true
-    }
-
-    func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        openManager()
-        return true
-    }
-
-    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        false
-    }
+  private func showBookmarkFeedback(title: String, subtitle: String, kind: BookmarkFeedbackKind) {
+    bookmarkFeedbackPanel.show(
+      BookmarkFeedbackPresentation(title: title, subtitle: subtitle, kind: kind))
+  }
+  @objc private func openManager() {
+    guard managerWindow != nil else { return }
+    managerWindow.show()
+  }
+  @objc private func newBookmarkFromMenu(_ sender: Any?) {
+    openManager()
+    managerWindow?.send(RuntimeEvent(.add))
+  }
+  @objc private func toggleHiddenBookmarksSidebarFromMenu(_ sender: Any?) {
+    ObeliskAppDefaults.toggleShowHiddenBookmarksPage()
+  }
+  func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { true }
+  func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
+    openManager()
+    return true
+  }
+  func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { false }
 }
 
-configureTestingEnvironmentIfNeeded()
 ObeliskAppDefaults.register()
-
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

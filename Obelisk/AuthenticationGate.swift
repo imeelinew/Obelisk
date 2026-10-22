@@ -1,8 +1,13 @@
 import Foundation
 import LocalAuthentication
+import ObeliskRuntime
 
 enum AuthenticationGate {
-    static func authenticate(reason: String) async -> Bool {
+    @MainActor static func authenticate(reason: String) async -> Bool {
+        #if OBELISK_UI
+        var r = RuntimeRequest(.authenticate); r.title = reason
+        return (try? await UIRuntime.shared.client?.request(r, as: Bool.self)) ?? false
+        #else
         let trimmedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedReason.isEmpty else {
             return false
@@ -19,5 +24,6 @@ enum AuthenticationGate {
         } catch {
             return false
         }
+        #endif
     }
 }

@@ -14,7 +14,7 @@ import ObeliskData
 @MainActor
 @Observable
 public final class CloudSyncController {
-    public enum Phase: Equatable, Sendable {
+    public enum Phase: String, Codable, Equatable, Sendable {
         case off
         case notConfigured
         case waiting

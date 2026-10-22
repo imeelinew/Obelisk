@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "ObeliskCore", targets: ["ObeliskCore"]),
         .library(name: "ObeliskData", targets: ["ObeliskData"]),
         .library(name: "ObeliskSync", targets: ["ObeliskSync"]),
+        .library(name: "ObeliskRuntime", targets: ["ObeliskRuntime"]),
     ],
     dependencies: [
         .package(
@@ -26,6 +27,10 @@ let package = Package(
                 "ObeliskCore",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]
+        ),
+        .target(
+            name: "ObeliskRuntime",
+            dependencies: ["ObeliskCore", "ObeliskData", "ObeliskSync"]
         ),
         .target(
             name: "ObeliskSync",

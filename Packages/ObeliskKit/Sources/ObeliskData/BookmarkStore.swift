@@ -30,7 +30,8 @@ public enum BookmarkStoreError: LocalizedError, Equatable {
     }
 }
 
-public final class BookmarkStore {
+/// Immutable facade over the thread-safe SQLite pool
+public final class BookmarkStore: @unchecked Sendable {
     public let database: ObeliskDatabase
 
     public var rootDirectory: URL { database.rootDirectory }

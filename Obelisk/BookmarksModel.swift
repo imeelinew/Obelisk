@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import ObeliskCore
 import ObeliskData
+import ObeliskRuntime
 import Observation
 
 private struct BookmarkValidationError: LocalizedError {
@@ -44,30 +45,24 @@ final class BookmarksModel {
     private(set) var visibleUngroupedBookmarks: [Bookmark] = []
     private var membershipByBookmarkID: [UUID: UUID] = [:]
     private var usageByBookmarkID: [UUID: UsageRecord] = [:]
-    private var searchIndex = BookmarkSearchIndex(bookmarks: [])
+    private var searchIndex: BookmarkSearchIndex?
     var errorMessage: String?
     private(set) var loadErrorMessage: String?
     private(set) var lastCollectionAssignmentFeedback: CollectionAssignmentFeedback?
 
-    @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private var pendingAssignmentFeedback: CollectionAssignmentFeedback?
 
-    private let store: BookmarkStore
-    private let intelligence: BookmarkIntelligence
+    private let store: LibraryClient
+    @ObservationIgnored private var intelligence: BookmarkIntelligence?
+    private var remoteOptimizingTitles = false
     private var recentGroupLimit: Int
     @ObservationIgnored private var titleOptimizationTail: Task<Void, Never>?
 
-    var isOptimizingTitles: Bool { intelligence.isOptimizingTitles }
-    var rootDirectory: URL { store.rootDirectory }
+    var isOptimizingTitles: Bool { remoteOptimizingTitles || (intelligence?.isOptimizingTitles ?? false) }
 
-    init(
-        store: BookmarkStore,
-        recentGroupLimit: Int = 5,
-        titleOptimizer: (any TitleOptimizing)? = nil
-    ) {
+    init(store: LibraryClient) {
         self.store = store
-        self.intelligence = BookmarkIntelligence(titleOptimizer: titleOptimizer)
-        self.recentGroupLimit = recentGroupLimit
+        recentGroupLimit = max(0, UserDefaults.standard.object(forKey: "menuRecentGroupLimit") as? Int ?? 5)
         reload()
     }
 
@@ -85,10 +80,6 @@ final class BookmarksModel {
             return .collection(collectionID)
         }
         return .ungrouped
-    }
-
-    func notifyMenuPresentationChanged() {
-        onChange?()
     }
 
     private var autoArchiveEnabled: Bool {
@@ -114,7 +105,7 @@ final class BookmarksModel {
             let all = snapshot.bookmarks.filter { $0.trashedAt == nil }
             bookmarks = all
             usageByBookmarkID = snapshot.usageByBookmarkID
-            searchIndex = BookmarkSearchIndex(bookmarks: all)
+            searchIndex = nil
             collections = snapshot.collections.sorted(by: Self.collectionOrder)
             membershipByBookmarkID = Self.prunedMembership(
                 snapshot.collectionByBookmarkID,
@@ -131,25 +122,12 @@ final class BookmarksModel {
                 pendingAssignmentFeedback = nil
                 lastCollectionAssignmentFeedback = pending
             }
-            onChange?()
         } catch {
             pendingAssignmentFeedback = nil
             let message = error.localizedDescription
             loadErrorMessage = message
             errorMessage = message
-            onChange?()
         }
-    }
-
-    @discardableResult
-    func applyAutoArchiveIfNeeded() -> Bool {
-        let previousVisibleIDs = visibleBookmarksSnapshot.map(\.id)
-        let previousRecentIDs = recent.map(\.id)
-        recomputePreparedContent()
-        let changed = previousVisibleIDs != visibleBookmarksSnapshot.map(\.id)
-            || previousRecentIDs != recent.map(\.id)
-        if changed { onChange?() }
-        return changed
     }
 
     func add(title: String, url: String, isHidden: Bool = false, collectionID: UUID? = nil) -> String? {
@@ -244,7 +222,6 @@ final class BookmarksModel {
         guard nextRecent != recentGroupLimit else { return }
         recentGroupLimit = nextRecent
         recomputePreparedContent()
-        onChange?()
     }
 
     @discardableResult
@@ -291,14 +268,13 @@ final class BookmarksModel {
     func recordUsage(for bookmark: Bookmark) {
         do {
             let date = Date()
-            try store.database.recordUsage(bookmarkID: bookmark.id, at: date)
+            try store.recordUsage(bookmarkID: bookmark.id, at: date)
             let previous = usageByBookmarkID[bookmark.id]
             usageByBookmarkID[bookmark.id] = UsageRecord(
                 count: (previous?.count ?? 0) + 1,
                 lastClickedAt: date
             )
             recomputePreparedContent()
-            onChange?()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -432,7 +408,8 @@ final class BookmarksModel {
     }
 
     func searchBookmarks(matching query: String, inCollection collectionID: UUID? = nil) -> [Bookmark] {
-        let matchingIDs = searchIndex.matchingIDs(
+        if searchIndex == nil { searchIndex = BookmarkSearchIndex(bookmarks: bookmarks) }
+        let matchingIDs = searchIndex!.matchingIDs(
             query: query.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         return bookmarks.filter { bookmark in
@@ -444,7 +421,19 @@ final class BookmarksModel {
     }
 
     func optimizeTitleDetails(bookmarkIds: Set<UUID>) async -> TitleOptimizationOutcome {
-        await intelligence.optimizeTitleDetails(in: self, bookmarkIds: bookmarkIds)
+        #if OBELISK_UI
+        remoteOptimizingTitles = true
+        defer { remoteOptimizingTitles = false }
+        var request = RuntimeRequest(.optimize); request.ids = Array(bookmarkIds)
+        do {
+            let outcome: TitleOptimizationOutcome = try await store.request(request)
+            reload()
+            return outcome
+        } catch { return TitleOptimizationOutcome(message: error.localizedDescription, optimizedTitles: [], status: .failed) }
+        #else
+        if intelligence == nil { intelligence = BookmarkIntelligence() }
+        return await intelligence!.optimizeTitleDetails(in: self, bookmarkIds: bookmarkIds)
+        #endif
     }
 
     func enqueueTitleOptimization(bookmarkIds: Set<UUID>) async -> TitleOptimizationOutcome {
@@ -500,12 +489,12 @@ final class BookmarksModel {
 
     func openBookmark(_ bookmark: Bookmark) {
         guard let url = URL(string: bookmark.url) else { return }
-        guard NSWorkspace.shared.open(url) else { return }
-        if bookmark.archivedAt != nil {
-            try? store.setArchived(false, ids: [bookmark.id])
+        Task {
+            guard await RuntimePlatform.open(url) else { return }
+            if bookmark.archivedAt != nil { try? store.setArchived(false, ids: [bookmark.id]) }
+            try? store.recordUsage(bookmarkID: bookmark.id, at: Date())
+            reload()
         }
-        try? store.database.recordUsage(bookmarkID: bookmark.id, at: Date())
-        reload()
     }
 
     func openArchivedBookmark(_ bookmark: Bookmark) {

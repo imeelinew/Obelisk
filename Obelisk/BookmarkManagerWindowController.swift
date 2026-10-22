@@ -11,6 +11,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
 {
   private let runtime: RuntimeHost
   private var window: NSWindow?
+  private var sidebarTitlebarSpacer: SidebarTitlebarSpacer?
   private var hostView: BookmarkUIHostViewController?
   private var extensionProcess: AppExtensionProcess?
   private var connection: NSXPCConnection?
@@ -22,7 +23,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
   private var keyMonitor: Any?
   private var windowState = RuntimeWindowState(
     title: "书签", canAdd: true, addIsHidden: false, canEmptyTrash: false, showsTrash: false,
-    transparent: false)
+    transparent: false, detailLeading: 0)
   private let log = Logger(subsystem: "com.eli.Obelisk", category: "WindowRuntime")
 
   init(runtime: RuntimeHost) {
@@ -57,6 +58,9 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
     toolbar.delegate = self
     toolbar.displayMode = .iconOnly
     win.toolbar = toolbar
+    let spacer = SidebarTitlebarSpacer()
+    win.addTitlebarAccessoryViewController(spacer)
+    sidebarTitlebarSpacer = spacer
     win.center()
     win.delegate = self
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -188,6 +192,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
     hostView?.delegate = nil
     ready = false
     window = nil
+    sidebarTitlebarSpacer = nil
     NSApp.setActivationPolicy(.accessory)
     hostView = nil
     connection = nil
@@ -207,6 +212,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
 
   private func apply(_ state: RuntimeWindowState) {
     windowState = state
+    sidebarTitlebarSpacer?.detailLeading = state.detailLeading
     window?.title = state.title
     window?.isOpaque = !state.transparent
     window?.backgroundColor = state.transparent ? .clear : .windowBackgroundColor
@@ -238,6 +244,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
   ) -> NSToolbarItem? {
     guard id != .flexibleSpace else { return nil }
     let item = NSToolbarItem(itemIdentifier: id)
+    item.isNavigational = id == .managerSidebar
     item.autovalidates = false
     item.target = self
     item.action = #selector(toolbarAction(_:))
@@ -270,6 +277,37 @@ extension NSToolbarItem.Identifier {
   fileprivate static let managerSidebar = Self("ObeliskSidebar")
   fileprivate static let addBookmark = Self("ObeliskAddBookmark")
   fileprivate static let emptyTrash = Self("ObeliskEmptyTrash")
+}
+
+/// The split view lives in the UI process, so AppKit cannot discover its sidebar
+/// when laying out the containing window's titlebar. Reserve that measured region
+/// with a native leading accessory; AppKit still lays out the navigation item and title.
+@MainActor
+private final class SidebarTitlebarSpacer: NSTitlebarAccessoryViewController {
+  var detailLeading: CGFloat = 0 {
+    didSet { alignWithSidebar() }
+  }
+
+  init() {
+    super.init(nibName: nil, bundle: nil)
+    layoutAttribute = .leading
+    view = NSView(frame: NSRect(x: 0, y: 0, width: 0, height: 1))
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func viewDidLayout() {
+    super.viewDidLayout()
+    alignWithSidebar()
+  }
+
+  private func alignWithSidebar() {
+    guard view.window != nil else { return }
+    let leading = view.convert(view.bounds, to: nil).minX
+    let width = max(0, detailLeading - leading)
+    guard abs(view.frame.width - width) > 0.25 else { return }
+    view.setFrameSize(NSSize(width: width, height: view.frame.height))
+  }
 }
 
 @MainActor

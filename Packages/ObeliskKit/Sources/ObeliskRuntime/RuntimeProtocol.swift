@@ -95,9 +95,10 @@ public struct RuntimeWindowState: Codable, Sendable {
   public var canEmptyTrash: Bool
   public var showsTrash: Bool
   public var transparent: Bool
+  public var detailLeading: Double
   public init(
     title: String, canAdd: Bool, addIsHidden: Bool, canEmptyTrash: Bool, showsTrash: Bool,
-    transparent: Bool
+    transparent: Bool, detailLeading: Double
   ) {
     self.title = title
     self.canAdd = canAdd
@@ -105,6 +106,7 @@ public struct RuntimeWindowState: Codable, Sendable {
     self.canEmptyTrash = canEmptyTrash
     self.showsTrash = showsTrash
     self.transparent = transparent
+    self.detailLeading = detailLeading
   }
 }
 

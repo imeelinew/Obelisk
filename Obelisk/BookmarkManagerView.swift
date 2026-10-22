@@ -38,6 +38,7 @@ struct BookmarkManagerView: View {
     @State var contextMenuConfirmation: ContextMenuConfirmation?
     @State var toast: Toast?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var detailLeading: CGFloat = 0
     @State var settingsPage: SettingsPage = .bookmarks
     @State var collectionScope: CollectionScope = .recent
     @State var searchText = ""
@@ -1025,7 +1026,8 @@ struct BookmarkManagerView: View {
             addIsHidden: settingsPage == .hiddenBookmarks,
             canEmptyTrash: !model.trashedBookmarks.isEmpty && !trashNeedsUnlock,
             showsTrash: settingsPage == .trash,
-            transparent: windowTransparencyEnabled
+            transparent: windowTransparencyEnabled,
+            detailLeading: detailLeading
         ))
     }
 
@@ -1034,6 +1036,12 @@ struct BookmarkManagerView: View {
             settingsSidebar
         } detail: {
             settingsDetail
+                .onGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.frame(in: .global).minX
+                } action: { leading in
+                    detailLeading = leading
+                    publishWindowState()
+                }
         }
         .overlay(alignment: .top) {
             toastView

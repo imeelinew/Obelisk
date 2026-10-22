@@ -2,6 +2,7 @@ import AppKit
 import ExtensionFoundation
 import ExtensionKit
 import ObeliskRuntime
+import QuartzCore
 import SwiftUI
 
 @main
@@ -48,18 +49,37 @@ private struct BookmarkUIContent: NSViewRepresentable {
   let rootView: BookmarkManagerView
   let topInset: CGFloat
 
-  func makeNSView(context: Context) -> NSHostingView<BookmarkManagerView> {
-    let view = NSHostingView(rootView: rootView)
+  func makeNSView(context: Context) -> BookmarkUIHostingView {
+    let view = BookmarkUIHostingView(rootView: rootView)
     view.sizingOptions = []
     view.additionalSafeAreaInsets.top = topInset
     return view
   }
 
-  func updateNSView(_ view: NSHostingView<BookmarkManagerView>, context: Context) {
+  func updateNSView(_ view: BookmarkUIHostingView, context: Context) {
     view.rootView = rootView
     if view.additionalSafeAreaInsets.top != topInset {
       view.additionalSafeAreaInsets.top = topInset
     }
+  }
+}
+
+/// Connecting XPC only initializes the model. A visible window also needs the
+/// SwiftUI hierarchy laid out and its first layer transaction committed.
+private final class BookmarkUIHostingView: NSHostingView<BookmarkManagerView> {
+  private var didSubmitFirstFrame = false
+
+  override func layout() {
+    CATransaction.begin()
+    super.layout()
+    if !didSubmitFirstFrame, window != nil, bounds.width > 0, bounds.height > 0 {
+      didSubmitFirstFrame = true
+      displayIfNeeded()
+      CATransaction.setCompletionBlock {
+        Task { @MainActor in UIRuntime.shared.contentDidRender() }
+      }
+    }
+    CATransaction.commit()
   }
 }
 
@@ -70,7 +90,7 @@ private final class UIConnection: NSObject, ObeliskUIEndpoint, @unchecked Sendab
     Task { @MainActor in
       do {
         try UIRuntime.shared.connect(connection, topInset: topInset)
-        reply(nil)
+        UIRuntime.shared.replyWhenContentRendered(reply)
       } catch { reply(error.localizedDescription) }
     }
   }

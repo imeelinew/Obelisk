@@ -36,7 +36,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
   func show() {
     NSApp.setActivationPolicy(.regular)
     if let window {
-      window.makeKeyAndOrderFront(nil)
+      if window.alphaValue > 0 { window.makeKeyAndOrderFront(nil) }
       NSApp.activate(ignoringOtherApps: true)
       return
     }
@@ -54,6 +54,10 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
     win.minSize = win.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 950, height: 830)).size
     win.setFrame(NSRect(x: 0, y: 0, width: 950, height: 830), display: false)
     win.titlebarAppearsTransparent = true
+    // ExtensionKit needs an ordered window to render its remote surface. Keep
+    // that preparation invisible and non-interactive until the first frame arrives.
+    win.alphaValue = 0
+    win.ignoresMouseEvents = true
     let toolbar = NSToolbar(identifier: "ObeliskManagerToolbar")
     toolbar.delegate = self
     toolbar.displayMode = .iconOnly
@@ -75,7 +79,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
     }
     window = win
     hostView = host
-    win.makeKeyAndOrderFront(nil)
+    win.orderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     launchTask = Task { [weak self] in
       guard let self else { return }
@@ -100,10 +104,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
       } catch {
         guard !Task.isCancelled else { return }
         self.log.error("UI launch failed: \(error.localizedDescription)")
-        let alert = NSAlert()
-        alert.messageText = "无法打开 Obelisk"
-        alert.informativeText = error.localizedDescription
-        await alert.beginSheetModal(for: win)
+        self.showLaunchFailure(error.localizedDescription, in: win)
       }
     }
   }
@@ -117,9 +118,16 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
       connection.remoteObjectInterface = NSXPCInterface(with: ObeliskUIEndpoint.self)
       connection.resume()
       self.connection = connection
+      let hostIdentity = ObjectIdentifier(viewController)
       guard
-        let proxy = connection.remoteObjectProxyWithErrorHandler({ [log] error in
+        let proxy = connection.remoteObjectProxyWithErrorHandler({ [weak self, log] error in
           log.error("UI connection: \(error.localizedDescription)")
+          let message = error.localizedDescription
+          Task { @MainActor in
+            guard let self, self.hostView.map(ObjectIdentifier.init) == hostIdentity,
+              !self.ready, let window = self.window else { return }
+            self.showLaunchFailure(message, in: window)
+          }
         }) as? any ObeliskUIEndpoint
       else { throw RuntimeError.disconnected }
       let connectionIdentity = ObjectIdentifier(connection)
@@ -132,16 +140,36 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
           }
           if let message {
             self.log.error("UI setup failed: \(message)")
+            if let window = self.window { self.showLaunchFailure(message, in: window) }
             return
           }
           self.ready = true
           let events = self.pendingEvents
           self.pendingEvents.removeAll()
           for event in events { self.send(event) }
-          self.log.info("UI connection ready with titlebar inset \(topInset, privacy: .public)")
+          if let window = self.window {
+            window.ignoresMouseEvents = false
+            window.alphaValue = 1
+            window.makeKeyAndOrderFront(nil)
+          }
+          self.log.info("UI first frame ready and window presented with titlebar inset \(topInset, privacy: .public)")
         }
       }
-    } catch { log.error("UI connection failed: \(error.localizedDescription)") }
+    } catch {
+      log.error("UI connection failed: \(error.localizedDescription)")
+      if let window { showLaunchFailure(error.localizedDescription, in: window) }
+    }
+  }
+
+  private func showLaunchFailure(_ message: String, in window: NSWindow) {
+    guard self.window === window, window.attachedSheet == nil else { return }
+    window.ignoresMouseEvents = false
+    window.alphaValue = 1
+    window.makeKeyAndOrderFront(nil)
+    let alert = NSAlert()
+    alert.messageText = "无法打开 Obelisk"
+    alert.informativeText = message
+    alert.beginSheetModal(for: window)
   }
 
   func hostViewControllerWillDeactivate(_ viewController: EXHostViewController, error: (any Error)?)

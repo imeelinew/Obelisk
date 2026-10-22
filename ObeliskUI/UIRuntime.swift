@@ -20,6 +20,24 @@ final class UIRuntime {
   @ObservationIgnored private var preferenceSave: Task<Void, Never>?
   @ObservationIgnored private var preferenceWriteCount = 0
   @ObservationIgnored var onAction: ((String) -> Void)?
+  @ObservationIgnored private var contentRendered = false
+  @ObservationIgnored private var presentationReply: (@Sendable (String?) -> Void)?
+
+  func replyWhenContentRendered(_ reply: @escaping @Sendable (String?) -> Void) {
+    if contentRendered {
+      reply(nil)
+    } else {
+      presentationReply = reply
+    }
+  }
+
+  func contentDidRender() {
+    guard !contentRendered else { return }
+    contentRendered = true
+    let reply = presentationReply
+    presentationReply = nil
+    reply?(nil)
+  }
 
   func connect(_ connection: NSXPCConnection, topInset: Double) throws {
     windowTopInset = topInset

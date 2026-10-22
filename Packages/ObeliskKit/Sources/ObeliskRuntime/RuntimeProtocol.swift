@@ -10,7 +10,7 @@ import ObeliskSync
 }
 
 @objc public protocol ObeliskUIEndpoint {
-  func connect(reply: @escaping @Sendable (String?) -> Void)
+  func connect(topInset: Double, reply: @escaping @Sendable (String?) -> Void)
   func shutdown(reply: @escaping @Sendable () -> Void)
   func receive(_ event: Data)
 }
@@ -53,7 +53,7 @@ public struct RuntimeRequest: Codable, Sendable {
 
 public struct RuntimeEvent: Codable, Sendable {
   public enum Kind: String, Codable, Sendable {
-    case library, sync, preferences, add, action, favicon
+    case library, sync, preferences, add, action, favicon, windowTopInset
   }
   public var kind: Kind
   public var data: Data?

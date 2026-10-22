@@ -76,10 +76,19 @@ resurrect old data.
   a fresh session in the existing application-owned `NSWindow` lifecycle.
   Application termination also waits for any closing UI sessions to finish
   flushing preferences before AppKit completes the quit request.
+  Opening the primary window restores the regular Dock activation policy;
+  closing it restores the accessory policy so the pinned Dock icon has no
+  running indicator while the background services continue.
+- The host sends its native titlebar safe-area inset to the UI at connection
+  time and whenever layout changes. The remote UI applies that safe area while
+  its page backgrounds continue to extend underneath the transparent titlebar.
 - Favicon files remain disposable caches. Window-driven downloads run in the UI
   process with at most four concurrent requests and 48-pixel decoded images.
   The host serves compressed cache files without starting window downloads.
-  Status-menu content and images are built when opened and released when closed.
+  The compact native status menu is prepared before interaction and refreshed
+  after library or preference changes. Favicon updates replace only matching
+  item images. Menu opening performs no database reads or image decoding;
+  its prepared native items remain available while the SwiftUI process is absent.
 
 ## Server (Cloudflare Worker + D1)
 

@@ -328,6 +328,18 @@ final class BookmarksModel {
         )
     }
 
+    var nextAutoArchiveDate: Date? {
+        let now = Date()
+        guard let context = autoArchiveContext(in: bookmarks, usage: usageByBookmarkID, now: now) else {
+            return nil
+        }
+        return bookmarks.lazy
+            .filter { !$0.isHidden && $0.archivedAt == nil && !context.protectedIDs.contains($0.id) }
+            .map { self.lastActiveDate(for: $0, usage: self.usageByBookmarkID).addingTimeInterval(context.cutoff) }
+            .filter { $0 > now }
+            .min()
+    }
+
     func createCollection(name: String) -> String? {
         do {
             try store.createCollection(name: name)

@@ -18,6 +18,7 @@ final class RuntimeHost: NSObject, ObeliskHostEndpoint {
   let sync: CloudSyncController
   let icons: FaviconLoader
   var onWindowState: ((RuntimeWindowState) -> Void)?
+  var onLibraryChange: (() -> Void)?
   var onRelaunch: (() -> Void)?
   var send: ((RuntimeEvent) -> Void)?
   private var databaseWatch: Task<Void, Never>?
@@ -36,6 +37,7 @@ final class RuntimeHost: NSObject, ObeliskHostEndpoint {
       do {
         for try await _ in database.libraryChanges() {
           guard !Task.isCancelled else { return }
+          self?.onLibraryChange?()
           self?.send?(RuntimeEvent(.library))
         }
       } catch {

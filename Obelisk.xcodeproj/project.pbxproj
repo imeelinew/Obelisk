@@ -23,20 +23,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		45B26F242FC4874D009BAE8A /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 45B26F0E2FC4874D009BAE8A /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 45B26F152FC4874D009BAE8A;
-			remoteInfo = Obelisk;
-		};
-		45B26F2E2FC4874D009BAE8A /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 45B26F0E2FC4874D009BAE8A /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 45B26F152FC4874D009BAE8A;
-			remoteInfo = Obelisk;
-		};
         B10000000000000000000014 = {isa = PBXContainerItemProxy; containerPortal = 45B26F0E2FC4874D009BAE8A; proxyType = 1; remoteGlobalIDString = B10000000000000000000010; remoteInfo = ObeliskUI; };
 /* End PBXContainerItemProxy section */
 
@@ -46,8 +32,6 @@
 
 /* Begin PBXFileReference section */
 		45B26F162FC4874D009BAE8A /* Obelisk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Obelisk.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		45B26F232FC4874D009BAE8A /* ObeliskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ObeliskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ObeliskUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1C0A0022FC4A00000000002 /* Obelisk.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = Obelisk.icon; sourceTree = "<group>"; };
         B10000000000000000000004 = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = ObeliskUI.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -123,20 +107,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		45B26F202FC4874D009BAE8A /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		45B26F2A2FC4874D009BAE8A /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
         B10000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
             B10000000000000000000021, B10000000000000000000022, B10000000000000000000023, B10000000000000000000024, B10000000000000000000025
         ); runOnlyForDeploymentPostprocessing = 0; };
@@ -158,8 +128,6 @@
 			children = (
 				45B26F162FC4874D009BAE8A /* Obelisk.app */,
                 B10000000000000000000004,
-				45B26F232FC4874D009BAE8A /* ObeliskTests.xctest */,
-				45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -195,46 +163,6 @@
 			productReference = 45B26F162FC4874D009BAE8A /* Obelisk.app */;
 			productType = "com.apple.product-type.application";
 		};
-		45B26F222FC4874D009BAE8A /* ObeliskTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 45B26F3A2FC4874E009BAE8A /* Build configuration list for PBXNativeTarget "ObeliskTests" */;
-			buildPhases = (
-				45B26F1F2FC4874D009BAE8A /* Sources */,
-				45B26F202FC4874D009BAE8A /* Frameworks */,
-				45B26F212FC4874D009BAE8A /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				45B26F252FC4874D009BAE8A /* PBXTargetDependency */,
-			);
-			name = ObeliskTests;
-			packageProductDependencies = (
-			);
-			productName = ObeliskTests;
-			productReference = 45B26F232FC4874D009BAE8A /* ObeliskTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		45B26F2C2FC4874D009BAE8A /* ObeliskUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 45B26F3D2FC4874E009BAE8A /* Build configuration list for PBXNativeTarget "ObeliskUITests" */;
-			buildPhases = (
-				45B26F292FC4874D009BAE8A /* Sources */,
-				45B26F2A2FC4874D009BAE8A /* Frameworks */,
-				45B26F2B2FC4874D009BAE8A /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				45B26F2F2FC4874D009BAE8A /* PBXTargetDependency */,
-			);
-			name = ObeliskUITests;
-			packageProductDependencies = (
-			);
-			productName = ObeliskUITests;
-			productReference = 45B26F2D2FC4874D009BAE8A /* ObeliskUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
         B10000000000000000000010 = {
             isa = PBXNativeTarget; buildConfigurationList = B10000000000000000000011;
             buildPhases = (B10000000000000000000009, B10000000000000000000008, B1000000000000000000000A);
@@ -257,14 +185,6 @@
 				TargetAttributes = {
 					45B26F152FC4874D009BAE8A = {
 						CreatedOnToolsVersion = 26.5;
-					};
-					45B26F222FC4874D009BAE8A = {
-						CreatedOnToolsVersion = 26.5;
-						TestTargetID = 45B26F152FC4874D009BAE8A;
-					};
-					45B26F2C2FC4874D009BAE8A = {
-						CreatedOnToolsVersion = 26.5;
-						TestTargetID = 45B26F152FC4874D009BAE8A;
 					};
 				};
 			};
@@ -290,8 +210,6 @@
 			targets = (
                 B10000000000000000000010,
 				45B26F152FC4874D009BAE8A /* Obelisk */,
-				45B26F222FC4874D009BAE8A /* ObeliskTests */,
-				45B26F2C2FC4874D009BAE8A /* ObeliskUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -302,20 +220,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				C1C0A0012FC4A00000000001 /* Obelisk.icon in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		45B26F212FC4874D009BAE8A /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		45B26F2B2FC4874D009BAE8A /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -330,34 +234,10 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		45B26F1F2FC4874D009BAE8A /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		45B26F292FC4874D009BAE8A /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
         B10000000000000000000009 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		45B26F252FC4874D009BAE8A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 45B26F152FC4874D009BAE8A /* Obelisk */;
-			targetProxy = 45B26F242FC4874D009BAE8A /* PBXContainerItemProxy */;
-		};
-		45B26F2F2FC4874D009BAE8A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 45B26F152FC4874D009BAE8A /* Obelisk */;
-			targetProxy = 45B26F2E2FC4874D009BAE8A /* PBXContainerItemProxy */;
-		};
         B10000000000000000000015 = {isa = PBXTargetDependency; target = B10000000000000000000010; targetProxy = B10000000000000000000014; };
 /* End PBXTargetDependency section */
 
@@ -551,86 +431,6 @@
 			};
 			name = Release;
 		};
-		45B26F3B2FC4874E009BAE8A /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5Q5QT76MJU;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.eli.ObeliskTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Obelisk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Obelisk";
-			};
-			name = Debug;
-		};
-		45B26F3C2FC4874E009BAE8A /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5Q5QT76MJU;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.eli.ObeliskTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Obelisk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Obelisk";
-			};
-			name = Release;
-		};
-		45B26F3E2FC4874E009BAE8A /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5Q5QT76MJU;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.eli.ObeliskUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 6.0;
-				TEST_TARGET_NAME = Obelisk;
-			};
-			name = Debug;
-		};
-		45B26F3F2FC4874E009BAE8A /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5Q5QT76MJU;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.eli.ObeliskUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 6.0;
-				TEST_TARGET_NAME = Obelisk;
-			};
-			name = Release;
-		};
         B10000000000000000000012 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {
             APPLICATION_EXTENSION_API_ONLY = YES;
 
@@ -698,24 +498,6 @@
 			buildConfigurations = (
 				45B26F382FC4874E009BAE8A /* Debug */,
 				45B26F392FC4874E009BAE8A /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		45B26F3A2FC4874E009BAE8A /* Build configuration list for PBXNativeTarget "ObeliskTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				45B26F3B2FC4874E009BAE8A /* Debug */,
-				45B26F3C2FC4874E009BAE8A /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		45B26F3D2FC4874E009BAE8A /* Build configuration list for PBXNativeTarget "ObeliskUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				45B26F3E2FC4874E009BAE8A /* Debug */,
-				45B26F3F2FC4874E009BAE8A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

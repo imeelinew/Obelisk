@@ -31,8 +31,10 @@ private struct BookmarkUIRoot: View {
   var body: some View {
     Group {
       if let model = runtime.model, let sync = runtime.sync, let icons = runtime.icons {
-        BookmarkManagerView(
-          model: model, cloudSync: sync, faviconLoader: icons, addRequest: runtime.addRequest)
+        BookmarkUIContent(
+          rootView: BookmarkManagerView(
+            model: model, cloudSync: sync, faviconLoader: icons, addRequest: runtime.addRequest),
+          topInset: runtime.windowTopInset)
       } else {
         Color(nsColor: .textBackgroundColor)
       }
@@ -40,13 +42,34 @@ private struct BookmarkUIRoot: View {
   }
 }
 
+/// Apply the containing window's safe area at the AppKit hosting boundary
+/// NavigationSplitView's native sidebar does not inherit SwiftUI safeAreaPadding
+private struct BookmarkUIContent: NSViewRepresentable {
+  let rootView: BookmarkManagerView
+  let topInset: CGFloat
+
+  func makeNSView(context: Context) -> NSHostingView<BookmarkManagerView> {
+    let view = NSHostingView(rootView: rootView)
+    view.sizingOptions = []
+    view.additionalSafeAreaInsets.top = topInset
+    return view
+  }
+
+  func updateNSView(_ view: NSHostingView<BookmarkManagerView>, context: Context) {
+    view.rootView = rootView
+    if view.additionalSafeAreaInsets.top != topInset {
+      view.additionalSafeAreaInsets.top = topInset
+    }
+  }
+}
+
 private final class UIConnection: NSObject, ObeliskUIEndpoint, @unchecked Sendable {
   let connection: NSXPCConnection
   init(connection: NSXPCConnection) { self.connection = connection }
-  func connect(reply: @escaping @Sendable (String?) -> Void) {
+  func connect(topInset: Double, reply: @escaping @Sendable (String?) -> Void) {
     Task { @MainActor in
       do {
-        try UIRuntime.shared.connect(connection)
+        try UIRuntime.shared.connect(connection, topInset: topInset)
         reply(nil)
       } catch { reply(error.localizedDescription) }
     }

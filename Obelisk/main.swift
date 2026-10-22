@@ -48,8 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     runtime = RuntimeHost(store: store, sync: cloudSync, icons: faviconLoader)
     runtime.onRelaunch = { AppRelauncher.relaunch() }
     managerWindow = BookmarkManagerWindowController(runtime: runtime)
+    runtime.onLibraryChange = { [weak self] in self?.menuBar.scheduleRebuild() }
     faviconLoader.onIconLoaded = { [weak self] key in
-      self?.menuBar.scheduleRebuild()
+      self?.menuBar.refreshFavicon(key: key)
       self?.managerWindow.send(RuntimeEvent(.favicon, value: key))
     }
     NotificationCenter.default.addObserver(

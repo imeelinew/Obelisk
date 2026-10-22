@@ -11,6 +11,7 @@ final class UIRuntime {
   var model: BookmarksModel?
   var sync: CloudSyncClient?
   var icons: FaviconLoader?
+  var windowTopInset: Double = 0
   let addRequest = AddBookmarkRequest()
   @ObservationIgnored private(set) var client: LibraryClient?
   @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
@@ -20,7 +21,8 @@ final class UIRuntime {
   @ObservationIgnored private var preferenceWriteCount = 0
   @ObservationIgnored var onAction: ((String) -> Void)?
 
-  func connect(_ connection: NSXPCConnection) throws {
+  func connect(_ connection: NSXPCConnection, topInset: Double) throws {
+    windowTopInset = topInset
     let client = LibraryClient(connection: connection)
     self.client = client
     let data: Data = try client.request(RuntimeRequest(.preferences))
@@ -60,6 +62,10 @@ final class UIRuntime {
     case .add: addRequest.request(url: nil, title: nil, isHidden: false)
     case .action: if let value = event.value { onAction?(value) }
     case .favicon: icons?.invalidate(key: event.value)
+    case .windowTopInset:
+      if let data = event.data, let inset = try? RuntimeCoding.decode(Double.self, from: data) {
+        windowTopInset = inset
+      }
     }
   }
 

@@ -11,7 +11,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
 {
   private let runtime: RuntimeHost
   private var window: NSWindow?
-  private var hostView: EXHostViewController?
+  private var hostView: BookmarkUIHostViewController?
   private var extensionProcess: AppExtensionProcess?
   private var connection: NSXPCConnection?
   private var launchTask: Task<Void, Never>?
@@ -33,12 +33,17 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
   }
 
   func show() {
+    NSApp.setActivationPolicy(.regular)
     if let window {
       window.makeKeyAndOrderFront(nil)
       NSApp.activate(ignoringOtherApps: true)
       return
     }
-    let host = EXHostViewController()
+    let host = BookmarkUIHostViewController()
+    host.onTopInsetChanged = { [weak self] inset in
+      guard let data = try? RuntimeCoding.encode(Double(inset)) else { return }
+      self?.send(RuntimeEvent(.windowTopInset, data: data))
+    }
     host.delegate = self
     let win = NSWindow(contentViewController: host)
     win.title = "书签".obeliskLocalized
@@ -100,7 +105,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
   }
 
   func hostViewControllerDidActivate(_ viewController: EXHostViewController) {
-    guard viewController === hostView else { return }
+    guard let hostView, viewController === hostView else { return }
     do {
       let connection = try viewController.makeXPCConnection()
       connection.exportedInterface = NSXPCInterface(with: ObeliskHostEndpoint.self)
@@ -114,7 +119,9 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
         }) as? any ObeliskUIEndpoint
       else { throw RuntimeError.disconnected }
       let connectionIdentity = ObjectIdentifier(connection)
-      proxy.connect { [weak self] message in
+      let topInset = Double(hostView.windowTopInset)
+      proxy.connect(topInset: topInset) {
+        [weak self] message in
         Task { @MainActor in
           guard let self, self.connection.map(ObjectIdentifier.init) == connectionIdentity else {
             return
@@ -127,7 +134,7 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
           let events = self.pendingEvents
           self.pendingEvents.removeAll()
           for event in events { self.send(event) }
-          self.log.info("UI connection ready")
+          self.log.info("UI connection ready with titlebar inset \(topInset, privacy: .public)")
         }
       }
     } catch { log.error("UI connection failed: \(error.localizedDescription)") }
@@ -181,11 +188,11 @@ final class BookmarkManagerWindowController: NSObject, NSWindowDelegate,
     hostView?.delegate = nil
     ready = false
     window = nil
+    NSApp.setActivationPolicy(.accessory)
     hostView = nil
     connection = nil
     extensionProcess = nil
     pendingEvents.removeAll()
-    runtime.icons.releaseTransientMemory()
     closing.close()
     log.info("UI session closing")
   }
@@ -263,6 +270,30 @@ extension NSToolbarItem.Identifier {
   fileprivate static let managerSidebar = Self("ObeliskSidebar")
   fileprivate static let addBookmark = Self("ObeliskAddBookmark")
   fileprivate static let emptyTrash = Self("ObeliskEmptyTrash")
+}
+
+@MainActor
+private final class BookmarkUIHostViewController: EXHostViewController {
+  var onTopInsetChanged: ((CGFloat) -> Void)?
+  private var previousTopInset: CGFloat?
+
+  var windowTopInset: CGFloat {
+    guard let window = view.window else { return 0 }
+    let layoutRect = view.convert(window.contentLayoutRect, from: nil)
+    return max(
+      0,
+      view.isFlipped
+        ? layoutRect.minY - view.bounds.minY
+        : view.bounds.maxY - layoutRect.maxY)
+  }
+
+  override func viewDidLayout() {
+    super.viewDidLayout()
+    let inset = windowTopInset
+    guard previousTopInset != inset else { return }
+    previousTopInset = inset
+    onTopInsetChanged?(inset)
+  }
 }
 
 @MainActor

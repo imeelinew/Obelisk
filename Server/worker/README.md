@@ -39,7 +39,7 @@ npm run deploy
 
 The deploy output prints the Worker URL, e.g.
 `https://obelisk-sync.<account>.workers.dev`. Enter that URL and the access
-key in Obelisk 设置 → 云同步.
+key in Obelisk Settings → Cloud Sync.
 
 ## Development
 
